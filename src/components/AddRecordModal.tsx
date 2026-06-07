@@ -1,7 +1,12 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { Loader2, Search, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { enrichRecord, fetchDiscogsRelease, searchDiscogs } from '../lib/api';
+import {
+  ENRICHMENT_ESTIMATE_HINT,
+  enrichRecord,
+  fetchDiscogsRelease,
+  searchDiscogs,
+} from '../lib/api';
 import { resolveDiscogsCoverUrl } from '../lib/discogsCover';
 import { CAMELOT_KEYS } from '../lib/camelot';
 import { VIBE_TAG_SUGGESTIONS } from '../lib/vibes';
@@ -87,7 +92,6 @@ export function AddRecordModal({ open, onClose, onSave }: AddRecordModalProps) {
     setError('');
     try {
       const release = await fetchDiscogsRelease(hit.id);
-      const enriched = await enrichRecord(release.artist, release.title, hit.id);
 
       setDiscogsDetail(release);
       setArtist(release.artist);
@@ -98,14 +102,26 @@ export function AddRecordModal({ open, onClose, onSave }: AddRecordModalProps) {
           resolveDiscogsCoverUrl(hit.cover) ??
           resolveDiscogsCoverUrl(hit.thumb)
       );
+      setGenres([...new Set(release.genres ?? [])].slice(0, 8));
+      setBpm(String(release.bpm ?? ''));
+      setCamelotKey(release.camelotKey ?? '');
+
+      const enriched = await enrichRecord(
+        release.artist,
+        release.title,
+        hit.id,
+        release.title,
+        release.genres
+      );
       setGenres(
         [...new Set([...(release.genres || []), ...(enriched.genres || [])])].slice(0, 8)
       );
       setBpm(String(release.bpm ?? enriched.bpm ?? ''));
       setCamelotKey(release.camelotKey ?? enriched.camelotKey ?? '');
-      setVibeTags(
-        [...new Set([...enriched.vibeTags])].slice(0, 6)
-      );
+      setVibeTags([...new Set(enriched.vibeTags)].slice(0, 6));
+      if (enriched.source === 'client' && (enriched.bpmEstimated || enriched.keyEstimated)) {
+        setError(ENRICHMENT_ESTIMATE_HINT);
+      }
     } catch (e) {
       setArtist(hit.artist);
       setTitle(hit.title);
@@ -114,7 +130,7 @@ export function AddRecordModal({ open, onClose, onSave }: AddRecordModalProps) {
         resolveDiscogsCoverUrl(hit.cover) ?? resolveDiscogsCoverUrl(hit.thumb)
       );
       setGenres([...(hit.genre ?? []), ...(hit.style ?? [])].slice(0, 6));
-      setError(e instanceof Error ? e.message : 'Could not fetch full metadata');
+      setError(e instanceof Error ? e.message : 'Could not fetch release from Discogs');
     } finally {
       setEnriching(false);
     }

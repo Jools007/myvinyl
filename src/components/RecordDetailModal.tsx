@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { Loader2, Music2, RefreshCw, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
-import { enrichRecord } from '../lib/api';
+import { ENRICHMENT_ESTIMATE_HINT, enrichRecord } from '../lib/api';
 import { CAMELOT_KEYS } from '../lib/camelot';
 import { VIBE_TAG_SUGGESTIONS } from '../lib/vibes';
 import { getPrimaryTrack, mergeEnrichmentOntoRelease, patchPrimaryTrack } from '../lib/tracks';
@@ -27,6 +27,7 @@ export function RecordDetailModal({
 }: RecordDetailModalProps) {
   const [editing, setEditing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshNote, setRefreshNote] = useState('');
 
   if (!record) return null;
 
@@ -34,9 +35,19 @@ export function RecordDetailModal({
 
   const refreshMetadata = async () => {
     setRefreshing(true);
+    setRefreshNote('');
     try {
-      const data = await enrichRecord(record.artist, record.title, record.discogsId);
+      const data = await enrichRecord(
+        record.artist,
+        record.title,
+        record.discogsId,
+        record.title,
+        record.genres
+      );
       onUpdate(record.id, mergeEnrichmentOntoRelease(record, data));
+      if (data.source === 'client' && (data.bpmEstimated || data.keyEstimated)) {
+        setRefreshNote(ENRICHMENT_ESTIMATE_HINT);
+      }
     } finally {
       setRefreshing(false);
     }
@@ -114,6 +125,9 @@ export function RecordDetailModal({
                   {editing ? 'Done' : 'Edit'}
                 </button>
               </div>
+              {refreshNote ? (
+                <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">{refreshNote}</p>
+              ) : null}
 
               {editing ? (
                 <div className="space-y-4">

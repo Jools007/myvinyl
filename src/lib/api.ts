@@ -1,3 +1,4 @@
+import { clientEnrichTrack } from './clientEnrichment';
 import {
   directFetchDiscogsCollectionPage,
   directFetchDiscogsRelease,
@@ -10,6 +11,10 @@ import { resolveDiscogsCoverUrl } from './discogsCover';
 import type { DiscogsSearchHit } from './types';
 
 export { resolveDiscogsCoverUrl };
+export {
+  ENRICHMENT_ESTIMATE_HINT,
+  isLiveServerEnrichmentAvailable,
+} from './clientEnrichment';
 
 export { hasClientDiscogsToken };
 
@@ -41,6 +46,8 @@ export interface EnrichResult {
   trackSpecific?: boolean;
   spotifyPreviewUrl?: string;
   spotifyTrackId?: string;
+  /** Where enrichment data came from */
+  source?: 'server' | 'client';
 }
 
 export interface EnrichOptions {
@@ -272,31 +279,39 @@ export async function resolveDiscogsReleaseDetail(
   return fetchDiscogsRelease(discogsId);
 }
 
-async function fetchEnrichment(
-  artist: string,
-  trackTitle: string,
-  discogsId?: number,
-  albumTitle?: string,
-  genres?: string[],
-  options?: EnrichOptions & { trackPosition?: string; usedKeys?: string[] }
-): Promise<EnrichResult> {
-  const params = new URLSearchParams({ artist, title: trackTitle });
-  if (discogsId) params.set('discogsId', String(discogsId));
-  if (albumTitle?.trim()) params.set('album', albumTitle.trim());
-  if (options?.trackPosition?.trim()) params.set('position', options.trackPosition.trim());
-  if (options?.usedKeys?.length) params.set('usedKeys', options.usedKeys.join(','));
-  if (genres?.length) params.set('genres', genres.join(','));
-  if (options?.trackOnly === false) params.set('genreFallback', '1');
-  if (options?.keyFallback === true) params.set('keyFallback', '1');
-  const res = await fetch(`/api/enrich?${params}`, {
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error((err as { error?: string }).error ?? 'Enrichment failed');
+type DiscogsEnrichHints = {
+  genres: string[];
+  bpm?: number;
+  camelotKey?: string;
+  coverUrl?: string;
+};
+
+const discogsEnrichCache = new Map<number, DiscogsEnrichHints>();
+
+async function getDiscogsEnrichHints(discogsId?: number): Promise<DiscogsEnrichHints | undefined> {
+  if (!discogsId || !hasClientDiscogsToken()) return undefined;
+
+  const cached = discogsEnrichCache.get(discogsId);
+  if (cached) return cached;
+
+  try {
+    const release = await directFetchDiscogsRelease(getClientDiscogsToken()!, discogsId);
+    const hints: DiscogsEnrichHints = {
+      genres: release.genres,
+      bpm: release.bpm,
+      camelotKey: release.camelotKey,
+      coverUrl: release.coverUrl,
+    };
+    discogsEnrichCache.set(discogsId, hints);
+    return hints;
+  } catch {
+    return undefined;
   }
-  const data = (await res.json()) as EnrichResult;
+}
+
+function normalizeServerEnrich(data: EnrichResult): EnrichResult {
   return {
+    source: 'server',
     genres: data.genres ?? [],
     vibeTags: data.vibeTags ?? [],
     bpm: data.bpm,
@@ -305,8 +320,66 @@ async function fetchEnrichment(
     bpmEstimated: data.bpmEstimated,
     keyEstimated: data.keyEstimated,
     trackSpecific: data.trackSpecific,
+    spotifyPreviewUrl: data.spotifyPreviewUrl,
+    spotifyTrackId: data.spotifyTrackId,
     coverUrl: resolveDiscogsCoverUrl(data.coverUrl),
   };
+}
+
+async function fetchClientEnrichment(
+  artist: string,
+  trackTitle: string,
+  discogsId?: number,
+  genres?: string[],
+  options?: EnrichOptions & { trackPosition?: string; usedKeys?: string[] }
+): Promise<EnrichResult> {
+  const hints = await getDiscogsEnrichHints(discogsId);
+  const client = clientEnrichTrack({
+    artist,
+    trackTitle,
+    genres,
+    trackPosition: options?.trackPosition,
+    usedKeys: options?.usedKeys,
+    keyFallback: options?.keyFallback !== false,
+    discogsBpm: hints?.bpm,
+    discogsCamelotKey: hints?.camelotKey,
+    discogsGenres: hints?.genres,
+    discogsCoverUrl: hints?.coverUrl,
+  });
+  return client;
+}
+
+async function fetchEnrichment(
+  artist: string,
+  trackTitle: string,
+  discogsId?: number,
+  albumTitle?: string,
+  genres?: string[],
+  options?: EnrichOptions & { trackPosition?: string; usedKeys?: string[] }
+): Promise<EnrichResult> {
+  if (import.meta.env.DEV) {
+    const params = new URLSearchParams({ artist, title: trackTitle });
+    if (discogsId) params.set('discogsId', String(discogsId));
+    if (albumTitle?.trim()) params.set('album', albumTitle.trim());
+    if (options?.trackPosition?.trim()) params.set('position', options.trackPosition.trim());
+    if (options?.usedKeys?.length) params.set('usedKeys', options.usedKeys.join(','));
+    if (genres?.length) params.set('genres', genres.join(','));
+    if (options?.trackOnly === false) params.set('genreFallback', '1');
+    if (options?.keyFallback === true) params.set('keyFallback', '1');
+
+    try {
+      const res = await fetch(`/api/enrich?${params}`, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (res.ok) {
+        return normalizeServerEnrich((await res.json()) as EnrichResult);
+      }
+    } catch {
+      /* fall through to client enrichment */
+    }
+  }
+
+  return fetchClientEnrichment(artist, trackTitle, discogsId, genres, options);
 }
 
 /** Enrich using album/release title (legacy). */

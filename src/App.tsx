@@ -220,17 +220,23 @@ function App() {
       if (!updated) return;
 
       const wasComplete = isReleaseFullyEnriched(before);
-      const label = isReleaseFullyEnriched(updated)
+      const nowComplete = isReleaseFullyEnriched(updated);
+      const usesEstimates = updated.tracks.some(
+        (track) => track.bpmEstimated || track.keyEstimated
+      );
+      const label = nowComplete
         ? wasComplete
           ? 'Tracks re-enriched'
           : 'Release enriched'
         : 'Enrichment finished';
       toast.success(label, {
-        description: `${updated.artist} — ${updated.title}`,
+        description: usesEstimates
+          ? `${updated.artist} — ${updated.title} (genre-based estimates on live site)`
+          : `${updated.artist} — ${updated.title}`,
       });
     } catch (e) {
       toast.error('Enrichment failed', {
-        description: e instanceof Error ? e.message : 'Could not reach enrichment API',
+        description: e instanceof Error ? e.message : 'Could not enrich this release',
       });
     }
   };

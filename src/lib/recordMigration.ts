@@ -144,12 +144,6 @@ export async function runBackgroundMigrations(
     }
 
     if (!isTrackEnrichMigrationDone() && !isCancelled()) {
-      if (!import.meta.env.DEV) {
-        markTrackEnrichMigrationDone();
-      }
-    }
-
-    if (!isTrackEnrichMigrationDone() && !isCancelled()) {
       const pending = records.filter(recordNeedsEnrichment);
       const batch = pending.slice(0, MAX_ENRICH_BATCH);
       const total = pending.length;

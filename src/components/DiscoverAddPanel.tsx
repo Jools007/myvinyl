@@ -3,6 +3,7 @@ import { Disc3, Loader2, Pencil, Plus, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  ENRICHMENT_ESTIMATE_HINT,
   enrichRecord,
   fetchAlbumDescription,
   fetchDiscogsRelease,
@@ -73,6 +74,7 @@ export function DiscoverAddPanel({
   const isEditMode = Boolean(editingRecord);
   const [enriching, setEnriching] = useState(false);
   const [error, setError] = useState('');
+  const [enrichHint, setEnrichHint] = useState('');
   const [artist, setArtist] = useState('');
   const [title, setTitle] = useState('');
   const [year, setYear] = useState('');
@@ -188,9 +190,9 @@ export function DiscoverAddPanel({
     (async () => {
       setEnriching(true);
       setError('');
+      setEnrichHint('');
       try {
         const release = await resolveDiscogsReleaseDetail(hit.id, prefetchedRelease);
-        const enriched = await enrichRecord(release.artist, release.title, hit.id);
         if (cancelled) return;
 
         setDiscogsDetail(release);
@@ -202,12 +204,28 @@ export function DiscoverAddPanel({
             resolveDiscogsCoverUrl(hit.cover) ??
             resolveDiscogsCoverUrl(hit.thumb)
         );
+        setGenres([...new Set(release.genres ?? [])].slice(0, 8));
+        setBpm(String(release.bpm ?? ''));
+        setCamelotKey(release.camelotKey ?? '');
+
+        const enriched = await enrichRecord(
+          release.artist,
+          release.title,
+          hit.id,
+          release.title,
+          release.genres
+        );
+        if (cancelled) return;
+
         setGenres(
           [...new Set([...(release.genres || []), ...(enriched.genres || [])])].slice(0, 8)
         );
         setBpm(String(release.bpm ?? enriched.bpm ?? ''));
         setCamelotKey(release.camelotKey ?? enriched.camelotKey ?? '');
         setVibeTags([...new Set(enriched.vibeTags)].slice(0, 6));
+        if (enriched.source === 'client' && (enriched.bpmEstimated || enriched.keyEstimated)) {
+          setEnrichHint(ENRICHMENT_ESTIMATE_HINT);
+        }
 
         const blurb = await fetchAlbumDescription(
           release.artist,
@@ -217,7 +235,7 @@ export function DiscoverAddPanel({
         if (!cancelled) setAlbumBlurb(blurb);
       } catch (e) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : 'Could not load full metadata');
+          setError(e instanceof Error ? e.message : 'Could not load release from Discogs');
         }
       } finally {
         if (!cancelled) setEnriching(false);
@@ -452,6 +470,9 @@ export function DiscoverAddPanel({
                       {error}
                     </p>
                   )}
+                  {enrichHint && !error ? (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">{enrichHint}</p>
+                  ) : null}
 
                   <p className="add-modal__form-intro">Crate details</p>
 
