@@ -1,3 +1,4 @@
+import { resolveDiscogsCoverUrl } from './discogsCover';
 import { migrateRecord } from './tracks';
 import { supabase } from './supabase';
 import type { RecordCondition, Track, VinylRecord } from './types';
@@ -109,7 +110,7 @@ function rowToRecord(row: RecordRow): VinylRecord {
     title: row.title,
     year: row.year != null && row.year !== '' ? String(row.year) : undefined,
     format: row.format ?? undefined,
-    coverUrl: row.cover_image ?? undefined,
+    coverUrl: resolveDiscogsCoverUrl(row.cover_image),
     genres: parseGenre(row.genre),
     condition: (row.condition as RecordCondition) || 'NM',
     tracks,
@@ -130,7 +131,7 @@ function recordToRow(
     year: record.year ?? null,
     format: record.format ?? null,
     genre: serializeGenre(record.genres),
-    cover_image: record.coverUrl ?? null,
+    cover_image: resolveDiscogsCoverUrl(record.coverUrl) ?? null,
     tracklist: tracks,
     condition: record.condition,
     discogs_id: record.discogsId ?? null,

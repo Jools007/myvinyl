@@ -1,3 +1,4 @@
+import { resolveDiscogsCoverUrl } from './discogsCover';
 import type { DiscogsSearchHit } from './types';
 
 export type DirectDiscogsTracklistItem = {
@@ -82,12 +83,24 @@ type DiscogsCollectionItemRaw = {
   };
 };
 
+function discogsUserAgent(): string {
+  const origin =
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : 'https://github.com/Jools007/myvinyl';
+  return `MyVinyl/1.0 +${origin}`;
+}
+
 function discogsHeaders(token: string): HeadersInit {
   return {
-    'User-Agent': 'MyVinyl/1.0 +https://myvinyl.local',
+    'User-Agent': discogsUserAgent(),
     Accept: 'application/vnd.discogs.v2.discogs+json',
     Authorization: `Discogs token=${token}`,
   };
+}
+
+function discogsRateLimitError(): Error {
+  return new Error('Discogs rate limit reached — wait a moment and try again');
 }
 
 export function hasClientDiscogsToken(): boolean {
@@ -144,8 +157,10 @@ function parseSearchResult(item: Record<string, unknown>): DiscogsSearchHit {
     title: albumTitle,
     artist,
     year: item.year ? String(item.year) : undefined,
-    thumb: String(item.thumb || item.cover_image || ''),
-    cover: item.cover_image ? String(item.cover_image) : undefined,
+    thumb: resolveDiscogsCoverUrl(String(item.thumb || item.cover_image || '')) ?? '',
+    cover: resolveDiscogsCoverUrl(
+      item.cover_image ? String(item.cover_image) : item.thumb ? String(item.thumb) : undefined
+    ),
     format: Array.isArray(item.format) ? (item.format as string[]) : undefined,
     genre: Array.isArray(item.genre) ? (item.genre as string[]) : undefined,
     style: Array.isArray(item.style) ? (item.style as string[]) : undefined,
@@ -190,7 +205,8 @@ function parseCollectionRelease(item: DiscogsCollectionItemRaw): DirectDiscogsCo
     year: info.year ? String(info.year) : undefined,
     format: pickVinylFormatLabel(info.formats),
     isCdOnly: isCdOnlyDiscogsFormats(info.formats),
-    coverUrl: info.cover_image || info.thumb || undefined,
+    coverUrl:
+      resolveDiscogsCoverUrl(info.cover_image) ?? resolveDiscogsCoverUrl(info.thumb),
     genres: [...new Set([...(info.genres ?? []), ...(info.styles ?? [])])].slice(0, 12),
   };
 }
@@ -208,7 +224,7 @@ function mapReleaseDetail(data: DiscogsReleaseRaw): DirectDiscogsReleaseDetail {
     artist,
     year: data.year ? String(data.year) : undefined,
     genres: [...(data.genres || []), ...(data.styles || [])],
-    coverUrl: bestCoverImage(data.images),
+    coverUrl: resolveDiscogsCoverUrl(bestCoverImage(data.images)),
     bpm: meta.bpm,
     camelotKey: meta.key?.match(/^\d{1,2}[AB]$/i) ? meta.key.toUpperCase() : undefined,
     musicalKey: meta.key,
@@ -230,7 +246,9 @@ export async function directSearchDiscogs(
   });
   const res = await fetch(`${DISCOGS_API}/database/search?${params}`, {
     headers: discogsHeaders(token),
+    signal: AbortSignal.timeout(15_000),
   });
+  if (res.status === 429) throw discogsRateLimitError();
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Discogs search failed: ${res.status} ${text}`);
@@ -251,7 +269,9 @@ export async function directSearchDiscogsByBarcode(
   });
   const res = await fetch(`${DISCOGS_API}/database/search?${params}`, {
     headers: discogsHeaders(token),
+    signal: AbortSignal.timeout(15_000),
   });
+  if (res.status === 429) throw discogsRateLimitError();
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Discogs barcode search failed: ${res.status} ${text}`);
@@ -268,9 +288,7 @@ export async function directFetchDiscogsRelease(
     headers: discogsHeaders(token),
     signal: AbortSignal.timeout(15_000),
   });
-  if (res.status === 429) {
-    throw new Error('Discogs rate limit reached — wait a moment and try again');
-  }
+  if (res.status === 429) throw discogsRateLimitError();
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Discogs release failed: ${res.status} ${text}`);
@@ -292,8 +310,12 @@ export async function directFetchDiscogsCollectionPage(
   });
   const res = await fetch(
     `${DISCOGS_API}/users/${user}/collection/folders/${COLLECTION_FOLDER_ALL}/releases?${params}`,
-    { headers: discogsHeaders(token) }
+    {
+      headers: discogsHeaders(token),
+      signal: AbortSignal.timeout(30_000),
+    }
   );
+  if (res.status === 429) throw discogsRateLimitError();
   if (res.status === 404) {
     throw new Error('Discogs user not found. Check the username and try again.');
   }

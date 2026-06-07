@@ -2,7 +2,7 @@ export {
   searchDiscogs,
   fetchDiscogsRelease,
   enrichRecord,
-  proxyCoverUrl,
+  resolveDiscogsCoverUrl,
   hasClientDiscogsToken,
 } from './api';
 

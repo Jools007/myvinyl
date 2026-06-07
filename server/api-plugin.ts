@@ -1,15 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { Plugin } from 'vite';
-import {
-  bestCoverImage,
-  extractBpmKey,
-  getRelease,
-  getUserCollectionPage,
-  parseCollectionRelease,
-  parseSearchResult,
-  searchDiscogs,
-  searchDiscogsByBarcode,
-} from './discogs';
+import { resolveDiscogsCoverUrl } from '../src/lib/discogsCover';
+import { bestCoverImage, getRelease } from './discogs';
 import { pickEstimatedBpmFromProfile, pickEstimatedCamelotKey } from './enrich-scoring';
 import { withTimeout } from './enrich-timeout';
 import { resolveTrackEnrichment } from './enrich-track';
@@ -42,7 +34,7 @@ async function getCachedDiscogsRelease(token: string, id: number): Promise<Cache
   try {
     const release = await getRelease(token, id);
     const entry: CachedDiscogsRelease = {
-      coverUrl: bestCoverImage(release.images),
+      coverUrl: resolveDiscogsCoverUrl(bestCoverImage(release.images)),
       genres: [...(release.genres || []), ...(release.styles || [])],
       notes: release.notes,
       releaseTitle: release.title?.trim() || undefined,
@@ -83,91 +75,6 @@ export function apiPlugin(env: Env): Plugin {
         const youtubeApiKey = env.YOUTUBE_API_KEY;
 
         try {
-          // ── Discogs barcode search ──
-          if (path === '/api/discogs/barcode' && req.method === 'GET') {
-            if (!discogsToken) return json(res, 503, { error: 'DISCOGS_TOKEN not configured' });
-            const barcode = url.searchParams.get('barcode');
-            if (!barcode?.trim()) return json(res, 400, { error: 'Barcode required' });
-            const perPage = parseInt(url.searchParams.get('per_page') || '5', 10);
-            const data = await searchDiscogsByBarcode(discogsToken, barcode.trim(), perPage);
-            const results = (data.results || []).map(parseSearchResult);
-            return json(res, 200, { results, pagination: data.pagination });
-          }
-
-          // ── Discogs search ──
-          if (path === '/api/discogs/search' && req.method === 'GET') {
-            if (!discogsToken) return json(res, 503, { error: 'DISCOGS_TOKEN not configured' });
-            const q = url.searchParams.get('q');
-            if (!q?.trim()) return json(res, 400, { error: 'Query required' });
-            const page = parseInt(url.searchParams.get('page') || '1', 10);
-            const perPage = parseInt(url.searchParams.get('per_page') || '20', 10);
-            const data = await searchDiscogs(discogsToken, q.trim(), page, perPage);
-            const results = (data.results || []).map(parseSearchResult);
-            return json(res, 200, { results, pagination: data.pagination });
-          }
-
-          // Legacy path
-          if (path === '/api/discogs' && req.method === 'GET') {
-            if (!discogsToken) return json(res, 503, { error: 'DISCOGS_TOKEN not configured' });
-            const q = url.searchParams.get('q') ?? '';
-            const perPage = url.searchParams.get('per_page') || '12';
-            if (!q.trim()) return json(res, 400, { error: 'Missing search parameters' });
-            const data = await searchDiscogs(discogsToken, q, 1, parseInt(perPage, 10));
-            const results = (data.results || []).map((item) => {
-              const p = parseSearchResult(item);
-              return {
-                id: p.id,
-                title: `${p.artist} - ${p.title}`,
-                year: p.year ?? '',
-                genre: p.genre ?? [],
-                style: p.style ?? [],
-                thumb: p.thumb,
-                cover_image: p.cover,
-              };
-            });
-            return json(res, 200, { results });
-          }
-
-          // ── Discogs user collection (folder 0 = All) ──
-          if (path === '/api/discogs/collection' && req.method === 'GET') {
-            if (!discogsToken) return json(res, 503, { error: 'DISCOGS_TOKEN not configured' });
-            const username = url.searchParams.get('username')?.trim();
-            if (!username) return json(res, 400, { error: 'Username required' });
-            const page = parseInt(url.searchParams.get('page') || '1', 10);
-            const perPage = parseInt(url.searchParams.get('per_page') || '100', 10);
-            const data = await getUserCollectionPage(discogsToken, username, page, perPage);
-            const releases = data.releases.map(parseCollectionRelease);
-            return json(res, 200, { releases, pagination: data.pagination });
-          }
-
-          // ── Discogs release ──
-          const releaseMatch = path.match(/^\/api\/discogs\/release\/(\d+)$/);
-          if (releaseMatch && req.method === 'GET') {
-            if (!discogsToken) return json(res, 503, { error: 'DISCOGS_TOKEN not configured' });
-            const id = parseInt(releaseMatch[1], 10);
-            const data = await getRelease(discogsToken, id);
-            const meta = extractBpmKey(data.notes, data.tracklist);
-            const artist =
-              data.artists?.map((a) => a.name).join(', ') ||
-              data.title?.split(' - ')[0] ||
-              'Unknown';
-            return json(res, 200, {
-              id: data.id,
-              title: data.title,
-              artist,
-              year: data.year ? String(data.year) : undefined,
-              genres: [...(data.genres || []), ...(data.styles || [])],
-              coverUrl: bestCoverImage(data.images),
-              thumb: data.images?.[0]?.uri,
-              notes: data.notes,
-              tracklist: data.tracklist,
-              bpm: meta.bpm,
-              camelotKey: meta.key?.match(/^\d{1,2}[AB]$/i) ? meta.key.toUpperCase() : undefined,
-              musicalKey: meta.key,
-              uri: data.uri,
-            });
-          }
-
           // ── Album description (Discogs notes + Last.fm wiki) ──
           if (path === '/api/album-info' && req.method === 'GET') {
             const artist = url.searchParams.get('artist')?.trim();
@@ -194,22 +101,6 @@ export function apiPlugin(env: Env): Plugin {
             }
 
             return json(res, 200, { description: description || null });
-          }
-
-          // ── Image proxy (Discogs CDN) ──
-          if (path === '/api/image' && req.method === 'GET') {
-            const src = url.searchParams.get('url');
-            if (!src?.includes('discogs.com')) return json(res, 400, { error: 'Invalid url' });
-            const imgRes = await fetch(src, {
-              headers: { Referer: 'https://www.discogs.com/', 'User-Agent': 'MyVinyl/1.0' },
-            });
-            if (!imgRes.ok) return json(res, imgRes.status, { error: 'Image fetch failed' });
-            const buf = Buffer.from(await imgRes.arrayBuffer());
-            res.statusCode = 200;
-            res.setHeader('Content-Type', imgRes.headers.get('content-type') || 'image/jpeg');
-            res.setHeader('Cache-Control', 'public, max-age=86400');
-            res.end(buf);
-            return;
           }
 
           // ── Spotify audio features ──

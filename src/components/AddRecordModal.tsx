@@ -1,7 +1,8 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { Loader2, Search, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { enrichRecord, fetchDiscogsRelease, proxyCoverUrl, searchDiscogs } from '../lib/api';
+import { enrichRecord, fetchDiscogsRelease, searchDiscogs } from '../lib/api';
+import { resolveDiscogsCoverUrl } from '../lib/discogsCover';
 import { CAMELOT_KEYS } from '../lib/camelot';
 import { VIBE_TAG_SUGGESTIONS } from '../lib/vibes';
 import type { DiscogsReleaseDetail } from '../lib/api';
@@ -93,9 +94,9 @@ export function AddRecordModal({ open, onClose, onSave }: AddRecordModalProps) {
       setTitle(release.title);
       setYear(release.year ?? hit.year ?? '');
       setCoverUrl(
-        proxyCoverUrl(release.coverUrl) ??
-          proxyCoverUrl(hit.cover) ??
-          proxyCoverUrl(hit.thumb)
+        resolveDiscogsCoverUrl(release.coverUrl) ??
+          resolveDiscogsCoverUrl(hit.cover) ??
+          resolveDiscogsCoverUrl(hit.thumb)
       );
       setGenres(
         [...new Set([...(release.genres || []), ...(enriched.genres || [])])].slice(0, 8)
@@ -109,7 +110,9 @@ export function AddRecordModal({ open, onClose, onSave }: AddRecordModalProps) {
       setArtist(hit.artist);
       setTitle(hit.title);
       setYear(hit.year ?? '');
-      setCoverUrl(proxyCoverUrl(hit.cover) ?? proxyCoverUrl(hit.thumb));
+      setCoverUrl(
+        resolveDiscogsCoverUrl(hit.cover) ?? resolveDiscogsCoverUrl(hit.thumb)
+      );
       setGenres([...(hit.genre ?? []), ...(hit.style ?? [])].slice(0, 6));
       setError(e instanceof Error ? e.message : 'Could not fetch full metadata');
     } finally {
@@ -215,20 +218,24 @@ export function AddRecordModal({ open, onClose, onSave }: AddRecordModalProps) {
 
               {!selected && results.length > 0 && (
                 <ul className="max-h-52 space-y-1 overflow-y-auto rounded-xl border border-[var(--border)] p-1">
-                  {results.map((r) => (
+                  {results.map((r) => {
+                    const resultCover =
+                      resolveDiscogsCoverUrl(r.cover) ?? resolveDiscogsCoverUrl(r.thumb);
+                    return (
                     <li key={r.id}>
                       <button
                         type="button"
                         onClick={() => handleSelect(r)}
                         className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-[var(--bg-hover)]"
                       >
-                        {(r.thumb || r.cover) && (
+                        {resultCover ? (
                           <img
-                            src={proxyCoverUrl(r.cover) ?? proxyCoverUrl(r.thumb)}
+                            src={resultCover}
                             alt=""
+                            referrerPolicy="no-referrer"
                             className="h-11 w-11 shrink-0 rounded-lg object-cover"
                           />
-                        )}
+                        ) : null}
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium">{r.title}</p>
                           <p className="truncate text-xs text-[var(--text-muted)]">
@@ -238,7 +245,8 @@ export function AddRecordModal({ open, onClose, onSave }: AddRecordModalProps) {
                         </div>
                       </button>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               )}
 
@@ -253,6 +261,7 @@ export function AddRecordModal({ open, onClose, onSave }: AddRecordModalProps) {
                       <img
                         src={coverUrl}
                         alt=""
+                        referrerPolicy="no-referrer"
                         className="h-24 w-24 shrink-0 rounded-xl object-cover shadow-md"
                       />
                     ) : (

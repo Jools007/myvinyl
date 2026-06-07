@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { ChevronRight, Disc3, ListPlus, Loader2, Pencil, Play, Sparkles, Trash2 } from 'lucide-react';
-import { proxyCoverUrl } from '../lib/api';
+import { resolveDiscogsCoverUrl } from '../lib/discogsCover';
 import { resolveTrackCamelot } from '../lib/camelot';
 import { getPrimaryTrack, isReleaseFullyEnriched } from '../lib/tracks';
 import type { LiveEnrichState } from '../hooks/useCollection';
@@ -95,7 +95,7 @@ function BpmCellContent({
 
 function ListArtwork({ src, title }: { src?: string; title: string }) {
   const [failed, setFailed] = useState(false);
-  const imageSrc = proxyCoverUrl(src);
+  const imageSrc = resolveDiscogsCoverUrl(src);
 
   useEffect(() => {
     setFailed(false);
@@ -113,6 +113,7 @@ function ListArtwork({ src, title }: { src?: string; title: string }) {
           className="block h-full w-full object-cover"
           loading="lazy"
           decoding="async"
+          referrerPolicy="no-referrer"
           onError={() => setFailed(true)}
         />
       ) : (

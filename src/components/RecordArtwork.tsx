@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { Disc3 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { proxyCoverUrl } from '../lib/api';
+import { resolveDiscogsCoverUrl } from '../lib/discogsCover';
 
 interface RecordArtworkProps {
   src?: string;
@@ -22,7 +22,7 @@ const sizes = {
 
 export function RecordArtwork({ src, title, size = 'md', className = '' }: RecordArtworkProps) {
   const sizeClass = sizes[size];
-  const imageSrc = proxyCoverUrl(src);
+  const imageSrc = resolveDiscogsCoverUrl(src);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -40,6 +40,7 @@ export function RecordArtwork({ src, title, size = 'md', className = '' }: Recor
           className="h-full w-full object-cover"
           loading="lazy"
           decoding="async"
+          referrerPolicy="no-referrer"
           initial={{ opacity: 0, scale: 1.05 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.4 }}

@@ -1,3 +1,5 @@
+import { resolveDiscogsCoverUrl } from '../src/lib/discogsCover';
+
 const DISCOGS_API = 'https://api.discogs.com';
 
 function headers(token: string): Record<string, string> {
@@ -129,7 +131,8 @@ export function parseCollectionRelease(item: DiscogsCollectionItem) {
     format: pickVinylFormatLabel(info.formats),
     formatStrings,
     isCdOnly: isCdOnlyDiscogsFormats(info.formats),
-    coverUrl: info.cover_image || info.thumb || undefined,
+    coverUrl:
+      resolveDiscogsCoverUrl(info.cover_image) ?? resolveDiscogsCoverUrl(info.thumb),
     genres: [...new Set([...(info.genres ?? []), ...(info.styles ?? [])])].slice(0, 12),
   };
 }
@@ -186,8 +189,10 @@ export function parseSearchResult(item: Record<string, unknown>) {
     title: albumTitle,
     artist,
     year: item.year ? String(item.year) : undefined,
-    thumb: String(item.thumb || item.cover_image || ''),
-    cover: item.cover_image ? String(item.cover_image) : undefined,
+    thumb: resolveDiscogsCoverUrl(String(item.thumb || item.cover_image || '')) ?? '',
+    cover: resolveDiscogsCoverUrl(
+      item.cover_image ? String(item.cover_image) : item.thumb ? String(item.thumb) : undefined
+    ),
     format: Array.isArray(item.format) ? (item.format as string[]) : undefined,
     genre: Array.isArray(item.genre) ? (item.genre as string[]) : undefined,
     style: Array.isArray(item.style) ? (item.style as string[]) : undefined,
@@ -213,7 +218,7 @@ export function extractBpmKey(
 export function bestCoverImage(images?: { uri: string; type: string }[]): string | undefined {
   if (!images?.length) return undefined;
   const primary = images.find((i) => i.type === 'primary');
-  return primary?.uri || images[0]?.uri;
+  return resolveDiscogsCoverUrl(primary?.uri || images[0]?.uri);
 }
 
 interface DiscogsRelease {

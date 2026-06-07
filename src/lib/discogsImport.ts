@@ -1,5 +1,6 @@
 import { fetchDiscogsRelease } from './api';
 import type { DiscogsCollectionRelease } from './api';
+import { resolveDiscogsCoverUrl } from './discogsCover';
 import { isCdFormat } from './formats';
 import { createPrimaryTrack, releaseFromDiscogsImport, migrateRecord } from './tracks';
 import type { VinylRecord } from './types';
@@ -27,7 +28,7 @@ function releaseBaseFromCollectionRow(
     title: row.title,
     year: row.year,
     format: row.format,
-    coverUrl: row.coverUrl,
+    coverUrl: resolveDiscogsCoverUrl(row.coverUrl),
     genres: row.genres,
     condition: 'NM',
     addSource: 'discogs-import',

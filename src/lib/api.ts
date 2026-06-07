@@ -6,13 +6,17 @@ import {
   getClientDiscogsToken,
   hasClientDiscogsToken,
 } from './discogsDirect';
+import { resolveDiscogsCoverUrl } from './discogsCover';
+import type { DiscogsSearchHit } from './types';
+
+export { resolveDiscogsCoverUrl };
 
 export { hasClientDiscogsToken };
 
 export class DiscogsUnavailableError extends Error {
   constructor() {
     super(
-      'Discogs is not configured. Add VITE_DISCOGS_TOKEN to .env.local and restart the dev server.'
+      'Discogs is not configured. Set VITE_DISCOGS_TOKEN in your environment and rebuild the app.'
     );
     this.name = 'DiscogsUnavailableError';
   }
@@ -23,7 +27,6 @@ function requireClientDiscogsToken(): string {
   if (!token) throw new DiscogsUnavailableError();
   return token;
 }
-import type { DiscogsSearchHit } from './types';
 
 export interface EnrichResult {
   coverUrl?: string;
@@ -70,7 +73,7 @@ export interface DiscogsReleaseDetail {
   tracklist?: DiscogsTracklistItem[];
 }
 
-/** Resolve a stored or remote cover URL for <img src> (avoids double-wrapping /api/image). */
+
 /** Spotify track match from `/api/spotify/audio` (includes 30s preview URL when available). */
 export interface SpotifyTrackPreview {
   bpm?: number;
@@ -179,14 +182,6 @@ export async function fetchSpotifyPreview(
   } catch {
     return { ok: false, reason: 'network' };
   }
-}
-
-export function proxyCoverUrl(url?: string): string | undefined {
-  if (!url?.trim()) return undefined;
-  const trimmed = url.trim();
-  if (trimmed.startsWith('/api/image')) return trimmed;
-  if (!trimmed.includes('discogs.com')) return trimmed;
-  return `/api/image?url=${encodeURIComponent(trimmed)}`;
 }
 
 export async function searchDiscogs(query: string, perPage = 16): Promise<DiscogsSearchHit[]> {
@@ -310,7 +305,7 @@ async function fetchEnrichment(
     bpmEstimated: data.bpmEstimated,
     keyEstimated: data.keyEstimated,
     trackSpecific: data.trackSpecific,
-    coverUrl: proxyCoverUrl(data.coverUrl),
+    coverUrl: resolveDiscogsCoverUrl(data.coverUrl),
   };
 }
 

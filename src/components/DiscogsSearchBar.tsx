@@ -11,7 +11,8 @@ import {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { proxyCoverUrl, searchDiscogs } from '../lib/api';
+import { searchDiscogs } from '../lib/api';
+import { resolveDiscogsCoverUrl } from '../lib/discogsCover';
 import { pickVinylFormatFromDiscogs } from '../lib/formats';
 import type { DiscogsSearchHit, VinylRecord } from '../lib/types';
 import { DiscoverAddPanel } from './DiscoverAddPanel';
@@ -177,7 +178,8 @@ export const DiscogsSearchBar = forwardRef<DiscogsSearchBarHandle, DiscogsSearch
         {results.length > 0 && (
           <ul className="max-h-[min(22rem,55vh)] overflow-y-auto p-1.5">
             {results.map((hit) => {
-              const cover = proxyCoverUrl(hit.cover) ?? proxyCoverUrl(hit.thumb);
+              const cover =
+                resolveDiscogsCoverUrl(hit.cover) ?? resolveDiscogsCoverUrl(hit.thumb);
               const owned = inCollection.has(hit.id);
 
               return (
@@ -196,6 +198,7 @@ export const DiscogsSearchBar = forwardRef<DiscogsSearchBarHandle, DiscogsSearch
                           alt=""
                           className="h-full w-full object-cover"
                           loading="lazy"
+                          referrerPolicy="no-referrer"
                         />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center">

@@ -6,9 +6,9 @@ import {
   enrichRecord,
   fetchAlbumDescription,
   fetchDiscogsRelease,
-  proxyCoverUrl,
   resolveDiscogsReleaseDetail,
 } from '../lib/api';
+import { resolveDiscogsCoverUrl } from '../lib/discogsCover';
 import { CAMELOT_KEYS } from '../lib/camelot';
 import { VIBE_TAG_SUGGESTIONS } from '../lib/vibes';
 import {
@@ -122,7 +122,7 @@ export function DiscoverAddPanel({
       setArtist(editingRecord.artist);
       setTitle(editingRecord.title);
       setYear(editingRecord.year ?? '');
-      setCoverUrl(editingRecord.coverUrl);
+      setCoverUrl(resolveDiscogsCoverUrl(editingRecord.coverUrl));
       setGenres([...editingRecord.genres]);
       setFormat(editingRecord.format ?? '');
       setBpm(primary?.bpm != null ? String(primary.bpm) : '');
@@ -174,7 +174,9 @@ export function DiscoverAddPanel({
     setArtist(hit.artist);
     setTitle(hit.title);
     setYear(hit.year ?? '');
-    setCoverUrl(proxyCoverUrl(hit.cover) ?? proxyCoverUrl(hit.thumb));
+    setCoverUrl(
+      resolveDiscogsCoverUrl(hit.cover) ?? resolveDiscogsCoverUrl(hit.thumb)
+    );
     setGenres([...new Set([...(hit.genre ?? []), ...(hit.style ?? [])])].slice(0, 8));
 
     let cancelled = false;
@@ -196,9 +198,9 @@ export function DiscoverAddPanel({
         setTitle(release.title);
         setYear(release.year ?? hit.year ?? '');
         setCoverUrl(
-          proxyCoverUrl(release.coverUrl) ??
-            proxyCoverUrl(hit.cover) ??
-            proxyCoverUrl(hit.thumb)
+          resolveDiscogsCoverUrl(release.coverUrl) ??
+            resolveDiscogsCoverUrl(hit.cover) ??
+            resolveDiscogsCoverUrl(hit.thumb)
         );
         setGenres(
           [...new Set([...(release.genres || []), ...(enriched.genres || [])])].slice(0, 8)
@@ -378,7 +380,12 @@ export function DiscoverAddPanel({
                     <div className="add-modal__cover-wrap">
                       <div className="add-modal__cover">
                         {coverUrl ? (
-                          <img src={coverUrl} alt="" className="h-full w-full object-cover" />
+                          <img
+                            src={coverUrl}
+                            alt=""
+                            referrerPolicy="no-referrer"
+                            className="h-full w-full object-cover"
+                          />
                         ) : (
                           <div className="flex h-full items-center justify-center">
                             {enriching ? (

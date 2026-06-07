@@ -1,4 +1,5 @@
 import { enrichTrack, type DiscogsReleaseDetail, type DiscogsTracklistItem, type EnrichResult } from './api';
+import { resolveDiscogsCoverUrl } from './discogsCover';
 import { resolveTrackCamelot } from './camelot';
 import { inferAddSource } from './collectionClear';
 import { generateId } from './storage';
@@ -423,7 +424,11 @@ export function migrateRecord(raw: LegacyVinylRecord): VinylRecord {
     };
   }
 
-  return { ...migrated, addSource: inferAddSource(migrated) };
+  return {
+    ...migrated,
+    addSource: inferAddSource(migrated),
+    coverUrl: resolveDiscogsCoverUrl(migrated.coverUrl),
+  };
 }
 
 export function createPrimaryTrack(
@@ -539,7 +544,9 @@ export function mergeDiscogsTracklistIntoRecord(
       discogs.genres?.length && discogs.genres.length > 0
         ? [...new Set([...record.genres, ...discogs.genres])].slice(0, 12)
         : record.genres,
-    coverUrl: record.coverUrl,
+    coverUrl:
+      resolveDiscogsCoverUrl(record.coverUrl) ??
+      resolveDiscogsCoverUrl(discogs.coverUrl),
     year: record.year,
   };
 }
@@ -665,7 +672,8 @@ export function mergeEnrichmentOntoRelease(
 ): Partial<VinylRecord> {
   const targetId = trackId ?? getPrimaryTrack(record)?.id;
   const patch: Partial<VinylRecord> = {
-    coverUrl: data.coverUrl ?? record.coverUrl,
+    coverUrl:
+      resolveDiscogsCoverUrl(data.coverUrl) ?? resolveDiscogsCoverUrl(record.coverUrl),
     genres: data.genres?.length ? data.genres : record.genres,
   };
 
