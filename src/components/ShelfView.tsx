@@ -66,7 +66,7 @@ interface GenreShelfProps {
   onEdit?: (record: VinylRecord) => void;
 }
 
-function GenreShelf({ genre, records, onSelect, onEdit }: GenreShelfProps) {
+function GenreShelf({ genre, records, onSelect, onEdit: _onEdit }: GenreShelfProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragInfo = useRef({ startX: 0, startScroll: 0 });
@@ -146,7 +146,7 @@ function GenreShelf({ genre, records, onSelect, onEdit }: GenreShelfProps) {
           aria-label={`${genre} shelf — horizontal scroll. Drag to scroll, use arrows or keyboard.`}
           className={`shelf-scroller flex items-end gap-4 overflow-x-auto scroll-smooth snap-x snap-mandatory pb-8 pl-2 pr-9 pt-1 focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-soft)] ${isDragging ? 'cursor-grabbing select-none' : 'cursor-grab'}`}
         >
-          {records.map((record, idx) => {
+          {records.map((record) => {
             const primary = getPrimaryTrack(record);
             return (
               <motion.div
@@ -157,11 +157,11 @@ function GenreShelf({ genre, records, onSelect, onEdit }: GenreShelfProps) {
                 transition={{ duration: 0.2 }}
                 whileHover={{ y: -13, rotate: -1.1 }}
                 whileTap={{ scale: 0.982, y: -3 }}
-                onClick={() => onEdit?.(record)}
+                onClick={() => onSelect(record)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    onEdit?.(record);
+                    onSelect(record);
                   }
                 }}
                 className="group/shelf-card relative flex w-[94px] shrink-0 flex-col text-left outline-none sm:w-28 cursor-pointer"
