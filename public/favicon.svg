@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" role="img" aria-label="MyVinyl">
+  <!-- Rounded tile so the disc reads on light and dark browser chrome -->
+  <rect width="32" height="32" rx="7" fill="#141416"/>
+  <circle cx="16" cy="16" r="13" fill="#1e1e22"/>
+  <circle cx="16" cy="16" r="13" stroke="#fff" stroke-opacity="0.12" stroke-width="0.75"/>
+  <circle cx="16" cy="16" r="10" stroke="#fff" stroke-opacity="0.08" stroke-width="0.65"/>
+  <circle cx="16" cy="16" r="5.5" fill="#5eb8ad"/>
+  <circle cx="16" cy="16" r="1.15" fill="#0a0a0b"/>
+</svg>
