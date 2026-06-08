@@ -214,14 +214,30 @@ export async function fetchSpotifyPreview(
   }
 }
 
-async function fetchDiscogsApi<T>(path: string): Promise<T | null> {
+type DiscogsApiResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; status?: number; error: string };
+
+async function fetchDiscogsApi<T>(path: string): Promise<DiscogsApiResult<T>> {
   try {
     const res = await fetch(path, { signal: AbortSignal.timeout(30_000) });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      return {
+        ok: false,
+        status: res.status,
+        error: body.error ?? `Discogs request failed (${res.status})`,
+      };
+    }
+    return { ok: true, data: (await res.json()) as T };
   } catch {
-    return null;
+    return { ok: false, error: 'Could not reach Discogs — check your connection' };
   }
+}
+
+function shouldUseClientDiscogsFallback(status?: number): boolean {
+  // Only fall back when the server route is missing or explicitly unavailable.
+  return status === 404 || status === 503;
 }
 
 async function fetchDiscogsCollectionPageViaApi(
@@ -234,32 +250,44 @@ async function fetchDiscogsCollectionPageViaApi(
     page: String(page),
     per_page: String(perPage),
   });
-  const data = await fetchDiscogsApi<DiscogsCollectionPageResult>(
+  const result = await fetchDiscogsApi<DiscogsCollectionPageResult>(
     `/api/discogs/collection?${params}`
   );
-  if (!data) throw new DiscogsUnavailableError();
-  return data;
+  if (result.ok) return result.data;
+  if (shouldUseClientDiscogsFallback(result.status) && hasClientDiscogsToken()) {
+    return directFetchDiscogsCollectionPage(
+      requireClientDiscogsToken(),
+      username,
+      page,
+      perPage
+    );
+  }
+  throw new Error(result.error);
 }
 
 export async function searchDiscogs(query: string, perPage = 16): Promise<DiscogsSearchHit[]> {
-  const data = await fetchDiscogsApi<{ results?: DiscogsSearchHit[] }>(
+  const result = await fetchDiscogsApi<{ results?: DiscogsSearchHit[] }>(
     `/api/discogs/search?${new URLSearchParams({ q: query, per_page: String(perPage) })}`
   );
-  if (data) return data.results ?? [];
-  if (!hasClientDiscogsToken()) return [];
-  return directSearchDiscogs(requireClientDiscogsToken(), query, perPage);
+  if (result.ok) return result.data.results ?? [];
+  if (shouldUseClientDiscogsFallback(result.status) && hasClientDiscogsToken()) {
+    return directSearchDiscogs(requireClientDiscogsToken(), query, perPage);
+  }
+  throw new Error(result.error);
 }
 
 export async function searchDiscogsByBarcode(
   barcode: string,
   perPage = 5
 ): Promise<DiscogsSearchHit[]> {
-  const data = await fetchDiscogsApi<{ results?: DiscogsSearchHit[] }>(
+  const result = await fetchDiscogsApi<{ results?: DiscogsSearchHit[] }>(
     `/api/discogs/search?${new URLSearchParams({ barcode, per_page: String(perPage) })}`
   );
-  if (data) return data.results ?? [];
-  if (!hasClientDiscogsToken()) return [];
-  return directSearchDiscogsByBarcode(requireClientDiscogsToken(), barcode, perPage);
+  if (result.ok) return result.data.results ?? [];
+  if (shouldUseClientDiscogsFallback(result.status) && hasClientDiscogsToken()) {
+    return directSearchDiscogsByBarcode(requireClientDiscogsToken(), barcode, perPage);
+  }
+  throw new Error(result.error);
 }
 
 export function cleanAlbumText(raw?: string, maxLen = 520): string {
@@ -318,24 +346,16 @@ export async function fetchDiscogsCollectionPage(
   page = 1,
   perPage = 100
 ): Promise<DiscogsCollectionPageResult> {
-  const fromApi = await fetchDiscogsCollectionPageViaApi(username, page, perPage);
-  if (fromApi) return fromApi;
-  if (!hasClientDiscogsToken()) throw new DiscogsUnavailableError();
-  return directFetchDiscogsCollectionPage(
-    requireClientDiscogsToken(),
-    username,
-    page,
-    perPage
-  );
+  return fetchDiscogsCollectionPageViaApi(username, page, perPage);
 }
 
 export async function fetchDiscogsRelease(id: number): Promise<DiscogsReleaseDetail> {
-  const fromApi = await fetchDiscogsApi<DiscogsReleaseDetail>(`/api/discogs/release/${id}`);
-  if (fromApi) return fromApi;
-  if (!hasClientDiscogsToken()) {
-    throw new DiscogsUnavailableError();
+  const result = await fetchDiscogsApi<DiscogsReleaseDetail>(`/api/discogs/release/${id}`);
+  if (result.ok) return result.data;
+  if (shouldUseClientDiscogsFallback(result.status) && hasClientDiscogsToken()) {
+    return directFetchDiscogsRelease(requireClientDiscogsToken(), id);
   }
-  return directFetchDiscogsRelease(requireClientDiscogsToken(), id);
+  throw new Error(result.error);
 }
 
 /** Use cached release detail when it already has a tracklist; otherwise fetch from Discogs. */

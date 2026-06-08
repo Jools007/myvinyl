@@ -9,7 +9,7 @@ import {
   bestCoverImage,
 } from '../discogs';
 import { resolveDiscogsCoverUrl } from '../discogs-cover';
-import { flattenDiscogsTracklist } from '../../src/lib/discogsTracklist';
+import { flattenDiscogsTracklist } from '../discogs-tracklist';
 
 export function mapDiscogsReleaseDetail(data: {
   id: number;
