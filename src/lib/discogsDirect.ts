@@ -1,3 +1,4 @@
+import { flattenDiscogsTracklist } from './discogsTracklist';
 import { resolveDiscogsCoverUrl } from './discogsCover';
 import type { DiscogsSearchHit } from './types';
 
@@ -212,7 +213,13 @@ function parseCollectionRelease(item: DiscogsCollectionItemRaw): DirectDiscogsCo
 }
 
 function mapReleaseDetail(data: DiscogsReleaseRaw): DirectDiscogsReleaseDetail {
-  const meta = extractBpmKey(data.notes, data.tracklist);
+  const tracklist = flattenDiscogsTracklist(data.tracklist).filter((row) =>
+    Boolean(row.title?.trim())
+  );
+  const meta = extractBpmKey(
+    data.notes,
+    tracklist.map((row) => ({ title: row.title!.trim() }))
+  );
   const artist =
     data.artists?.map((entry) => entry.name).join(', ') ||
     data.title?.split(' - ')[0] ||
@@ -229,7 +236,13 @@ function mapReleaseDetail(data: DiscogsReleaseRaw): DirectDiscogsReleaseDetail {
     camelotKey: meta.key?.match(/^\d{1,2}[AB]$/i) ? meta.key.toUpperCase() : undefined,
     musicalKey: meta.key,
     notes: data.notes,
-    tracklist: data.tracklist,
+    tracklist: tracklist.map((row) => ({
+      title: row.title!.trim(),
+      position: row.position,
+      duration: row.duration,
+      type_: row.type_,
+      type: row.type,
+    })),
   };
 }
 

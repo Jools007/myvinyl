@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ENRICHMENT_ESTIMATE_HINT,
   enrichRecord,
+  enrichReleaseContextFromDiscogs,
   fetchDiscogsRelease,
   searchDiscogs,
 } from '../lib/api';
@@ -111,7 +112,8 @@ export function AddRecordModal({ open, onClose, onSave }: AddRecordModalProps) {
         release.title,
         hit.id,
         release.title,
-        release.genres
+        release.genres,
+        { release: enrichReleaseContextFromDiscogs(release) }
       );
       setGenres(
         [...new Set([...(release.genres || []), ...(enriched.genres || [])])].slice(0, 8)
@@ -152,6 +154,11 @@ export function AddRecordModal({ open, onClose, onSave }: AddRecordModalProps) {
     setSaving(true);
     setError('');
     try {
+      const releaseDetail =
+        discogsDetail?.tracklist && discogsDetail.tracklist.length > 0
+          ? discogsDetail
+          : await fetchDiscogsRelease(selected.id);
+
       let payload = releaseFromDiscogsImport(
         {
           discogsId: selected.id,
@@ -164,7 +171,7 @@ export function AddRecordModal({ open, onClose, onSave }: AddRecordModalProps) {
           notes: notes || undefined,
           addSource: 'manual',
         },
-        discogsDetail ?? { tracklist: [], bpm: undefined, camelotKey: undefined },
+        releaseDetail,
         {
           vibeTags,
           bpm: bpm ? parseInt(bpm, 10) : undefined,

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": null,
+  "functions": {
+    "api/enrich.ts": {
+      "maxDuration": 10,
+      "includeFiles": "server/**"
+    },
+    "api/album-info.ts": {
+      "maxDuration": 10,
+      "includeFiles": "server/**"
+    },
+    "api/discogs/release/[id].ts": {
+      "maxDuration": 15,
+      "includeFiles": "server/**"
+    },
+    "api/discogs/search.ts": {
+      "maxDuration": 15,
+      "includeFiles": "server/**"
+    },
+    "api/discogs/collection.ts": {
+      "maxDuration": 30,
+      "includeFiles": "server/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ]
+}

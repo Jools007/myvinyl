@@ -50,11 +50,34 @@ export interface EnrichResult {
   source?: 'server' | 'client';
 }
 
+export interface EnrichReleaseContext {
+  genres?: string[];
+  coverUrl?: string;
+  releaseTitle?: string;
+  tracklist?: { title: string; position?: string }[];
+}
+
+export function enrichReleaseContextFromDiscogs(
+  release: DiscogsReleaseDetail
+): EnrichReleaseContext {
+  return {
+    genres: release.genres,
+    coverUrl: release.coverUrl,
+    releaseTitle: release.title,
+    tracklist: release.tracklist?.map((track) => ({
+      title: track.title,
+      position: track.position,
+    })),
+  };
+}
+
 export interface EnrichOptions {
   /** Skip genre-based BPM guesses (default true for DJ per-track lookup) */
   trackOnly?: boolean;
   /** Allow estimated genre Camelot when APIs return no key (default true) */
   keyFallback?: boolean;
+  /** Pre-fetched release data (skips server Discogs fetch when provided) */
+  release?: EnrichReleaseContext;
 }
 
 export interface DiscogsTracklistItem {
@@ -191,7 +214,39 @@ export async function fetchSpotifyPreview(
   }
 }
 
+async function fetchDiscogsApi<T>(path: string): Promise<T | null> {
+  try {
+    const res = await fetch(path, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchDiscogsCollectionPageViaApi(
+  username: string,
+  page = 1,
+  perPage = 100
+): Promise<DiscogsCollectionPageResult> {
+  const params = new URLSearchParams({
+    username,
+    page: String(page),
+    per_page: String(perPage),
+  });
+  const data = await fetchDiscogsApi<DiscogsCollectionPageResult>(
+    `/api/discogs/collection?${params}`
+  );
+  if (!data) throw new DiscogsUnavailableError();
+  return data;
+}
+
 export async function searchDiscogs(query: string, perPage = 16): Promise<DiscogsSearchHit[]> {
+  const data = await fetchDiscogsApi<{ results?: DiscogsSearchHit[] }>(
+    `/api/discogs/search?${new URLSearchParams({ q: query, per_page: String(perPage) })}`
+  );
+  if (data) return data.results ?? [];
+  if (!hasClientDiscogsToken()) return [];
   return directSearchDiscogs(requireClientDiscogsToken(), query, perPage);
 }
 
@@ -199,6 +254,11 @@ export async function searchDiscogsByBarcode(
   barcode: string,
   perPage = 5
 ): Promise<DiscogsSearchHit[]> {
+  const data = await fetchDiscogsApi<{ results?: DiscogsSearchHit[] }>(
+    `/api/discogs/search?${new URLSearchParams({ barcode, per_page: String(perPage) })}`
+  );
+  if (data) return data.results ?? [];
+  if (!hasClientDiscogsToken()) return [];
   return directSearchDiscogsByBarcode(requireClientDiscogsToken(), barcode, perPage);
 }
 
@@ -258,6 +318,9 @@ export async function fetchDiscogsCollectionPage(
   page = 1,
   perPage = 100
 ): Promise<DiscogsCollectionPageResult> {
+  const fromApi = await fetchDiscogsCollectionPageViaApi(username, page, perPage);
+  if (fromApi) return fromApi;
+  if (!hasClientDiscogsToken()) throw new DiscogsUnavailableError();
   return directFetchDiscogsCollectionPage(
     requireClientDiscogsToken(),
     username,
@@ -267,6 +330,11 @@ export async function fetchDiscogsCollectionPage(
 }
 
 export async function fetchDiscogsRelease(id: number): Promise<DiscogsReleaseDetail> {
+  const fromApi = await fetchDiscogsApi<DiscogsReleaseDetail>(`/api/discogs/release/${id}`);
+  if (fromApi) return fromApi;
+  if (!hasClientDiscogsToken()) {
+    throw new DiscogsUnavailableError();
+  }
   return directFetchDiscogsRelease(requireClientDiscogsToken(), id);
 }
 
@@ -349,6 +417,26 @@ async function fetchClientEnrichment(
   return client;
 }
 
+function buildEnrichRequestBody(
+  artist: string,
+  trackTitle: string,
+  discogsId?: number,
+  albumTitle?: string,
+  genres?: string[],
+  options?: EnrichOptions & { trackPosition?: string; usedKeys?: string[] }
+): Record<string, unknown> {
+  const body: Record<string, unknown> = { artist, title: trackTitle };
+  if (discogsId) body.discogsId = discogsId;
+  if (albumTitle?.trim()) body.album = albumTitle.trim();
+  if (options?.trackPosition?.trim()) body.position = options.trackPosition.trim();
+  if (options?.usedKeys?.length) body.usedKeys = options.usedKeys;
+  if (genres?.length) body.genres = genres;
+  if (options?.trackOnly === false) body.trackOnly = false;
+  if (options?.keyFallback === false) body.keyFallback = false;
+  if (options?.release) body.release = options.release;
+  return body;
+}
+
 async function fetchEnrichment(
   artist: string,
   trackTitle: string,
@@ -357,26 +445,20 @@ async function fetchEnrichment(
   genres?: string[],
   options?: EnrichOptions & { trackPosition?: string; usedKeys?: string[] }
 ): Promise<EnrichResult> {
-  if (import.meta.env.DEV) {
-    const params = new URLSearchParams({ artist, title: trackTitle });
-    if (discogsId) params.set('discogsId', String(discogsId));
-    if (albumTitle?.trim()) params.set('album', albumTitle.trim());
-    if (options?.trackPosition?.trim()) params.set('position', options.trackPosition.trim());
-    if (options?.usedKeys?.length) params.set('usedKeys', options.usedKeys.join(','));
-    if (genres?.length) params.set('genres', genres.join(','));
-    if (options?.trackOnly === false) params.set('genreFallback', '1');
-    if (options?.keyFallback === true) params.set('keyFallback', '1');
-
-    try {
-      const res = await fetch(`/api/enrich?${params}`, {
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (res.ok) {
-        return normalizeServerEnrich((await res.json()) as EnrichResult);
-      }
-    } catch {
-      /* fall through to client enrichment */
+  try {
+    const res = await fetch('/api/enrich', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(
+        buildEnrichRequestBody(artist, trackTitle, discogsId, albumTitle, genres, options)
+      ),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.ok) {
+      return normalizeServerEnrich((await res.json()) as EnrichResult);
     }
+  } catch {
+    /* fall through to client enrichment */
   }
 
   return fetchClientEnrichment(artist, trackTitle, discogsId, genres, options);
