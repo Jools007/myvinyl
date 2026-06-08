@@ -15,7 +15,7 @@
     "api/discogs/release/[id].ts": {
       "maxDuration": 15
     },
-    "api/discogs/search.js": {
+    "api/discogs/search.cjs": {
       "maxDuration": 15
     },
     "api/discogs/collection.ts": {
