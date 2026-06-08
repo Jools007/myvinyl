@@ -13,16 +13,13 @@
       "includeFiles": "server/**"
     },
     "api/discogs/release/[id].ts": {
-      "maxDuration": 15,
-      "includeFiles": "server/**"
+      "maxDuration": 15
     },
     "api/discogs/search.ts": {
-      "maxDuration": 15,
-      "includeFiles": "server/**"
+      "maxDuration": 15
     },
     "api/discogs/collection.ts": {
-      "maxDuration": 30,
-      "includeFiles": "server/**"
+      "maxDuration": 30
     }
   },
   "rewrites": [

@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handleDiscogsSearch } from '../../server/handlers/discogs';
+import { handleDiscogsSearch } from '../_lib/discogs/handlers';
 import { getApiEnv, logApiEnvStatus } from '../_lib/env';
 import { logApiError, logApiRequest } from '../_lib/log';
 import { queryRecord } from '../_lib/request';
