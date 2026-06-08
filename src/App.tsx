@@ -15,9 +15,9 @@ import {
   type CollectionFilterState,
 } from './components/CollectionFilters';
 import { CollectionListView } from './components/CollectionListView';
+import { GridView } from './components/GridView';
 import { LabelPrint } from './components/LabelPrint';
 import { Navigation, type NavPage } from './components/Navigation';
-import { Onboarding } from './components/Onboarding';
 import { PlayNextPanel } from './components/PlayNextPanel';
 import { RecordDetailModal } from './components/RecordDetailModal';
 import { ShelfView } from './components/ShelfView';
@@ -35,16 +35,17 @@ import {
   type PlaySelection,
 } from './lib/playSession';
 import { getLastPlayed } from './lib/recommendations';
-import { vibeConfig } from './lib/vibes';
 import { useAuth } from './contexts/AuthContext';
 import { useCollection } from './hooks/useCollection';
+import { normalizeGenre, normalizeVibe, parseFilterList } from './lib/filterLabels';
 import { isCdFormat } from './lib/formats';
 import { getPrimaryTrack, isReleaseFullyEnriched, patchPrimaryTrack } from './lib/tracks';
 import type { DiscogsReleaseDetail } from './lib/api';
-import type { DiscogsSearchHit, StarterVibe, Track, VinylRecord } from './lib/types';
+import { closeRecordDetail, setRecordDetailController } from './lib/recordDetail';
+import type { DiscogsSearchHit, Track, VinylRecord } from './lib/types';
 
-function getPrimaryGenre(record: VinylRecord): string {
-  return (record.genres && record.genres.length > 0) ? record.genres[0] : 'Other';
+function recordHasGenre(record: VinylRecord, genre: string): boolean {
+  return record.genres.some((g) => normalizeGenre(g) === genre);
 }
 
 function App() {
@@ -62,7 +63,6 @@ function App() {
     removeRecord,
     markPlayed,
     updateSettings,
-    loadDemo,
     collectionLoading,
     collectionError,
     retryCollectionLoad,
@@ -75,8 +75,9 @@ function App() {
   const [scanAddHit, setScanAddHit] = useState<DiscogsSearchHit | null>(null);
   const [scanAddRelease, setScanAddRelease] = useState<DiscogsReleaseDetail | null>(null);
   const [scanAddOpen, setScanAddOpen] = useState(false);
-  const [editingRecord, setEditingRecord] = useState<VinylRecord | null>(null);
   const [detail, setDetail] = useState<VinylRecord | null>(null);
+  const [detailEditOnOpen, setDetailEditOnOpen] = useState(false);
+  const [detailSession, setDetailSession] = useState(0);
   const [labelSelection, setLabelSelection] = useState<Set<string>>(new Set());
   const [discogsImportOpen, setDiscogsImportOpen] = useState(false);
   const [clearCollectionOpen, setClearCollectionOpen] = useState(false);
@@ -121,7 +122,9 @@ function App() {
   const availableVibes = useMemo(
     () => [
       ...new Set(
-        records.flatMap((r) => getPrimaryTrack(r)?.vibeTags ?? [])
+        records.flatMap((r) =>
+          (getPrimaryTrack(r)?.vibeTags ?? []).flatMap((tag) => parseFilterList(tag))
+        )
       ),
     ],
     [records]
@@ -130,7 +133,9 @@ function App() {
   const availableGenres = useMemo(() => {
     const set = new Set<string>();
     records.forEach((r) => {
-      set.add(getPrimaryGenre(r));
+      r.genres.forEach((g) => {
+        parseFilterList(g).forEach((genre) => set.add(genre));
+      });
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [records]);
@@ -142,7 +147,7 @@ function App() {
         return false;
       }
       if (collectionFilters.format && r.format !== collectionFilters.format) return false;
-      if (collectionFilters.genre && getPrimaryGenre(r) !== collectionFilters.genre) {
+      if (collectionFilters.genre && !recordHasGenre(r, collectionFilters.genre)) {
         return false;
       }
       if (collectionFilters.condition && r.condition !== collectionFilters.condition) {
@@ -152,8 +157,8 @@ function App() {
         const vibe = collectionFilters.vibe.toLowerCase();
         const track = getPrimaryTrack(r);
         const hasVibe =
-          (track?.vibeTags ?? []).some((t) => t.toLowerCase().includes(vibe)) ||
-          r.genres.some((g) => g.toLowerCase().includes(vibe));
+          (track?.vibeTags ?? []).some((t) => normalizeVibe(t).toLowerCase() === vibe) ||
+          r.genres.some((g) => normalizeGenre(g).toLowerCase() === vibe);
         if (!hasVibe) return false;
       }
       const primary = getPrimaryTrack(r);
@@ -162,11 +167,19 @@ function App() {
     });
   }, [records, collectionFilters]);
 
-  const handleOnboarding = (vibe: StarterVibe, withDemo: boolean) => {
-    if (withDemo) loadDemo();
-    updateSettings({ starterVibe: vibe, onboardingComplete: true });
-    toast.success(`Crate tuned for ${vibeConfig(vibe).label}`);
-  };
+  const hadUserRef = useRef(false);
+  useEffect(() => {
+    if (user && !hadUserRef.current) {
+      hadUserRef.current = true;
+      setPage('collection');
+      if (!settings.onboardingComplete) {
+        updateSettings({ onboardingComplete: true });
+      }
+    }
+    if (!user) {
+      hadUserRef.current = false;
+    }
+  }, [user, settings.onboardingComplete, updateSettings]);
 
   const handlePlayNow = useCallback(
     (record: VinylRecord, track: Track) => {
@@ -207,9 +220,25 @@ function App() {
     [nowPlaying]
   );
 
-  const handleEditRecord = (record: VinylRecord) => {
-    setEditingRecord(record);
-  };
+  const handleCloseRecordDetail = useCallback(() => {
+    setDetail(null);
+    setDetailEditOnOpen(false);
+  }, []);
+
+  useEffect(() => {
+    setRecordDetailController({
+      open: (record, initialEditing = false) => {
+        setScanAddOpen(false);
+        setScanAddHit(null);
+        setScanAddRelease(null);
+        setDetailSession((n) => n + 1);
+        setDetailEditOnOpen(initialEditing);
+        setDetail(record);
+      },
+      close: handleCloseRecordDetail,
+    });
+    return () => setRecordDetailController(null);
+  }, [handleCloseRecordDetail]);
 
   const handleEnrichRelease = async (recordId: string) => {
     const before = records.find((r) => r.id === recordId);
@@ -296,15 +325,6 @@ function App() {
     );
   }
 
-  if (!settings.onboardingComplete) {
-    return (
-      <>
-        <Onboarding onComplete={handleOnboarding} />
-        <Toaster position="bottom-center" richColors theme="system" />
-      </>
-    );
-  }
-
   if (collectionError && !collectionLoading) {
     return (
       <>
@@ -327,7 +347,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-dvh pb-20 sm:pb-8">
+    <div className="app-shell--mobile-tabs min-h-dvh">
       <BackgroundSyncIndicator status={backgroundSync} />
       <Navigation
         page={page}
@@ -338,7 +358,13 @@ function App() {
       />
 
       <main
-        className={`mx-auto max-w-7xl px-3 sm:px-6 ${page === 'collection' ? 'pb-8 -mt-6 pt-0 sm:mt-0 sm:pt-4' : 'py-8'}`}
+        className={`mx-auto max-w-7xl px-3 sm:px-6 ${
+          page === 'collection'
+            ? 'pb-8 pt-0 sm:pt-4'
+            : page === 'labels'
+              ? 'pb-0 pt-3 sm:py-8'
+              : 'py-8'
+        }`}
       >
         <AnimatePresence mode="wait">
           {page === 'collection' && (
@@ -365,7 +391,7 @@ function App() {
                 }}
               />
 
-              <section className="collection-main -mt-4 pt-0 sm:mt-0 sm:pt-1">
+              <section className="collection-main sm:pt-1">
                 <CollectionFilters
                   filters={collectionFilters}
                   onChange={(patch) =>
@@ -396,25 +422,24 @@ function App() {
                     </button>
                   </div>
                 ) : settings.viewMode === 'shelf' ? (
-                  <ShelfView
-                    records={filtered}
-                    onSelect={setDetail}
-                    onEdit={handleEditRecord}
-                  />
-                ) : (
+                  <ShelfView records={filtered} />
+                ) : settings.viewMode === 'list' ? (
                   <CollectionListView
                     records={filtered}
                     liveEnrich={liveEnrich}
-                    onSelect={setDetail}
                     onPlayNow={handlePlayNow}
                     onAddToQueue={handleAddToQueue}
-                    onEdit={(record) => setEditingRecord(record)}
                     onEnrichRelease={handleEnrichRelease}
                     onDelete={(id) => {
                       removeRecord(id);
-                      if (detail?.id === id) setDetail(null);
+                      if (detail?.id === id) closeRecordDetail();
                       toast.success('Removed from collection');
                     }}
+                  />
+                ) : (
+                  <GridView
+                    records={filtered}
+                    onPlay={(record) => markPlayed(record.id)}
                   />
                 )}
               </section>
@@ -432,7 +457,6 @@ function App() {
                 collection={records}
                 nowPlaying={playAnchor}
                 queue={resolvedQueue}
-                onSelect={setDetail}
                 onPlayNow={handlePlayNow}
               />
             </motion.div>
@@ -457,6 +481,11 @@ function App() {
                 onSaveVibes={(id, vibeTags) =>
                   updateRecord(id, (r) => patchPrimaryTrack(r, { vibeTags }))
                 }
+                onSaveLabelDisplay={(id, labelDisplay) =>
+                  updateRecord(id, { labelDisplay })
+                }
+                onEnrichRelease={handleEnrichRelease}
+                enrichingRecordId={liveEnrich?.recordId ?? null}
               />
             </motion.div>
           )}
@@ -506,26 +535,23 @@ function App() {
       />
 
       <RecordDetailModal
+        key={
+          detail
+            ? `${detail.id}-${detailEditOnOpen ? 'edit' : 'view'}-${detailSession}`
+            : 'closed'
+        }
         record={detail}
-        onClose={() => setDetail(null)}
-        onUpdate={updateRecord}
-        onDelete={removeRecord}
-        onPlay={markPlayed}
-      />
-
-      <DiscoverAddPanel
-        hit={null}
-        editingRecord={editingRecord}
-        open={editingRecord != null}
-        onClose={() => setEditingRecord(null)}
+        initialEditing={detailEditOnOpen}
+        onClose={handleCloseRecordDetail}
         onUpdate={(id, patch) => {
-          const label = editingRecord;
           updateRecord(id, patch);
-          setEditingRecord(null);
+          const label = detail;
           toast.success('Record updated', {
             description: label ? `${label.artist} — ${label.title}` : undefined,
           });
         }}
+        onDelete={removeRecord}
+        onPlay={markPlayed}
       />
 
       <ClearCollectionModal
@@ -534,8 +560,7 @@ function App() {
         onClose={() => setClearCollectionOpen(false)}
         onConfirm={(mode) => {
           const removed = clearCollection(mode);
-          setDetail(null);
-          setEditingRecord(null);
+          closeRecordDetail();
           setPlayQueue([]);
           setNowPlaying(null);
           if (removed > 0) {

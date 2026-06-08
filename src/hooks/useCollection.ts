@@ -174,7 +174,7 @@ export function useCollection() {
   );
 
   useEffect(() => {
-    if (!settings.onboardingComplete || !hydrated) return;
+    if (!hydrated) return;
     if (backgroundStarted.current || !needsBackgroundMigration()) return;
     backgroundStarted.current = true;
 
@@ -210,7 +210,7 @@ export function useCollection() {
       cancelled = true;
       setBackgroundSync(idleSync);
     };
-  }, [settings.onboardingComplete, hydrated, schedulePersistRecord]);
+  }, [hydrated, schedulePersistRecord]);
 
   const loadDemo = useCallback(() => {
     const entries = DEMO_RECORDS.map((record) => ({ ...record, id: generateId() }));
