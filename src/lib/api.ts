@@ -465,13 +465,37 @@ async function fetchEnrichment(
   genres?: string[],
   options?: EnrichOptions & { trackPosition?: string; usedKeys?: string[] }
 ): Promise<EnrichResult> {
+  const body = buildEnrichRequestBody(artist, trackTitle, discogsId, albumTitle, genres, options);
+
+  const enrichParams = new URLSearchParams({
+    enrich: '1',
+    artist: artist.trim(),
+    title: trackTitle.trim(),
+  });
+  if (discogsId) enrichParams.set('discogsId', String(discogsId));
+  if (albumTitle?.trim()) enrichParams.set('album', albumTitle.trim());
+  if (options?.trackPosition?.trim()) enrichParams.set('position', options.trackPosition.trim());
+  if (genres?.length) enrichParams.set('genres', genres.join(','));
+  if (options?.usedKeys?.length) enrichParams.set('usedKeys', options.usedKeys.join(','));
+  if (options?.trackOnly === false) enrichParams.set('genreFallback', '1');
+  if (options?.keyFallback === false) enrichParams.set('keyFallback', '0');
+
+  try {
+    const getRes = await fetch(`/api/health?${enrichParams}`, {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (getRes.ok) {
+      return normalizeServerEnrich((await getRes.json()) as EnrichResult);
+    }
+  } catch {
+    /* try POST fallback */
+  }
+
   try {
     const res = await fetch('/api/enrich', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(
-        buildEnrichRequestBody(artist, trackTitle, discogsId, albumTitle, genres, options)
-      ),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(10_000),
     });
     if (res.ok) {

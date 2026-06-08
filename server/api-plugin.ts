@@ -68,6 +68,24 @@ export function apiPlugin(env: Env): Plugin {
         if (!path.startsWith('/api/')) return next();
 
         if (path === '/api/health' && req.method === 'GET') {
+          const enrich = url.searchParams.get('enrich');
+          if (enrich === '1' || enrich === 'true') {
+            try {
+              const input = parseEnrichQuery(Object.fromEntries(url.searchParams.entries()));
+              const result = await handleEnrich(input, {
+                discogsToken: env.DISCOGS_TOKEN,
+                spotifyId: env.SPOTIFY_CLIENT_ID,
+                spotifySecret: env.SPOTIFY_CLIENT_SECRET,
+                lastfmKey: env.LASTFM_API_KEY,
+              });
+              return json(res, 200, result);
+            } catch (e) {
+              if (e instanceof EnrichValidationError) {
+                return json(res, 400, { error: e.message });
+              }
+              throw e;
+            }
+          }
           return json(res, 200, { status: 'ok', environment: 'development' });
         }
 

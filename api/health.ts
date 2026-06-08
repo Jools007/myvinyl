@@ -3,8 +3,9 @@ import {
   EnrichValidationError,
   handleEnrich,
   parseEnrichBody,
+  parseEnrichQuery,
 } from './_lib/enrich/handler';
-import { InvalidJsonBodyError, parseJsonBody } from './_lib/request';
+import { InvalidJsonBodyError, parseJsonBody, queryRecord } from './_lib/request';
 
 const DISCOGS_API = 'https://api.discogs.com';
 
@@ -212,6 +213,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const enrichFlag = typeof req.query.enrich === 'string' ? req.query.enrich : undefined;
+  if (enrichFlag === '1' || enrichFlag === 'true') {
+    try {
+      const input = parseEnrichQuery(queryRecord(req.query));
+      const result = await handleEnrich(input, {
+        spotifyId: process.env.SPOTIFY_CLIENT_ID?.trim(),
+        spotifySecret: process.env.SPOTIFY_CLIENT_SECRET?.trim(),
+      });
+      return res.status(200).json(result);
+    } catch (error) {
+      if (error instanceof EnrichValidationError) {
+        return res.status(400).json({ error: error.message });
+      }
+      const message = error instanceof Error ? error.message : 'Enrichment failed';
+      return res.status(502).json({ error: message });
+    }
   }
 
   const releaseIdRaw = typeof req.query.releaseId === 'string' ? req.query.releaseId : undefined;
