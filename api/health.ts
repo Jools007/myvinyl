@@ -2,12 +2,64 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const DISCOGS_API = 'https://api.discogs.com';
 
+type DiscogsTrackRow = {
+  title?: string;
+  position?: string;
+  duration?: string;
+  type_?: string;
+  type?: string;
+  sub_tracks?: DiscogsTrackRow[];
+};
+
 function discogsHeaders(token: string): Record<string, string> {
   return {
     'User-Agent': 'MyVinyl/1.0 +https://myvinyl.app',
     Accept: 'application/vnd.discogs.v2.discogs+json',
     Authorization: `Discogs token=${token}`,
   };
+}
+
+function flattenDiscogsTracklist(tracklist: DiscogsTrackRow[] | undefined): DiscogsTrackRow[] {
+  if (!tracklist?.length) return [];
+
+  const out: DiscogsTrackRow[] = [];
+  for (const row of tracklist) {
+    const subs = (row.sub_tracks ?? []).filter((s) => s.title?.trim());
+    if (subs.length > 0) {
+      for (const sub of subs) {
+        out.push({
+          ...sub,
+          position: sub.position?.trim() || row.position?.trim() || undefined,
+          type_: sub.type_ ?? sub.type ?? 'track',
+        });
+      }
+      continue;
+    }
+    out.push(row);
+  }
+  return out;
+}
+
+function extractBpmKey(
+  notes?: string,
+  tracklist?: { title: string }[]
+): { bpm?: number; key?: string } {
+  const text = [notes, ...(tracklist || []).map((t) => t.title)].filter(Boolean).join(' ');
+  const bpmMatch = text.match(/\b(\d{2,3})\s*BPM\b/i);
+  const keyMatch =
+    text.match(/\b(\d{1,2}[AB])\b/i) ||
+    text.match(/\b([A-G][#b]?(?:\s*(?:major|minor|maj|min|m))?)\b/i);
+  return {
+    bpm: bpmMatch ? parseInt(bpmMatch[1], 10) : undefined,
+    key: keyMatch ? keyMatch[1].toUpperCase().replace(/\s+/g, '') : undefined,
+  };
+}
+
+function bestCoverImage(images?: { uri: string; type: string }[]): string | undefined {
+  if (!images?.length) return undefined;
+  const primary = images.find((i) => i.type === 'primary');
+  const uri = primary?.uri || images[0]?.uri;
+  return uri?.startsWith('https://') ? uri : undefined;
 }
 
 function parseSearchResult(item: Record<string, unknown>) {
@@ -31,6 +83,68 @@ function parseSearchResult(item: Record<string, unknown>) {
     country: item.country ? String(item.country) : undefined,
     resource_url: String(item.resource_url || `https://www.discogs.com/release/${item.id}`),
   };
+}
+
+function mapDiscogsReleaseDetail(data: {
+  id: number;
+  title: string;
+  artists?: { name: string }[];
+  year?: number;
+  genres?: string[];
+  styles?: string[];
+  notes?: string;
+  images?: { uri: string; type: string }[];
+  tracklist?: DiscogsTrackRow[];
+}) {
+  const tracklist = flattenDiscogsTracklist(data.tracklist).filter((row) => Boolean(row.title?.trim()));
+  const meta = extractBpmKey(
+    data.notes,
+    tracklist.map((row) => ({ title: row.title!.trim() }))
+  );
+  const artist =
+    data.artists?.map((entry) => entry.name).join(', ') ||
+    data.title?.split(' - ')[0] ||
+    'Unknown';
+
+  return {
+    id: data.id,
+    title: data.title,
+    artist,
+    year: data.year ? String(data.year) : undefined,
+    genres: [...(data.genres || []), ...(data.styles || [])],
+    coverUrl: bestCoverImage(data.images),
+    bpm: meta.bpm,
+    camelotKey: meta.key?.match(/^\d{1,2}[AB]$/i) ? meta.key.toUpperCase() : undefined,
+    musicalKey: meta.key,
+    notes: data.notes,
+    tracklist: tracklist.map((row) => ({
+      title: row.title!.trim(),
+      position: row.position,
+      duration: row.duration,
+      type_: row.type_,
+      type: row.type,
+    })),
+  };
+}
+
+async function discogsRelease(id: number, res: VercelResponse) {
+  const token = process.env.DISCOGS_TOKEN?.trim();
+  if (!token) {
+    return res.status(503).json({ error: 'DISCOGS_TOKEN not configured' });
+  }
+
+  const discogsRes = await fetch(`${DISCOGS_API}/releases/${id}`, {
+    headers: discogsHeaders(token),
+  });
+
+  if (!discogsRes.ok) {
+    const text = await discogsRes.text();
+    const status = discogsRes.status === 429 ? 429 : 502;
+    return res.status(status).json({ error: `Discogs release failed: ${discogsRes.status} ${text}` });
+  }
+
+  const raw = (await discogsRes.json()) as Parameters<typeof mapDiscogsReleaseDetail>[0];
+  return res.status(200).json(mapDiscogsReleaseDetail(raw));
 }
 
 async function discogsSearch(req: VercelRequest, res: VercelResponse) {
@@ -72,6 +186,24 @@ async function discogsSearch(req: VercelRequest, res: VercelResponse) {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Content-Type', 'application/json');
+
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const releaseIdRaw = typeof req.query.releaseId === 'string' ? req.query.releaseId : undefined;
+  if (releaseIdRaw) {
+    const id = Number(releaseIdRaw);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'Valid release id required' });
+    }
+    try {
+      return await discogsRelease(id, res);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Discogs release failed';
+      return res.status(502).json({ error: message });
+    }
+  }
 
   const q = typeof req.query.q === 'string' ? req.query.q : undefined;
   const barcode = typeof req.query.barcode === 'string' ? req.query.barcode : undefined;

@@ -14,16 +14,13 @@
     "api/health.ts": {
       "maxDuration": 15
     },
-    "api/discogs/release/[id].ts": {
-      "maxDuration": 15
-    },
-
     "api/discogs/collection.ts": {
       "maxDuration": 30
     }
   },
   "rewrites": [
     { "source": "/api/discogs/search", "destination": "/api/health" },
+    { "source": "/api/discogs/release/:id", "destination": "/api/health?releaseId=:id" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
