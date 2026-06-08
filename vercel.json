@@ -9,21 +9,21 @@
       "includeFiles": "server/**"
     },
     "api/album-info.ts": {
-      "maxDuration": 10,
-      "includeFiles": "server/**"
+      "maxDuration": 10
+    },
+    "api/health.ts": {
+      "maxDuration": 15
     },
     "api/discogs/release/[id].ts": {
       "maxDuration": 15
     },
-    "api/discogs/search.cjs": {
-      "maxDuration": 15
-    },
+
     "api/discogs/collection.ts": {
       "maxDuration": 30
     }
   },
   "rewrites": [
-
+    { "source": "/api/discogs/search", "destination": "/api/health" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
