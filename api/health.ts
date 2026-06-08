@@ -1,13 +1,172 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import {
-  EnrichValidationError,
-  handleEnrich,
-  parseEnrichBody,
-  parseEnrichQuery,
-} from './_lib/enrich/handler';
-import { InvalidJsonBodyError, parseJsonBody, queryRecord } from './_lib/request';
 
 const DISCOGS_API = 'https://api.discogs.com';
+
+const WHEEL_NEIGHBORS: Record<string, string[]> = {
+  '1A': ['12A', '2A', '1B'], '2A': ['1A', '3A', '2B'], '3A': ['2A', '4A', '3B'],
+  '4A': ['3A', '5A', '4B'], '5A': ['4A', '6A', '5B'], '6A': ['5A', '7A', '6B'],
+  '7A': ['6A', '8A', '7B'], '8A': ['7A', '9A', '8B'], '9A': ['8A', '10A', '9B'],
+  '10A': ['9A', '11A', '10B'], '11A': ['10A', '12A', '11B'], '12A': ['11A', '1A', '12B'],
+  '1B': ['12B', '2B', '1A'], '2B': ['1B', '3B', '2A'], '3B': ['2B', '4B', '3A'],
+  '4B': ['3B', '5B', '4A'], '5B': ['4B', '6B', '5A'], '6B': ['5B', '7B', '6A'],
+  '7B': ['6B', '8B', '7A'], '8B': ['7B', '9B', '8A'], '9B': ['8B', '10B', '9A'],
+  '10B': ['9B', '11B', '10A'], '11B': ['10B', '12B', '11A'], '12B': ['11B', '1B', '12A'],
+};
+
+const GENRE_CAMELOT: [string, string][] = [
+  ['deep house', '10A'], ['house', '8A'], ['techno', '8A'], ['soul', '8B'],
+  ['r&b', '5B'], ['disco', '10B'], ['funk', '5B'], ['jazz', '3B'], ['pop', '9B'],
+];
+
+const CAMELOT: Record<string, string> = {
+  '0-0': '5A', '0-1': '8B', '1-0': '12A', '1-1': '3B', '2-0': '7A', '2-1': '10B',
+  '3-0': '2A', '3-1': '5B', '4-0': '9A', '4-1': '12B', '5-0': '4A', '5-1': '7B',
+  '6-0': '11A', '6-1': '2B', '7-0': '6A', '7-1': '9B', '8-0': '1A', '8-1': '4B',
+  '9-0': '8A', '9-1': '11B', '10-0': '3A', '10-1': '6B', '11-0': '10A', '11-1': '1B',
+};
+
+function hashTrackSeed(artist: string, title: string): number {
+  const s = `${artist.trim().toLowerCase()}|${title.trim().toLowerCase()}`;
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+function genreBpmProfile(genres: string[]) {
+  const text = genres.join(' ').toLowerCase();
+  if (text.includes('drum and bass') || text.includes('dnb')) return { center: 172, min: 160, max: 188 };
+  if (text.includes('techno')) return { center: 128, min: 118, max: 140 };
+  if (text.includes('deep house')) return { center: 122, min: 112, max: 128 };
+  if (text.includes('house')) return { center: 124, min: 115, max: 132 };
+  if (text.includes('soul') || text.includes('r&b')) return { center: 98, min: 88, max: 108 };
+  if (text.includes('disco') || text.includes('funk')) return { center: 118, min: 105, max: 126 };
+  if (text.includes('pop')) return { center: 112, min: 95, max: 128 };
+  return { center: 118, min: 95, max: 132 };
+}
+
+function pickEstimatedBpm(genres: string[], artist: string, title: string, position?: string): number {
+  const profile = genreBpmProfile(genres);
+  const steps = [profile.min, Math.round((profile.min + profile.center) / 2), profile.center,
+    Math.round((profile.center + profile.max) / 2), profile.max];
+  const seed = position?.trim() ? `${position.trim()}|${title}` : title;
+  const bpm = steps[hashTrackSeed(artist, seed) % steps.length];
+  return Math.min(profile.max, Math.max(profile.min, bpm));
+}
+
+function pickEstimatedCamelotKey(
+  artist: string, title: string, genres: string[], usedKeys: string[] = [], position?: string
+): string | undefined {
+  if (!genres.length) return undefined;
+  const text = genres.join(' ').toLowerCase();
+  let base = '5A';
+  for (const [key, camelot] of GENRE_CAMELOT) {
+    if (text.includes(key)) { base = camelot; break; }
+  }
+  const pool = [base, ...(WHEEL_NEIGHBORS[base] ?? [])];
+  const seed = position?.trim() ? `${position.trim()}|${title}` : title;
+  const start = hashTrackSeed(artist, seed) % pool.length;
+  for (let i = 0; i < pool.length; i++) {
+    const key = pool[(start + i) % pool.length];
+    if (!usedKeys.some((k) => k.toUpperCase() === key)) return key;
+  }
+  return pool[start];
+}
+
+function spotifyToCamelot(key: number, mode: number): string | undefined {
+  return key >= 0 && key <= 11 ? CAMELOT[`${key}-${mode}`] : undefined;
+}
+
+function parseRequestBody(req: VercelRequest): Record<string, unknown> {
+  const raw = req.body;
+  if (raw == null || raw === '') return {};
+  if (typeof raw === 'string') return JSON.parse(raw) as Record<string, unknown>;
+  if (typeof raw === 'object') return raw as Record<string, unknown>;
+  return {};
+}
+
+async function runEnrich(opts: {
+  artist: string;
+  title: string;
+  genres?: string[];
+  position?: string;
+  usedKeys?: string[];
+  keyFallback?: boolean;
+  coverUrl?: string;
+}) {
+  const genres = [...new Set(opts.genres ?? [])].slice(0, 12);
+  const keyFallback = opts.keyFallback !== false;
+  const usedKeys = opts.usedKeys ?? [];
+  let bpm: number | undefined;
+  let camelotKey: string | undefined;
+  let bpmEstimated = false;
+  let keyEstimated = false;
+  let trackSpecific = false;
+  let spotifyTrackId: string | undefined;
+
+  const spotifyId = process.env.SPOTIFY_CLIENT_ID?.trim();
+  const spotifySecret = process.env.SPOTIFY_CLIENT_SECRET?.trim();
+  if (spotifyId && spotifySecret) {
+    try {
+      const auth = Buffer.from(`${spotifyId}:${spotifySecret}`).toString('base64');
+      const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: `Basic ${auth}` },
+        body: 'grant_type=client_credentials',
+      });
+      if (tokenRes.ok) {
+        const tokenData = (await tokenRes.json()) as { access_token?: string };
+        if (tokenData.access_token) {
+          const q = `track:${opts.title} artist:${opts.artist}`;
+          const searchRes = await fetch(
+            `https://api.spotify.com/v1/search?${new URLSearchParams({ q, type: 'track', limit: '3' })}`,
+            { headers: { Authorization: `Bearer ${tokenData.access_token}` } }
+          );
+          if (searchRes.ok) {
+            const searchData = (await searchRes.json()) as {
+              tracks?: { items?: { id: string }[] };
+            };
+            const trackId = searchData.tracks?.items?.[0]?.id;
+            if (trackId) {
+              spotifyTrackId = trackId;
+              const featuresRes = await fetch(`https://api.spotify.com/v1/audio-features/${trackId}`, {
+                headers: { Authorization: `Bearer ${tokenData.access_token}` },
+              });
+              if (featuresRes.ok) {
+                const f = (await featuresRes.json()) as { tempo?: number; key?: number; mode?: number };
+                if (f.tempo) { bpm = Math.round(f.tempo); trackSpecific = true; }
+                if (f.key != null && f.mode != null) {
+                  camelotKey = spotifyToCamelot(f.key, f.mode);
+                  trackSpecific = true;
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch { /* genre fallback */ }
+  }
+
+  if (bpm == null && genres.length) {
+    bpm = pickEstimatedBpm(genres, opts.artist, opts.title, opts.position);
+    bpmEstimated = true;
+  }
+  if (!camelotKey && keyFallback && genres.length) {
+    camelotKey = pickEstimatedCamelotKey(opts.artist, opts.title, genres, usedKeys, opts.position);
+    keyEstimated = Boolean(camelotKey);
+  }
+
+  return {
+    coverUrl: opts.coverUrl,
+    genres,
+    bpm,
+    camelotKey,
+    vibeTags: [] as string[],
+    bpmEstimated,
+    keyEstimated,
+    trackSpecific,
+    spotifyTrackId,
+  };
+}
 
 type DiscogsTrackRow = {
   title?: string;
@@ -196,16 +355,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'POST') {
     try {
-      const input = parseEnrichBody(parseJsonBody(req));
-      const result = await handleEnrich(input, {
-        spotifyId: process.env.SPOTIFY_CLIENT_ID?.trim(),
-        spotifySecret: process.env.SPOTIFY_CLIENT_SECRET?.trim(),
+      const data = parseRequestBody(req);
+      const artist = typeof data.artist === 'string' ? data.artist.trim() : '';
+      const title = typeof data.title === 'string' ? data.title.trim() : '';
+      if (!artist || !title) return res.status(400).json({ error: 'artist and title are required' });
+      const genres = Array.isArray(data.genres)
+        ? data.genres.map((g) => String(g).trim()).filter(Boolean)
+        : undefined;
+      const release = data.release && typeof data.release === 'object'
+        ? (data.release as { genres?: string[]; coverUrl?: string })
+        : undefined;
+      const result = await runEnrich({
+        artist,
+        title,
+        genres: [...new Set([...(genres ?? []), ...(release?.genres ?? [])])],
+        position: typeof data.position === 'string' ? data.position.trim() : undefined,
+        usedKeys: Array.isArray(data.usedKeys)
+          ? data.usedKeys.map((k) => String(k).trim()).filter(Boolean)
+          : undefined,
+        keyFallback: data.keyFallback !== false,
+        coverUrl: release?.coverUrl,
       });
       return res.status(200).json(result);
     } catch (error) {
-      if (error instanceof EnrichValidationError || error instanceof InvalidJsonBodyError) {
-        return res.status(400).json({ error: error.message });
-      }
       const message = error instanceof Error ? error.message : 'Enrichment failed';
       return res.status(502).json({ error: message });
     }
@@ -218,16 +390,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const enrichFlag = typeof req.query.enrich === 'string' ? req.query.enrich : undefined;
   if (enrichFlag === '1' || enrichFlag === 'true') {
     try {
-      const input = parseEnrichQuery(queryRecord(req.query));
-      const result = await handleEnrich(input, {
-        spotifyId: process.env.SPOTIFY_CLIENT_ID?.trim(),
-        spotifySecret: process.env.SPOTIFY_CLIENT_SECRET?.trim(),
+      const artist = typeof req.query.artist === 'string' ? req.query.artist.trim() : '';
+      const title = typeof req.query.title === 'string' ? req.query.title.trim() : '';
+      if (!artist || !title) return res.status(400).json({ error: 'artist and title are required' });
+      const genresRaw = typeof req.query.genres === 'string' ? req.query.genres : '';
+      const genres = genresRaw ? genresRaw.split(',').map((g) => g.trim()).filter(Boolean) : undefined;
+      const usedKeysRaw = typeof req.query.usedKeys === 'string' ? req.query.usedKeys : '';
+      const result = await runEnrich({
+        artist,
+        title,
+        genres,
+        position: typeof req.query.position === 'string' ? req.query.position.trim() : undefined,
+        usedKeys: usedKeysRaw ? usedKeysRaw.split(',').map((k) => k.trim()).filter(Boolean) : undefined,
+        keyFallback: req.query.keyFallback !== '0',
       });
       return res.status(200).json(result);
     } catch (error) {
-      if (error instanceof EnrichValidationError) {
-        return res.status(400).json({ error: error.message });
-      }
       const message = error instanceof Error ? error.message : 'Enrichment failed';
       return res.status(502).json({ error: message });
     }
