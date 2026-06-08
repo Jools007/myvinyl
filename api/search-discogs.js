@@ -1,8 +1,6 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-
 const DISCOGS_API = 'https://api.discogs.com';
 
-function discogsHeaders(token: string): Record<string, string> {
+function discogsHeaders(token) {
   return {
     'User-Agent': 'MyVinyl/1.0 +https://myvinyl.app',
     Accept: 'application/vnd.discogs.v2.discogs+json',
@@ -10,7 +8,7 @@ function discogsHeaders(token: string): Record<string, string> {
   };
 }
 
-function parseSearchResult(item: Record<string, unknown>) {
+function parseSearchResult(item) {
   const title = String(item.title || '');
   const parts = title.split(' - ');
   const artist = parts.length > 1 ? parts[0] : String(item.artist || 'Unknown');
@@ -24,16 +22,16 @@ function parseSearchResult(item: Record<string, unknown>) {
     year: item.year ? String(item.year) : undefined,
     thumb: String(item.thumb || item.cover_image || ''),
     cover: item.cover_image ? String(item.cover_image) : item.thumb ? String(item.thumb) : undefined,
-    format: Array.isArray(item.format) ? (item.format as string[]) : undefined,
-    genre: Array.isArray(item.genre) ? (item.genre as string[]) : undefined,
-    style: Array.isArray(item.style) ? (item.style as string[]) : undefined,
-    label: Array.isArray(item.label) ? (item.label as string[]) : undefined,
+    format: Array.isArray(item.format) ? item.format : undefined,
+    genre: Array.isArray(item.genre) ? item.genre : undefined,
+    style: Array.isArray(item.style) ? item.style : undefined,
+    label: Array.isArray(item.label) ? item.label : undefined,
     country: item.country ? String(item.country) : undefined,
     resource_url: String(item.resource_url || `https://www.discogs.com/release/${item.id}`),
   };
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -59,7 +57,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       page: '1',
     });
     if (barcode?.trim()) params.set('barcode', barcode.trim());
-    else params.set('q', q!.trim());
+    else params.set('q', q.trim());
 
     const discogsRes = await fetch(`${DISCOGS_API}/database/search?${params}`, {
       headers: discogsHeaders(token),
@@ -71,7 +69,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(status).json({ error: `Discogs search failed: ${discogsRes.status} ${text}` });
     }
 
-    const data = (await discogsRes.json()) as { results?: Record<string, unknown>[] };
+    const data = await discogsRes.json();
     return res.status(200).json({ results: (data.results ?? []).map(parseSearchResult) });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Discogs search failed';
