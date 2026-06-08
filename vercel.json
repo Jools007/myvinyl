@@ -4,9 +4,7 @@
   "outputDirectory": "dist",
   "framework": null,
   "functions": {
-    "api/enrich.ts": {
-      "maxDuration": 15
-    },
+
     "api/album-info.ts": {
       "maxDuration": 10
     },
@@ -18,6 +16,7 @@
     }
   },
   "rewrites": [
+    { "source": "/api/enrich", "destination": "/api/health" },
     { "source": "/api/discogs/search", "destination": "/api/health" },
     { "source": "/api/discogs/release/:id", "destination": "/api/health?releaseId=:id" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
