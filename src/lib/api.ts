@@ -267,7 +267,7 @@ async function fetchDiscogsCollectionPageViaApi(
 
 export async function searchDiscogs(query: string, perPage = 16): Promise<DiscogsSearchHit[]> {
   const result = await fetchDiscogsApi<{ results?: DiscogsSearchHit[] }>(
-    `/api/discogs/search?${new URLSearchParams({ q: query, per_page: String(perPage) })}`
+    `/api/search-discogs?${new URLSearchParams({ q: query, per_page: String(perPage) })}`
   );
   if (result.ok) return result.data.results ?? [];
   if (shouldUseClientDiscogsFallback(result.status) && hasClientDiscogsToken()) {
@@ -281,7 +281,7 @@ export async function searchDiscogsByBarcode(
   perPage = 5
 ): Promise<DiscogsSearchHit[]> {
   const result = await fetchDiscogsApi<{ results?: DiscogsSearchHit[] }>(
-    `/api/discogs/search?${new URLSearchParams({ barcode, per_page: String(perPage) })}`
+    `/api/search-discogs?${new URLSearchParams({ barcode, per_page: String(perPage) })}`
   );
   if (result.ok) return result.data.results ?? [];
   if (shouldUseClientDiscogsFallback(result.status) && hasClientDiscogsToken()) {
