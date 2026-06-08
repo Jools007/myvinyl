@@ -5,8 +5,7 @@
   "framework": null,
   "functions": {
     "api/enrich.ts": {
-      "maxDuration": 10,
-      "includeFiles": "server/**"
+      "maxDuration": 15
     },
     "api/album-info.ts": {
       "maxDuration": 10
