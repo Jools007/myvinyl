@@ -80,6 +80,21 @@ export function apiPlugin(env: Env): Plugin {
         try {
           // ── Album description (Discogs notes + Last.fm wiki) ──
           if (path === '/api/album-info' && req.method === 'GET') {
+            const q = url.searchParams.get('q') ?? undefined;
+            const barcode = url.searchParams.get('barcode') ?? undefined;
+            if (q?.trim() || barcode?.trim()) {
+              if (!discogsToken) {
+                return json(res, 503, { error: 'DISCOGS_TOKEN not configured' });
+              }
+              const perPage = parseInt(url.searchParams.get('per_page') ?? '16', 10);
+              const results = await handleDiscogsSearch(discogsToken, {
+                q,
+                barcode,
+                perPage,
+              });
+              return json(res, 200, { results });
+            }
+
             try {
               const input = parseAlbumInfoQuery(
                 Object.fromEntries(url.searchParams.entries())
