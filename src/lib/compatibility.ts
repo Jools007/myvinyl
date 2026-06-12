@@ -1,5 +1,10 @@
 import { camelotDistance, resolveTrackCamelot } from './camelot';
 import { genreAffinityScore, isDowntempoLane } from './genreAffinity';
+import {
+  isMixPartnerCandidate,
+  mixabilityAdjustment,
+  mixabilityLabel,
+} from './mixability';
 import { playSelectionKey, type PlaySelection, type ResolvedPlaySelection } from './playSession';
 import type { Track, VinylRecord } from './types';
 
@@ -94,6 +99,18 @@ function scoreCandidate(
   if (anchor.bpmEstimated || candidate.bpmEstimated) score *= 0.9;
   if (anchor.keyEstimated || candidate.keyEstimated) score *= 0.85;
 
+  const mixAdj = mixabilityAdjustment(candidate, candidateGenres, anchor);
+  if (mixAdj <= -999) return -999;
+  score += mixAdj;
+
+  if (
+    tier === 'perfect' &&
+    (anchor.bpmEstimated || candidate.bpmEstimated || anchor.keyEstimated || candidate.keyEstimated) &&
+    mixAdj < 5
+  ) {
+    score -= 12;
+  }
+
   return score;
 }
 
@@ -117,6 +134,9 @@ function buildPickReason(anchor: Track, candidate: Track, tier: CompatibilityTie
     parts.push('Wider mix — use your ears');
   }
 
+  const mixNote = mixabilityLabel(candidate);
+  if (mixNote) parts.push(mixNote);
+
   return parts.join(' · ') || 'Compatible energy';
 }
 
@@ -131,6 +151,7 @@ function coldStartPicks(
     for (const track of record.tracks) {
       const key = playSelectionKey({ recordId: record.id, trackId: track.id });
       if (excludeKeys.has(key)) continue;
+      if (!isMixPartnerCandidate(track, record.genres)) continue;
       if (track.bpm == null && !resolveTrackCamelot(track).code) continue;
 
       const code = resolveTrackCamelot(track).code;
@@ -179,22 +200,40 @@ export function recommendTieredCompatibility(
   const candidates: CompatibilityPick[] = [];
 
   for (const record of collection) {
+    let bestPick: CompatibilityPick | null = null;
+
     for (const track of record.tracks) {
       const key = playSelectionKey({ recordId: record.id, trackId: track.id });
       if (excludeKeys.has(key)) continue;
+      if (!isMixPartnerCandidate(track, record.genres)) continue;
 
       const tier = classifyCompatibilityTier(anchorTrack, track);
       if (!tier) continue;
 
-      candidates.push({
+      const score = scoreCandidate(anchorTrack, track, tier, anchor.record.genres, record.genres);
+      if (score <= -999) continue;
+
+      const pick: CompatibilityPick = {
         record,
         track,
         tier,
-        score: scoreCandidate(anchorTrack, track, tier, anchor.record.genres, record.genres),
+        score,
         reason: buildPickReason(anchorTrack, track, tier),
         bpmDelta: bpmDelta(anchorTrack.bpm, track.bpm),
-      });
+      };
+
+      if (!bestPick) {
+        bestPick = pick;
+        continue;
+      }
+
+      const tierDiff = TIER_ORDER[pick.tier] - TIER_ORDER[bestPick.tier];
+      if (tierDiff < 0 || (tierDiff === 0 && pick.score > bestPick.score)) {
+        bestPick = pick;
+      }
     }
+
+    if (bestPick) candidates.push(bestPick);
   }
 
   candidates.sort((a, b) => {
@@ -203,12 +242,9 @@ export function recommendTieredCompatibility(
     return b.score - a.score;
   });
 
-  const seen = new Set<string>();
   for (const pick of candidates) {
-    if (seen.has(pick.record.id)) continue;
     const bucket = empty[pick.tier];
     if (bucket.length >= perTier) continue;
-    seen.add(pick.record.id);
     bucket.push(pick);
   }
 

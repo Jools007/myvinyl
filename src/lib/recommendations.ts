@@ -1,5 +1,6 @@
 import { camelotDistance, isCompatibleKey, resolveTrackCamelot } from './camelot';
 import { genreAffinityScore, isDowntempoLane } from './genreAffinity';
+import { mixabilityAdjustment, isMixPartnerCandidate } from './mixability';
 import { playSelectionKey, type PlaySelection, type ResolvedPlaySelection } from './playSession';
 import { getPrimaryTrack } from './tracks';
 import type { Track, VinylRecord } from './types';
@@ -81,7 +82,29 @@ export function scoreNextPlay(
 
   score *= estimatedConfidencePenalty(lastTrack, candidateTrack);
 
-  if (score < 8 && keyDist > 2 && bpm > 12) return -1;
+  const mixAdj = mixabilityAdjustment(candidateTrack, candidate.genres, lastTrack);
+  if (mixAdj <= -999) return -1;
+  score += mixAdj;
+
+  const anchorMixable = isMixPartnerCandidate(lastTrack, last.record.genres);
+  const harmonicOnly =
+    keyDist <= 2 &&
+    bpm <= 5 &&
+    vibeOverlapTracks(lastTrack, candidateTrack) === 0 &&
+    genreAffinityScore(last.record.genres, candidate.genres) <= 0;
+  if (
+    anchorMixable &&
+    harmonicOnly &&
+    (lastTrack.bpmEstimated ||
+      candidateTrack.bpmEstimated ||
+      lastTrack.keyEstimated ||
+      candidateTrack.keyEstimated)
+  ) {
+    score -= 15;
+  }
+
+  if (score < 12 && keyDist > 2 && bpm > 12) return -1;
+  if (anchorMixable && score < 18) return -1;
 
   return Math.round(score);
 }
@@ -130,8 +153,11 @@ function recommendColdStart(
   for (const record of [...collection].sort((a, b) =>
     (b.addedAt ?? '').localeCompare(a.addedAt ?? '')
   )) {
-    const track = getPrimaryTrack(record);
-    if (!track) continue;
+    const track =
+      record.tracks.find((t) => isMixPartnerCandidate(t, record.genres) && t.isPrimary) ??
+      record.tracks.find((t) => isMixPartnerCandidate(t, record.genres)) ??
+      getPrimaryTrack(record);
+    if (!track || !isMixPartnerCandidate(track, record.genres)) continue;
     const key = playSelectionKey({ recordId: record.id, trackId: track.id });
     if (excludeKeys.has(key)) continue;
 
@@ -151,7 +177,10 @@ function bestTrackForRecord(
   record: VinylRecord
 ): { track: Track; score: number } | null {
   let best: { track: Track; score: number } | null = null;
-  for (const track of record.tracks) {
+  const mixable = record.tracks.filter((t) => isMixPartnerCandidate(t, record.genres));
+  const pool = mixable.length > 0 ? mixable : record.tracks.filter((t) => t.isPrimary);
+
+  for (const track of pool) {
     const score = scoreNextPlay(anchor, record, track);
     if (score <= 0) continue;
     if (!best || score > best.score) best = { track, score };
