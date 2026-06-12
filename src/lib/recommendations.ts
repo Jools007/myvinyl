@@ -1,4 +1,5 @@
 import { camelotDistance, isCompatibleKey, resolveTrackCamelot } from './camelot';
+import { genreAffinityScore, isDowntempoLane } from './genreAffinity';
 import { playSelectionKey, type PlaySelection, type ResolvedPlaySelection } from './playSession';
 import { getPrimaryTrack } from './tracks';
 import type { Track, VinylRecord } from './types';
@@ -18,19 +19,33 @@ function genreOverlap(a: VinylRecord, b: VinylRecord): number {
   return a.genres.filter((g) => setB.has(g.toLowerCase())).length;
 }
 
+function estimatedConfidencePenalty(anchor: Track, candidate: Track): number {
+  let factor = 1;
+  if (anchor.bpmEstimated || candidate.bpmEstimated) factor *= 0.88;
+  if (anchor.keyEstimated || candidate.keyEstimated) factor *= 0.78;
+  return factor;
+}
+
 export function scoreNextPlay(
   last: ResolvedPlaySelection,
   candidate: VinylRecord,
   candidateTrack: Track
 ): number {
   if (last.record.id === candidate.id && last.track.id === candidateTrack.id) return -1;
+
   const lastTrack = last.track;
+  const anchorKey = resolveTrackCamelot(lastTrack).code;
+  const candidateKey = resolveTrackCamelot(candidateTrack).code;
+
   let score = 0;
-  const keyDist = camelotDistance(lastTrack?.camelotKey, candidateTrack?.camelotKey);
+  const keyDist =
+    anchorKey && candidateKey ? camelotDistance(anchorKey, candidateKey) : 99;
+
   if (keyDist === 0) score += 40;
   else if (keyDist === 1) score += 35;
   else if (keyDist === 2) score += 25;
   else if (keyDist <= 4) score += 10;
+  else if (keyDist === 99) score += 2;
 
   const bpm = bpmDistance(lastTrack?.bpm, candidateTrack?.bpm);
   if (bpm <= 2) score += 25;
@@ -38,17 +53,37 @@ export function scoreNextPlay(
   else if (bpm <= 8) score += 10;
   else if (bpm <= 12) score += 4;
 
-  score += vibeOverlapTracks(lastTrack, candidateTrack) * 12;
-  score += genreOverlap(last.record, candidate) * 8;
-
-  if (!candidate.lastPlayedAt) score += 6;
-  else {
-    const days = (Date.now() - new Date(candidate.lastPlayedAt).getTime()) / 86400000;
-    if (days > 14) score += 5;
-    if (days > 30) score += 4;
+  const anchorBpm = lastTrack?.bpm;
+  const candBpm = candidateTrack?.bpm;
+  if (anchorBpm != null && candBpm != null) {
+    if (anchorBpm < 105 && candBpm > anchorBpm + 12) score -= 22;
+    if (anchorBpm >= 118 && candBpm < anchorBpm - 15) score -= 12;
   }
 
-  return score;
+  score += vibeOverlapTracks(lastTrack, candidateTrack) * 12;
+  score += genreOverlap(last.record, candidate) * 6;
+  score += genreAffinityScore(last.record.genres, candidate.genres);
+
+  if (isDowntempoLane(last.record.genres) && !isDowntempoLane(candidate.genres)) {
+    score -= 10;
+  }
+
+  if (!candidate.lastPlayedAt) score += 4;
+  else {
+    const days = (Date.now() - new Date(candidate.lastPlayedAt).getTime()) / 86400000;
+    if (days > 14) score += 3;
+    if (days > 30) score += 2;
+  }
+
+  if (keyDist > 2) {
+    if (!candidate.lastPlayedAt) score += 2;
+  }
+
+  score *= estimatedConfidencePenalty(lastTrack, candidateTrack);
+
+  if (score < 8 && keyDist > 2 && bpm > 12) return -1;
+
+  return Math.round(score);
 }
 
 export type UpNextSuggestion = {
@@ -111,6 +146,19 @@ function recommendColdStart(
   return candidates.sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
+function bestTrackForRecord(
+  anchor: ResolvedPlaySelection,
+  record: VinylRecord
+): { track: Track; score: number } | null {
+  let best: { track: Track; score: number } | null = null;
+  for (const track of record.tracks) {
+    const score = scoreNextPlay(anchor, record, track);
+    if (score <= 0) continue;
+    if (!best || score > best.score) best = { track, score };
+  }
+  return best;
+}
+
 export function recommendNext(
   collection: VinylRecord[],
   anchor: ResolvedPlaySelection | null,
@@ -137,18 +185,16 @@ export function recommendNext(
 
   const candidates: UpNextSuggestion[] = [];
   for (const record of collection) {
-    const track = getPrimaryTrack(record);
-    if (!track) continue;
-    const key = playSelectionKey({ recordId: record.id, trackId: track.id });
+    const best = bestTrackForRecord(anchor, record);
+    if (!best) continue;
+    const key = playSelectionKey({ recordId: record.id, trackId: best.track.id });
     if (excludeKeys.has(key)) continue;
 
-    const score = scoreNextPlay(anchor, record, track);
-    if (score <= 0) continue;
     candidates.push({
       record,
-      track,
-      score,
-      reasons: buildReasons(anchor, record, track),
+      track: best.track,
+      score: best.score,
+      reasons: buildReasons(anchor, record, best.track),
     });
   }
 
@@ -162,19 +208,21 @@ function buildReasons(
 ): string[] {
   const lastTrack = last.track;
   const reasons: string[] = [];
-  if (
-    isCompatibleKey(lastTrack?.camelotKey, nextTrack?.camelotKey) &&
-    lastTrack?.camelotKey &&
-    nextTrack?.camelotKey
-  ) {
-    reasons.push(`Harmonic match (${nextTrack.camelotKey})`);
+  const lastKey = resolveTrackCamelot(lastTrack).code;
+  const nextKey = resolveTrackCamelot(nextTrack).code;
+
+  if (isCompatibleKey(lastKey, nextKey) && lastKey && nextKey) {
+    const est =
+      lastTrack.keyEstimated || nextTrack.keyEstimated ? ' (~estimated)' : '';
+    reasons.push(`Harmonic match (${nextKey})${est}`);
   }
   if (
     lastTrack?.bpm != null &&
     nextTrack?.bpm != null &&
     Math.abs(lastTrack.bpm - nextTrack.bpm) <= 5
   ) {
-    reasons.push(`BPM flow (${nextTrack.bpm})`);
+    const est = lastTrack.bpmEstimated || nextTrack.bpmEstimated ? ' (~estimated)' : '';
+    reasons.push(`BPM flow (${nextTrack.bpm})${est}`);
   }
   const vibes = (lastTrack?.vibeTags ?? []).filter((t) =>
     (nextTrack?.vibeTags ?? []).some((v) => v.toLowerCase() === t.toLowerCase())

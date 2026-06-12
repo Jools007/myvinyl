@@ -269,7 +269,7 @@ export async function handleEnrich(input: EnrichInput, env: ApiEnv): Promise<Enr
       keyFallback,
       usedKeys,
     }),
-    8_000,
+    12_000,
     {
       vibeTags: [],
       bpm: genres.length

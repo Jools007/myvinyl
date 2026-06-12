@@ -28,6 +28,7 @@ import {
 } from './enrich-scoring';
 import { normalizeTrackTitle } from './track-title';
 import { isExtraVariant } from './track-match';
+import { mapTagsToVibeHints } from './vibe-tags';
 
 
 export type CollectContext = {
@@ -448,6 +449,9 @@ export async function collectEnrichmentCandidates(
   }
 
   if (lastfm) {
+    for (const vibe of mapTagsToVibeHints(lastfm.tags, genres)) {
+      if (!vibeHints.includes(vibe)) vibeHints.push(vibe);
+    }
     const wikiBpm = extractBpmFromText(lastfm.wikiText);
     if (wikiBpm != null) {
       bpmCandidates.push({
@@ -524,6 +528,12 @@ export async function collectEnrichmentCandidates(
     if (previewHit?.previewUrl) {
       spotifyPreviewUrl = previewHit.previewUrl;
       spotifyTrackId = previewHit.spotifyTrackId;
+    }
+  }
+
+  if (!vibeHints.length) {
+    for (const vibe of mapTagsToVibeHints([], genres)) {
+      vibeHints.push(vibe);
     }
   }
 

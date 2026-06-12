@@ -16,6 +16,7 @@ const routes = [
   { entry: 'scripts/api-entries/discogs/collection.entry.ts', outfile: 'api/discogs/collection.js' },
   { entry: 'scripts/api-entries/image.entry.ts', outfile: 'api/image.js' },
   { entry: 'scripts/api-entries/album-info.entry.ts', outfile: 'api/album-info.js' },
+  { entry: 'scripts/api-entries/enrich.entry.ts', outfile: 'api/enrich.js' },
 ];
 
 for (const { entry, outfile } of routes) {

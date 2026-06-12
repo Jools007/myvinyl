@@ -97,7 +97,18 @@ export function genreBpmProfile(genres: string[]): GenreBpmProfile {
   if (text.includes('jazz') || text.includes('bossa') || text.includes('lounge')) {
     return { center: 105, min: 70, max: 130 };
   }
-  if (text.includes('ambient') || text.includes('downtempo')) {
+  if (
+    text.includes('trip hop') ||
+    text.includes('trip-hop') ||
+    text.includes('downtempo') ||
+    text.includes('chillout') ||
+    text.includes('nu jazz') ||
+    text.includes('nu-jazz') ||
+    text.includes('lounge')
+  ) {
+    return { center: 90, min: 72, max: 108 };
+  }
+  if (text.includes('ambient')) {
     return { center: 82, min: 60, max: 100 };
   }
   if (text.includes('hip hop') || text.includes('hip-hop') || text.includes('rap')) {

@@ -11,6 +11,9 @@
     "api/health.ts": {
       "maxDuration": 15
     },
+    "api/enrich.js": {
+      "maxDuration": 25
+    },
     "api/discogs/collection.js": {
       "maxDuration": 30
     },
@@ -31,7 +34,6 @@
     }
   },
   "rewrites": [
-    { "source": "/api/enrich", "destination": "/api/health" },
     { "source": "/api/discogs/search", "destination": "/api/health" },
     { "source": "/api/discogs/release/:id", "destination": "/api/health?releaseId=:id" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }

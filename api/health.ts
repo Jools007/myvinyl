@@ -14,6 +14,8 @@ const WHEEL_NEIGHBORS: Record<string, string[]> = {
 };
 
 const GENRE_CAMELOT: [string, string][] = [
+  ['trip-hop', '6A'], ['trip hop', '6A'], ['downtempo', '6A'], ['chillout', '6A'],
+  ['nu jazz', '3B'], ['nu-jazz', '3B'], ['lounge', '3B'],
   ['deep house', '10A'], ['house', '8A'], ['techno', '8A'], ['soul', '8B'],
   ['r&b', '5B'], ['disco', '10B'], ['funk', '5B'], ['jazz', '3B'], ['pop', '9B'],
 ];
@@ -35,6 +37,9 @@ function hashTrackSeed(artist: string, title: string): number {
 function genreBpmProfile(genres: string[]) {
   const text = genres.join(' ').toLowerCase();
   if (text.includes('drum and bass') || text.includes('dnb')) return { center: 172, min: 160, max: 188 };
+  if (text.includes('trip hop') || text.includes('trip-hop') || text.includes('downtempo') || text.includes('chillout') || text.includes('nu jazz') || text.includes('nu-jazz') || text.includes('lounge')) {
+    return { center: 90, min: 72, max: 108 };
+  }
   if (text.includes('techno')) return { center: 128, min: 118, max: 140 };
   if (text.includes('deep house')) return { center: 122, min: 112, max: 128 };
   if (text.includes('house')) return { center: 124, min: 115, max: 132 };

@@ -1,4 +1,5 @@
 import { camelotDistance, resolveTrackCamelot } from './camelot';
+import { genreAffinityScore, isDowntempoLane } from './genreAffinity';
 import { playSelectionKey, type PlaySelection, type ResolvedPlaySelection } from './playSession';
 import type { Track, VinylRecord } from './types';
 
@@ -54,7 +55,13 @@ export function classifyCompatibilityTier(
   return null;
 }
 
-function scoreCandidate(anchor: Track, candidate: Track, tier: CompatibilityTier): number {
+function scoreCandidate(
+  anchor: Track,
+  candidate: Track,
+  tier: CompatibilityTier,
+  anchorGenres: string[],
+  candidateGenres: string[]
+): number {
   const anchorKey = resolveTrackCamelot(anchor).code;
   const candKey = resolveTrackCamelot(candidate).code;
   let score = TIER_ORDER[tier] * -10;
@@ -69,12 +76,23 @@ function scoreCandidate(anchor: Track, candidate: Track, tier: CompatibilityTier
     if (abs <= 2) score += 8;
     else if (abs <= 5) score += 5;
     else if (abs <= 8) score += 2;
+    if (anchor.bpm != null && candidate.bpm != null) {
+      if (anchor.bpm < 105 && candidate.bpm > anchor.bpm + 12) score -= 8;
+    }
   }
 
   const vibeOverlap = (anchor.vibeTags ?? []).filter((t) =>
     (candidate.vibeTags ?? []).some((v) => v.toLowerCase() === t.toLowerCase())
   ).length;
   score += vibeOverlap * 3;
+  score += genreAffinityScore(anchorGenres, candidateGenres) * 0.5;
+
+  if (isDowntempoLane(anchorGenres) && !isDowntempoLane(candidateGenres)) {
+    score -= 6;
+  }
+
+  if (anchor.bpmEstimated || candidate.bpmEstimated) score *= 0.9;
+  if (anchor.keyEstimated || candidate.keyEstimated) score *= 0.85;
 
   return score;
 }
@@ -172,7 +190,7 @@ export function recommendTieredCompatibility(
         record,
         track,
         tier,
-        score: scoreCandidate(anchorTrack, track, tier),
+        score: scoreCandidate(anchorTrack, track, tier, anchor.record.genres, record.genres),
         reason: buildPickReason(anchorTrack, track, tier),
         bpmDelta: bpmDelta(anchorTrack.bpm, track.bpm),
       });

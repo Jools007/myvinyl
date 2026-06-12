@@ -70,6 +70,13 @@ const GENRE_CAMELOT: [string, string][] = [
   ['hip hop', '4A'],
   ['hip-hop', '4A'],
   ['rap', '4A'],
+  ['trip-hop', '6A'],
+  ['trip hop', '6A'],
+  ['downtempo', '6A'],
+  ['chillout', '6A'],
+  ['nu jazz', '3B'],
+  ['nu-jazz', '3B'],
+  ['lounge', '3B'],
   ['ambient', '6A'],
   ['dub', '6A'],
   ['reggae', '10A'],
@@ -163,10 +170,20 @@ function genreBpmProfile(genres: string[]): GenreBpmProfile {
   if (text.includes('disco') || text.includes('funk')) {
     return { center: 112, min: 95, max: 128 };
   }
+  if (
+    text.includes('trip hop') ||
+    text.includes('trip-hop') ||
+    text.includes('downtempo') ||
+    text.includes('chillout') ||
+    text.includes('nu jazz') ||
+    text.includes('nu-jazz')
+  ) {
+    return { center: 90, min: 72, max: 108 };
+  }
   if (text.includes('jazz') || text.includes('bossa') || text.includes('lounge')) {
     return { center: 105, min: 70, max: 130 };
   }
-  if (text.includes('ambient') || text.includes('downtempo')) {
+  if (text.includes('ambient')) {
     return { center: 82, min: 60, max: 100 };
   }
   if (text.includes('hip hop') || text.includes('hip-hop') || text.includes('rap')) {

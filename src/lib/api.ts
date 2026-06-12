@@ -481,25 +481,25 @@ async function fetchEnrichment(
   if (options?.keyFallback === false) enrichParams.set('keyFallback', '0');
 
   try {
+    const res = await fetch('/api/enrich', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(14_000),
+    });
+    if (res.ok) {
+      return normalizeServerEnrich((await res.json()) as EnrichResult);
+    }
+  } catch {
+    /* try GET health fallback */
+  }
+
+  try {
     const getRes = await fetch(`/api/health?${enrichParams}`, {
       signal: AbortSignal.timeout(10_000),
     });
     if (getRes.ok) {
       return normalizeServerEnrich((await getRes.json()) as EnrichResult);
-    }
-  } catch {
-    /* try POST fallback */
-  }
-
-  try {
-    const res = await fetch('/api/enrich', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (res.ok) {
-      return normalizeServerEnrich((await res.json()) as EnrichResult);
     }
   } catch {
     /* fall through to client enrichment */

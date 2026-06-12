@@ -33,7 +33,14 @@ export function MixStrip({
       <div className="play-dj__mix-cell">
         <span className="play-dj__mix-label">Key</span>
         <span className="play-dj__mix-value play-dj__mix-value--key font-mono font-semibold">
-          {code ?? <span className="text-[var(--text-muted)] font-normal">—</span>}
+          {code ? (
+            <>
+              {track?.keyEstimated ? <span className="text-[var(--text-muted)]">~</span> : null}
+              {code}
+            </>
+          ) : (
+            <span className="text-[var(--text-muted)] font-normal">—</span>
+          )}
         </span>
       </div>
       <div className="play-dj__mix-cell play-dj__mix-cell--vibes">
