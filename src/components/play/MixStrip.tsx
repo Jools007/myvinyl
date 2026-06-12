@@ -5,10 +5,12 @@ export function MixStrip({
   track,
   variant,
   tapBpm,
+  className,
 }: {
   track: Track | null;
   variant: 'now' | 'queue';
   tapBpm?: number | null;
+  className?: string;
 }) {
   const { code } = track ? resolveTrackCamelot(track) : {};
   const vibes = (track?.vibeTags ?? []).slice(0, 2);
@@ -16,7 +18,7 @@ export function MixStrip({
 
   return (
     <div
-      className={`play-dj__mix-strip${variant === 'now' ? ' play-dj__mix-strip--now' : ''}`}
+      className={`play-dj__mix-strip${variant === 'now' ? ' play-dj__mix-strip--now' : ''}${className ? ` ${className}` : ''}`}
       role="group"
       aria-label="Mix info"
     >

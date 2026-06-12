@@ -293,11 +293,9 @@ export function PlayNextPanel({
         </div>
       </header>
 
-      <div className="play-dj__layout">
-        <div className="play-dj__main">
-          <div className="play-dj__sticky-wrap">
-            {nowPlaying ? (
-              <div className="play-dj__now" role="status" aria-label="Now playing">
+      <div className="play-dj__deck-wrap">
+        {nowPlaying ? (
+          <div className="play-dj__now" role="status" aria-label="Now playing">
                 <div className="play-dj__now-top">
                   <div className="play-dj__now-stage">
                     <NowPlayingArtwork record={nowPlaying.record} spinning={artworkSpinning} />
@@ -405,44 +403,41 @@ export function PlayNextPanel({
                   ) : null}
                 </div>
               </div>
-            ) : (
-              <div className="play-dj__now play-dj__now--hint">
-                <p className="text-sm font-medium text-[var(--text)]">
-                  Pick a track to start mixing
-                </p>
-                <p className="mt-1 text-sm leading-relaxed text-[var(--text-secondary)]">
-                  Hit Shuffle above, or tap play on a compatible pick below.
-                </p>
-              </div>
-            )}
+        ) : (
+          <div className="play-dj__now play-dj__now--hint">
+            <p className="text-sm font-medium text-[var(--text)]">
+              Pick a track to start mixing
+            </p>
+            <p className="mt-1 text-sm leading-relaxed text-[var(--text-secondary)]">
+              Hit Shuffle above, or tap play on a compatible pick below.
+            </p>
           </div>
+        )}
+      </div>
 
-          <CompatibilityList
-            collection={collection}
-            anchor={nowPlaying}
-            exclude={exclude}
-            matchOptions={matchOptions}
-            isInCrate={isInCrate}
-            onPlayNow={handlePlay}
-            onAddToCrate={onAddToCrate}
-          />
-        </div>
-
-        <aside className="play-dj__aside">
-          <SessionCratePanel
-            items={crateItems}
-            keyPath={crateKeyPath}
-            onRemove={onRemoveFromCrate}
-            onMoveUp={onMoveCrateUp}
-            onMoveDown={onMoveCrateDown}
-            onClear={onClearCrate}
-            onLoadQueue={onLoadCrateToQueue}
-            onPlayNow={(index) => {
-              const item = crateItems[index];
-              if (item) handlePlay(item.record, item.track);
-            }}
-          />
-        </aside>
+      <div className="play-dj__workspace">
+        <CompatibilityList
+          collection={collection}
+          anchor={nowPlaying}
+          exclude={exclude}
+          matchOptions={matchOptions}
+          isInCrate={isInCrate}
+          onPlayNow={handlePlay}
+          onAddToCrate={onAddToCrate}
+        />
+        <SessionCratePanel
+          items={crateItems}
+          keyPath={crateKeyPath}
+          onRemove={onRemoveFromCrate}
+          onMoveUp={onMoveCrateUp}
+          onMoveDown={onMoveCrateDown}
+          onClear={onClearCrate}
+          onLoadQueue={onLoadCrateToQueue}
+          onPlayNow={(index) => {
+            const item = crateItems[index];
+            if (item) handlePlay(item.record, item.track);
+          }}
+        />
       </div>
     </div>
   );

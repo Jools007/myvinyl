@@ -73,7 +73,7 @@ function CompatibilityRow({
             <span className="text-[var(--text-muted)]"> — {record.title}</span>
           </p>
           <p className="play-compat__reason">{reason}</p>
-          <MixStrip track={track} variant="queue" />
+          <MixStrip track={track} variant="queue" className="play-compat__mix" />
         </div>
       </button>
       <div className="play-compat__actions">
@@ -166,19 +166,22 @@ export function CompatibilityList({
   return (
     <div className="play-compat">
       <div className="play-compat__head">
-        <h2 className="play-compat__title" id="play-compatible">
-          {anchor ? 'Mix partners' : 'Start from your crate'}
-        </h2>
-        {total > 0 ? (
-          <span className="play-compat__count tabular-nums">{total}</span>
-        ) : null}
+        <div className="play-compat__head-copy">
+          <div className="play-compat__head-row">
+            <h2 className="play-compat__section-title" id="play-compatible">
+              {anchor ? 'Mix partners' : 'Start from your crate'}
+            </h2>
+            {total > 0 ? (
+              <span className="play-compat__count tabular-nums">{total}</span>
+            ) : null}
+          </div>
+          {anchor ? (
+            <p className="play-compat__research-hint" title={RESEARCH_MATCH_HINTS.join(' ')}>
+              {RESEARCH_MATCH_HINTS[0]}
+            </p>
+          ) : null}
+        </div>
       </div>
-
-      {anchor ? (
-        <p className="play-compat__research-hint" title={RESEARCH_MATCH_HINTS.join(' ')}>
-          {RESEARCH_MATCH_HINTS[0]}
-        </p>
-      ) : null}
 
       {total === 0 ? (
         <p className="play-compat__empty text-sm text-[var(--text-muted)]">
