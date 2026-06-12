@@ -1,4 +1,4 @@
-import { ListPlus, Play, Shuffle } from 'lucide-react';
+import { ListPlus, Play } from 'lucide-react';
 import {
   recommendTieredCompatibility,
   TIER_HINTS,
@@ -22,7 +22,6 @@ type CompatibilityListProps = {
   anchor: ResolvedPlaySelection | null;
   exclude: PlaySelection[];
   matchOptions?: CompatibilityOptions;
-  onShufflePractice?: () => void;
   isInCrate: (recordId: string, trackId: string) => boolean;
   onPlayNow: (record: VinylRecord, track: Track) => void;
   onAddToCrate: (record: VinylRecord, track: Track) => void;
@@ -107,12 +106,14 @@ function TierSection({
   isInCrate,
   onPlayNow,
   onAddToCrate,
+  showHint,
 }: {
   tier: CompatibilityTier;
   picks: CompatibilityPick[];
   isInCrate: (recordId: string, trackId: string) => boolean;
   onPlayNow: (record: VinylRecord, track: Track) => void;
   onAddToCrate: (record: VinylRecord, track: Track) => void;
+  showHint?: boolean;
 }) {
   if (picks.length === 0) return null;
 
@@ -121,8 +122,11 @@ function TierSection({
       <div className="play-compat__tier-head">
         <h3 id={`tier-${tier}`} className="play-compat__tier-title">
           {TIER_LABELS[tier]}
+          <span className="play-compat__tier-count tabular-nums">{picks.length}</span>
         </h3>
-        <p className="play-compat__tier-hint">{TIER_HINTS[tier]}</p>
+        {showHint ? (
+          <p className="play-compat__tier-hint">{TIER_HINTS[tier]}</p>
+        ) : null}
       </div>
       <ul className="play-compat__list">
         {picks.map((pick) => (
@@ -144,7 +148,6 @@ export function CompatibilityList({
   anchor,
   exclude,
   matchOptions,
-  onShufflePractice,
   isInCrate,
   onPlayNow,
   onAddToCrate,
@@ -169,25 +172,7 @@ export function CompatibilityList({
         {total > 0 ? (
           <span className="play-compat__count tabular-nums">{total}</span>
         ) : null}
-        {onShufflePractice ? (
-          <button
-            type="button"
-            className="play-compat__shuffle"
-            onClick={onShufflePractice}
-            title="Pick a random enriched track to practice blending"
-          >
-            <Shuffle className="h-3 w-3" strokeWidth={2} />
-            <span>Shuffle</span>
-          </button>
-        ) : null}
       </div>
-
-      {anchor && matchOptions?.anchorBpmOverride ? (
-        <p className="play-compat__tap-note">
-          Matching against tapped {matchOptions.anchorBpmOverride} BPM
-          <span className="text-[var(--text-muted)]"> ±{matchOptions.bpmUncertainty ?? 3}</span>
-        </p>
-      ) : null}
 
       {anchor ? (
         <p className="play-compat__research-hint" title={RESEARCH_MATCH_HINTS.join(' ')}>
@@ -202,11 +187,12 @@ export function CompatibilityList({
             : 'Play a track or shuffle a random pick to start practicing blends.'}
         </p>
       ) : (
-        TIER_ORDER.map((tier) => (
+        TIER_ORDER.map((tier, index) => (
           <TierSection
             key={tier}
             tier={tier}
             picks={tiered[tier]}
+            showHint={index === 0 && tiered[tier].length > 0}
             isInCrate={isInCrate}
             onPlayNow={onPlayNow}
             onAddToCrate={onAddToCrate}

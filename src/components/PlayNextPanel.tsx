@@ -27,6 +27,7 @@ interface PlayNextPanelProps {
   isInCrate: (recordId: string, trackId: string) => boolean;
   onPlayNow: (record: VinylRecord, track: Track) => void;
   onAddToCrate: (record: VinylRecord, track: Track) => void;
+  onSaveTapBpm?: (recordId: string, trackId: string, bpm: number) => void;
   onRemoveFromCrate: (index: number) => void;
   onMoveCrateUp: (index: number) => void;
   onMoveCrateDown: (index: number) => void;
@@ -161,6 +162,7 @@ export function PlayNextPanel({
   isInCrate,
   onPlayNow,
   onAddToCrate,
+  onSaveTapBpm,
   onRemoveFromCrate,
   onMoveCrateUp,
   onMoveCrateDown,
@@ -197,14 +199,17 @@ export function PlayNextPanel({
     void preview.load(nowPlaying.record, nowPlaying.track, autoplay, false);
   }, [nowKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handlePlay = (record: VinylRecord, track: Track) => {
-    tapBpm.reset();
-    autoplayPendingRef.current = playSelectionKey({
-      recordId: record.id,
-      trackId: track.id,
-    });
-    onPlayNow(record, track);
-  };
+  const handlePlay = useCallback(
+    (record: VinylRecord, track: Track) => {
+      tapBpm.reset();
+      autoplayPendingRef.current = playSelectionKey({
+        recordId: record.id,
+        trackId: track.id,
+      });
+      onPlayNow(record, track);
+    },
+    [onPlayNow, tapBpm]
+  );
 
   const matchOptions = useMemo((): CompatibilityOptions | undefined => {
     if (tapBpm.bpm == null) return undefined;
@@ -214,7 +219,7 @@ export function PlayNextPanel({
   const handleShufflePractice = useCallback(() => {
     const pick = pickRandomPracticeAnchor(collection, exclude);
     if (pick) handlePlay(pick.record, pick.track);
-  }, [collection, exclude]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [collection, exclude, handlePlay]);
 
   const handlePreviewToggle = () => {
     if (!nowPlaying) return;
@@ -234,6 +239,12 @@ export function PlayNextPanel({
     preview.toggle();
   };
 
+  const handleSaveTapBpm = () => {
+    if (!nowPlaying || tapBpm.bpm == null || !onSaveTapBpm) return;
+    onSaveTapBpm(nowPlaying.record.id, nowPlaying.track.id, tapBpm.bpm);
+    tapBpm.reset();
+  };
+
   const artworkSpinning = preview.status === 'playing';
 
   if (!collection.length) {
@@ -249,141 +260,189 @@ export function PlayNextPanel({
   const trackIndex =
     nowPlaying?.record.tracks.findIndex((t) => t.id === nowPlaying.track.id) ?? 0;
 
+  const catalogBpm = nowPlaying?.track.bpm;
+  const tapDiffers =
+    tapBpm.bpm != null &&
+    (catalogBpm == null ||
+      nowPlaying?.track.bpmEstimated ||
+      Math.abs(tapBpm.bpm - catalogBpm) >= 2);
+  const showSaveTap =
+    tapBpm.bpm != null && tapDiffers && Boolean(onSaveTapBpm);
+
   return (
     <div className="play-dj">
       <header className="play-dj__page-head">
-        <h1 className="play-dj__page-title" style={{ fontFamily: 'var(--font-display)' }}>
-          Play
-        </h1>
-        <p className="play-dj__page-sub">
-          Build tonight&apos;s crate from compatible picks — reorder, load the queue, and spin.
-        </p>
+        <div className="play-dj__page-head-row">
+          <div>
+            <h1 className="play-dj__page-title" style={{ fontFamily: 'var(--font-display)' }}>
+              Play
+            </h1>
+            <p className="play-dj__page-sub">
+              Compatible picks for tonight&apos;s crate — tap BPM on vinyl to sharpen matches.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="play-dj__head-shuffle"
+            onClick={handleShufflePractice}
+            title="Random enriched track from your collection"
+          >
+            <Shuffle className="h-3.5 w-3.5" strokeWidth={2} />
+            <span>Shuffle</span>
+          </button>
+        </div>
       </header>
 
-      <div className="play-dj__sticky-wrap">
-        {nowPlaying ? (
-          <div className="play-dj__now" role="status" aria-label="Now playing">
-            <div className="play-dj__now-stage">
-              <NowPlayingArtwork record={nowPlaying.record} spinning={artworkSpinning} />
-            </div>
-            <div className="play-dj__now-body">
-              <p className="play-dj__now-label">
-                <span className="play-dj__now-live" aria-hidden />
-                Now playing
-              </p>
-              <button
-                type="button"
-                className="play-dj__now-meta play-dj__now-meta-btn"
-                onClick={() => openRecordDetail(nowPlaying.record)}
-                aria-label={`View ${nowPlaying.record.title} by ${nowPlaying.record.artist}`}
-              >
-                <p className="play-dj__now-title">{nowPlaying.track.title}</p>
-                <p className="play-dj__now-artist">
-                  <span className="text-[var(--text-muted)]">
-                    {trackPositionLabel(nowPlaying.track, trackIndex)}
-                  </span>
-                  <span className="text-[var(--text-muted)]"> · </span>
-                  {nowPlaying.record.artist}
-                  <span className="text-[var(--text-muted)]">
-                    {' '}
-                    — {nowPlaying.record.title}
-                  </span>
-                  {nowPlaying.record.year ? (
-                    <span className="text-[var(--text-muted)]">
-                      {' '}
-                      · {nowPlaying.record.year}
-                    </span>
-                  ) : null}
-                </p>
-              </button>
-              <PreviewControls
-                status={preview.status}
-                source={preview.source}
-                youtubeMuted={preview.youtubeMuted}
-                progress={preview.progress}
-                elapsed={preview.elapsed}
-                duration={preview.duration}
-                onToggle={handlePreviewToggle}
-              />
-              <MixStrip
-                track={nowPlaying.track}
-                variant="now"
-                tapBpm={tapBpm.bpm}
-              />
-              <div className="play-dj__tap-row" role="group" aria-label="Live BPM tap">
-                <button
-                  type="button"
-                  className={`play-dj__tap-btn${tapBpm.isActive ? ' play-dj__tap-btn--active' : ''}`}
-                  onClick={tapBpm.tap}
-                  aria-label="Tap tempo on beat"
-                >
-                  Tap BPM
-                  {tapBpm.tapCount > 0 && tapBpm.tapCount < 4 ? (
-                    <span className="play-dj__tap-count tabular-nums">{tapBpm.tapCount}/4</span>
-                  ) : null}
-                </button>
-                {tapBpm.bpm != null ? (
-                  <>
-                    <span className="play-dj__tap-result tabular-nums">{tapBpm.bpm} BPM</span>
+      <div className="play-dj__layout">
+        <div className="play-dj__main">
+          <div className="play-dj__sticky-wrap">
+            {nowPlaying ? (
+              <div className="play-dj__now" role="status" aria-label="Now playing">
+                <div className="play-dj__now-top">
+                  <div className="play-dj__now-stage">
+                    <NowPlayingArtwork record={nowPlaying.record} spinning={artworkSpinning} />
+                  </div>
+                  <div className="play-dj__now-body">
+                    <p className="play-dj__now-label">
+                      <span className="play-dj__now-live" aria-hidden />
+                      Now playing
+                    </p>
                     <button
                       type="button"
-                      className="play-dj__tap-clear"
-                      onClick={tapBpm.reset}
-                      aria-label="Clear tapped BPM"
+                      className="play-dj__now-meta play-dj__now-meta-btn"
+                      onClick={() => openRecordDetail(nowPlaying.record)}
+                      aria-label={`View ${nowPlaying.record.title} by ${nowPlaying.record.artist}`}
                     >
-                      Clear
+                      <p className="play-dj__now-title">{nowPlaying.track.title}</p>
+                      <p className="play-dj__now-artist">
+                        <span className="text-[var(--text-muted)]">
+                          {trackPositionLabel(nowPlaying.track, trackIndex)}
+                        </span>
+                        <span className="text-[var(--text-muted)]"> · </span>
+                        {nowPlaying.record.artist}
+                        <span className="text-[var(--text-muted)]">
+                          {' '}
+                          — {nowPlaying.record.title}
+                        </span>
+                        {nowPlaying.record.year ? (
+                          <span className="text-[var(--text-muted)]">
+                            {' '}
+                            · {nowPlaying.record.year}
+                          </span>
+                        ) : null}
+                      </p>
                     </button>
-                  </>
-                ) : (
-                  <span className="play-dj__tap-hint">Tap on the beat — refines matches</span>
-                )}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="play-dj__now play-dj__now--hint">
-            <p className="text-sm font-medium text-[var(--text)]">
-              Pick a track to start mixing
-            </p>
-            <p className="mt-1 text-sm leading-relaxed text-[var(--text-secondary)]">
-              Shuffle a random enriched cut from your crate, or tap play on a match below.
-            </p>
-            <button
-              type="button"
-              className="play-dj__shuffle-btn"
-              onClick={handleShufflePractice}
-            >
-              <Shuffle className="h-3.5 w-3.5" strokeWidth={2} />
-              Random mix test
-            </button>
-          </div>
-        )}
-      </div>
+                    <PreviewControls
+                      status={preview.status}
+                      source={preview.source}
+                      youtubeMuted={preview.youtubeMuted}
+                      progress={preview.progress}
+                      elapsed={preview.elapsed}
+                      duration={preview.duration}
+                      onToggle={handlePreviewToggle}
+                    />
+                  </div>
+                </div>
 
-      <div className="play-dj__grid">
-        <CompatibilityList
-          collection={collection}
-          anchor={nowPlaying}
-          exclude={exclude}
-          matchOptions={matchOptions}
-          onShufflePractice={handleShufflePractice}
-          isInCrate={isInCrate}
-          onPlayNow={handlePlay}
-          onAddToCrate={onAddToCrate}
-        />
-        <SessionCratePanel
-          items={crateItems}
-          keyPath={crateKeyPath}
-          onRemove={onRemoveFromCrate}
-          onMoveUp={onMoveCrateUp}
-          onMoveDown={onMoveCrateDown}
-          onClear={onClearCrate}
-          onLoadQueue={onLoadCrateToQueue}
-          onPlayNow={(index) => {
-            const item = crateItems[index];
-            if (item) handlePlay(item.record, item.track);
-          }}
-        />
+                <div className="play-dj__now-mix">
+                  <MixStrip
+                    track={nowPlaying.track}
+                    variant="now"
+                    tapBpm={tapBpm.bpm}
+                  />
+                  <div className="play-dj__tap-row" role="group" aria-label="Live BPM tap">
+                    <button
+                      type="button"
+                      className={`play-dj__tap-btn${tapBpm.isActive ? ' play-dj__tap-btn--active' : ''}`}
+                      onClick={tapBpm.tap}
+                      aria-label="Tap tempo on beat"
+                    >
+                      Tap BPM
+                      {tapBpm.tapCount > 0 && tapBpm.tapCount < 4 ? (
+                        <span className="play-dj__tap-count tabular-nums">
+                          {tapBpm.tapCount}/4
+                        </span>
+                      ) : null}
+                    </button>
+                    {tapBpm.bpm != null ? (
+                      <span className="play-dj__tap-result tabular-nums">{tapBpm.bpm} BPM</span>
+                    ) : (
+                      <span className="play-dj__tap-hint">Tap on the beat while spinning</span>
+                    )}
+                    {showSaveTap ? (
+                      <button
+                        type="button"
+                        className="play-dj__tap-save"
+                        onClick={handleSaveTapBpm}
+                      >
+                        {nowPlaying.track.bpmEstimated || catalogBpm == null
+                          ? `Save ${tapBpm.bpm} BPM`
+                          : `Replace ~${catalogBpm}`}
+                      </button>
+                    ) : null}
+                    {tapBpm.bpm != null ? (
+                      <button
+                        type="button"
+                        className="play-dj__tap-clear"
+                        onClick={tapBpm.reset}
+                        aria-label="Clear tapped BPM"
+                      >
+                        Clear
+                      </button>
+                    ) : null}
+                  </div>
+                  {tapBpm.bpm != null ? (
+                    <p className="play-dj__tap-note">
+                      Matching at {tapBpm.bpm} BPM
+                      <span className="text-[var(--text-muted)]"> ±3</span>
+                      {showSaveTap ? (
+                        <span className="text-[var(--text-muted)]">
+                          {' '}
+                          · save to replace catalog estimate
+                        </span>
+                      ) : null}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ) : (
+              <div className="play-dj__now play-dj__now--hint">
+                <p className="text-sm font-medium text-[var(--text)]">
+                  Pick a track to start mixing
+                </p>
+                <p className="mt-1 text-sm leading-relaxed text-[var(--text-secondary)]">
+                  Hit Shuffle above, or tap play on a compatible pick below.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <CompatibilityList
+            collection={collection}
+            anchor={nowPlaying}
+            exclude={exclude}
+            matchOptions={matchOptions}
+            isInCrate={isInCrate}
+            onPlayNow={handlePlay}
+            onAddToCrate={onAddToCrate}
+          />
+        </div>
+
+        <aside className="play-dj__aside">
+          <SessionCratePanel
+            items={crateItems}
+            keyPath={crateKeyPath}
+            onRemove={onRemoveFromCrate}
+            onMoveUp={onMoveCrateUp}
+            onMoveDown={onMoveCrateDown}
+            onClear={onClearCrate}
+            onLoadQueue={onLoadCrateToQueue}
+            onPlayNow={(index) => {
+              const item = crateItems[index];
+              if (item) handlePlay(item.record, item.track);
+            }}
+          />
+        </aside>
       </div>
     </div>
   );

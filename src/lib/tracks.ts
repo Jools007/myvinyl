@@ -451,7 +451,21 @@ export function createPrimaryTrack(
 export function patchTrack(
   record: VinylRecord,
   trackId: string,
-  patch: Partial<Pick<Track, 'bpm' | 'camelotKey' | 'musicalKey' | 'vibeTags' | 'title' | 'artist' | 'position' | 'duration'>>
+  patch: Partial<
+    Pick<
+      Track,
+      | 'bpm'
+      | 'camelotKey'
+      | 'musicalKey'
+      | 'vibeTags'
+      | 'title'
+      | 'artist'
+      | 'position'
+      | 'duration'
+      | 'bpmEstimated'
+      | 'keyEstimated'
+    >
+  >
 ): VinylRecord {
   const exists = record.tracks.some((t) => t.id === trackId);
   if (!exists) {

@@ -6,6 +6,7 @@ import { isCdFormat, sanitizeVinylFormat } from '../lib/formats';
 import {
   runFullMetadataEnrichment,
   idleMetadataEnrichment,
+  type FullMetadataEnrichmentOptions,
   type FullMetadataEnrichmentProgress,
   type FullMetadataEnrichmentResult,
 } from '../lib/fullMetadataEnrichment';
@@ -465,7 +466,9 @@ export function useCollection() {
     return tracklistEnrichmentRunRef.current === runId ? result : null;
   }, [persistRecordNow]);
 
-  const runFullMetadataEnrichmentJob = useCallback(async (): Promise<FullMetadataEnrichmentResult | null> => {
+  const runFullMetadataEnrichmentJob = useCallback(async (
+    options: FullMetadataEnrichmentOptions = {}
+  ): Promise<FullMetadataEnrichmentResult | null> => {
     const runId = ++metadataEnrichmentRunRef.current;
 
     const result = await runFullMetadataEnrichment(recordsRef.current, {
@@ -486,7 +489,7 @@ export function useCollection() {
       },
       isCancelled: () => metadataEnrichmentRunRef.current !== runId,
       getRecord: (id) => recordsRef.current.find((r) => r.id === id),
-    });
+    }, options);
 
     if (metadataEnrichmentRunRef.current === runId) {
       window.setTimeout(() => {

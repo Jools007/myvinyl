@@ -37,6 +37,19 @@ export function countReleasesNeedingMetadata(records: VinylRecord[]): number {
   return records.filter(releaseNeedsMetadataEnrichment).length;
 }
 
+export function countAllTracks(records: VinylRecord[]): number {
+  return records.reduce((sum, record) => sum + record.tracks.length, 0);
+}
+
+export function countReleasesWithTracks(records: VinylRecord[]): number {
+  return records.filter((r) => r.tracks.length > 0).length;
+}
+
+export type FullMetadataEnrichmentOptions = {
+  /** Re-run enrichment on every track, including those already marked complete */
+  force?: boolean;
+};
+
 export type FullMetadataEnrichmentResult = {
   total: number;
   processed: number;
@@ -84,12 +97,28 @@ export interface FullMetadataEnrichmentCallbacks {
   getRecord: (id: string) => VinylRecord | undefined;
 }
 
+function trackChanged(before: Track, after: Track): boolean {
+  return (
+    before.bpm !== after.bpm ||
+    resolveTrackCamelot(before).code !== resolveTrackCamelot(after).code ||
+    before.bpmEstimated !== after.bpmEstimated ||
+    before.keyEstimated !== after.keyEstimated ||
+    JSON.stringify(before.vibeTags ?? []) !== JSON.stringify(after.vibeTags ?? [])
+  );
+}
+
 export async function runFullMetadataEnrichment(
   initialRecords: VinylRecord[],
-  callbacks: FullMetadataEnrichmentCallbacks
+  callbacks: FullMetadataEnrichmentCallbacks,
+  options: FullMetadataEnrichmentOptions = {}
 ): Promise<FullMetadataEnrichmentResult> {
-  const targets = initialRecords.filter(releaseNeedsMetadataEnrichment);
-  const tracksTotal = countTracksNeedingMetadata(initialRecords);
+  const force = options.force ?? false;
+  const targets = force
+    ? initialRecords.filter((r) => r.tracks.length > 0)
+    : initialRecords.filter(releaseNeedsMetadataEnrichment);
+  const tracksTotal = force
+    ? countAllTracks(initialRecords)
+    : countTracksNeedingMetadata(initialRecords);
   const total = targets.length;
   let processed = 0;
   let updated = 0;
@@ -118,7 +147,7 @@ export async function runFullMetadataEnrichment(
   if (total === 0 || tracksTotal === 0) {
     callbacks.onProgress({
       phase: 'done',
-      message: 'All tracks already have BPM & key',
+      message: force ? 'No tracks to enrich' : 'All tracks already have BPM & key',
       completed: 0,
       total: 0,
       tracksCompleted: 0,
@@ -140,7 +169,7 @@ export async function runFullMetadataEnrichment(
     };
   }
 
-  report(`Enriching ${tracksTotal} tracks…`);
+  report(force ? `Re-enriching ${tracksTotal} tracks…` : `Enriching ${tracksTotal} tracks…`);
 
   for (const target of targets) {
     if (callbacks.isCancelled()) break;
@@ -152,7 +181,9 @@ export async function runFullMetadataEnrichment(
       continue;
     }
 
-    const tracksNeeding = live.tracks.filter(trackNeedsMetadataEnrichment);
+    const tracksNeeding = force
+      ? live.tracks
+      : live.tracks.filter(trackNeedsMetadataEnrichment);
     if (tracksNeeding.length === 0) {
       skipped += 1;
       processed += 1;
@@ -160,7 +191,12 @@ export async function runFullMetadataEnrichment(
     }
 
     const label = `${target.artist} — ${target.title}`;
-    report(`Enriching ${tracksNeeding.length} track${tracksNeeding.length === 1 ? '' : 's'}`, label);
+    report(
+      force
+        ? `Re-enriching ${tracksNeeding.length} track${tracksNeeding.length === 1 ? '' : 's'}`
+        : `Enriching ${tracksNeeding.length} track${tracksNeeding.length === 1 ? '' : 's'}`,
+      label
+    );
 
     const beforeSig = JSON.stringify(
       live.tracks.map((t) => [t.id, t.bpm, resolveTrackCamelot(t).code])
@@ -174,7 +210,7 @@ export async function runFullMetadataEnrichment(
           discogsId: live.discogsId,
           albumTitle: live.title,
           genres: live.genres,
-          force: false,
+          force,
         },
         {
           isCancelled: callbacks.isCancelled,
@@ -185,17 +221,24 @@ export async function runFullMetadataEnrichment(
             apiCallsThisRelease += 1;
           },
           onTrackEnriched: (enrichedTrack) => {
-            const beforeTrack = live.tracks.find((t) => t.id === enrichedTrack.id);
+            const beforeTrack =
+              callbacks.getRecord(live.id)?.tracks.find((t) => t.id === enrichedTrack.id) ??
+              live.tracks.find((t) => t.id === enrichedTrack.id);
             const wasNeeding = beforeTrack ? trackNeedsMetadataEnrichment(beforeTrack) : false;
             const nowComplete =
               enrichedTrack.bpm != null && Boolean(resolveTrackCamelot(enrichedTrack).code);
             const improved =
               beforeTrack != null &&
-              ((beforeTrack.bpm == null && enrichedTrack.bpm != null) ||
-                (!resolveTrackCamelot(beforeTrack).code && Boolean(resolveTrackCamelot(enrichedTrack).code)));
+              (force
+                ? trackChanged(beforeTrack, enrichedTrack)
+                : (beforeTrack.bpm == null && enrichedTrack.bpm != null) ||
+                  (!resolveTrackCamelot(beforeTrack).code &&
+                    Boolean(resolveTrackCamelot(enrichedTrack).code)));
 
-            if (wasNeeding && nowComplete) {
+            if ((force && improved) || (wasNeeding && nowComplete)) {
               tracksEnriched += 1;
+            }
+            if (force || wasNeeding) {
               tracksCompleted += 1;
             }
 
@@ -209,7 +252,7 @@ export async function runFullMetadataEnrichment(
               callbacks.onPersist(afterRecord);
             }
 
-            if (wasNeeding) {
+            if (force || wasNeeding) {
               const remaining = tracksTotal - tracksCompleted;
               report(
                 remaining > 0 ? `Enriching ${remaining} left…` : 'Finishing up…',

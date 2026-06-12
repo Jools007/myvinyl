@@ -53,7 +53,7 @@ import {
   formatEnrichmentSummary,
 } from './lib/fullTracklistEnrichment';
 import type { BackgroundSyncState } from './lib/recordMigration';
-import { getPrimaryTrack, isReleaseFullyEnriched, patchPrimaryTrack } from './lib/tracks';
+import { getPrimaryTrack, isReleaseFullyEnriched, patchPrimaryTrack, patchTrack } from './lib/tracks';
 import type { DiscogsReleaseDetail } from './lib/api';
 import {
   buildCollectionFilterNote,
@@ -186,8 +186,8 @@ function App() {
     });
   }, [runFullTracklistEnrichmentJob]);
 
-  const handleEnrichAllMetadata = useCallback(() => {
-    void runFullMetadataEnrichmentJob().then((result) => {
+  const handleEnrichAllMetadata = useCallback((options?: { force?: boolean }) => {
+    void runFullMetadataEnrichmentJob(options).then((result) => {
       if (!result) return;
       if (result.cancelled) {
         toast.message('Enrichment cancelled', {
@@ -754,6 +754,14 @@ function App() {
                 isInCrate={sessionCrate.isInCrate}
                 onPlayNow={handlePlayNow}
                 onAddToCrate={handleAddToCrate}
+                onSaveTapBpm={(recordId, trackId, bpm) => {
+                  updateRecord(recordId, (record) =>
+                    patchTrack(record, trackId, { bpm, bpmEstimated: false })
+                  );
+                  toast.success('BPM saved', {
+                    description: `${bpm} BPM — replaces estimate for this track`,
+                  });
+                }}
                 onRemoveFromCrate={sessionCrate.remove}
                 onMoveCrateUp={sessionCrate.moveUp}
                 onMoveCrateDown={sessionCrate.moveDown}
@@ -871,9 +879,9 @@ function App() {
         records={records}
         running={isFullMetadataEnrichmentRunning}
         onClose={() => setEnrichMetadataOpen(false)}
-        onConfirm={() => {
+        onConfirm={(options) => {
           setEnrichMetadataOpen(false);
-          handleEnrichAllMetadata();
+          handleEnrichAllMetadata(options);
         }}
       />
 
