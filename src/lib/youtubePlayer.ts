@@ -112,7 +112,12 @@ function createHostElement(): { id: string; el: HTMLElement } {
   return { id, el };
 }
 
-function buildEmbedSrc(videoId: string, autoplay: boolean, muted: boolean): string {
+function buildEmbedSrc(
+  videoId: string,
+  autoplay: boolean,
+  muted: boolean,
+  startSec = 0
+): string {
   const params = new URLSearchParams({
     autoplay: autoplay ? '1' : '0',
     mute: muted ? '1' : '0',
@@ -121,6 +126,7 @@ function buildEmbedSrc(videoId: string, autoplay: boolean, muted: boolean): stri
     modestbranding: '1',
     iv_load_policy: '3',
   });
+  if (startSec > 0) params.set('start', String(Math.floor(startSec)));
   return `${YT_EMBED_HOST}/embed/${videoId}?${params}`;
 }
 
@@ -152,6 +158,8 @@ export class YouTubePreviewPlayer {
   private readonly videoId: string;
   private readonly handlers: YouTubePlayerHandlers;
   private soundEnabled = false;
+  private iframeStartSec = 0;
+  private iframePlayStartedAt = 0;
 
   constructor(videoId: string, handlers: YouTubePlayerHandlers, opts?: YouTubePlayerOptions) {
     this.videoId = videoId;
@@ -200,10 +208,12 @@ export class YouTubePreviewPlayer {
     });
   }
 
-  private startIframePlayback(): void {
+  private startIframePlayback(startSec = this.iframeStartSec): void {
     if (!this.iframe) return;
     const muted = !this.soundEnabled;
-    const next = buildEmbedSrc(this.videoId, true, muted);
+    this.iframeStartSec = Math.max(0, startSec);
+    this.iframePlayStartedAt = Date.now();
+    const next = buildEmbedSrc(this.videoId, true, muted, this.iframeStartSec);
     if (this.iframe.src !== next) this.iframe.src = next;
     this.handlers.onPlaying?.();
     this.notifyMuted();
@@ -377,19 +387,26 @@ export class YouTubePreviewPlayer {
   }
 
   seekStart(): void {
+    this.seekTo(0);
+  }
+
+  seekTo(seconds: number): void {
+    const t = Math.max(0, seconds);
     if (this.mode === 'iframe') {
-      this.startIframePlayback();
+      this.startIframePlayback(t);
       return;
     }
     try {
-      this.player?.seekTo(0, true);
-      this.player?.playVideo();
+      this.player?.seekTo(t, true);
     } catch {
       /* ignore */
     }
   }
 
   getCurrentTime(): number {
+    if (this.mode === 'iframe' && this.iframePlayStartedAt > 0) {
+      return this.iframeStartSec + (Date.now() - this.iframePlayStartedAt) / 1000;
+    }
     try {
       const t = this.player?.getCurrentTime?.();
       return typeof t === 'number' && Number.isFinite(t) ? t : 0;

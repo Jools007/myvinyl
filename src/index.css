@@ -4526,15 +4526,55 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   gap: 0.35rem;
 }
 
+.play-dj__preview-skip {
+  display: flex;
+  width: 1.85rem;
+  height: 1.85rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.play-dj__preview-skip:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-subtle);
+}
+
+.play-dj__preview-skip:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .play-dj__preview-bar {
   position: relative;
+  touch-action: none;
+}
+
+.play-dj__preview-bar--seekable {
+  cursor: pointer;
+  min-height: 1.65rem;
+  display: flex;
+  align-items: center;
+}
+
+.play-dj__preview-rail {
+  position: relative;
+  width: 100%;
   height: 0.35rem;
   border-radius: 999px;
   background: color-mix(in srgb, var(--border) 70%, var(--bg-subtle));
-  overflow: hidden;
+  overflow: visible;
 }
 
 .play-dj__preview-fill {
+  position: relative;
+  z-index: 1;
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(
@@ -4543,6 +4583,32 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
     color-mix(in srgb, var(--accent) 85%, var(--teal))
   );
   transition: width 0.08s linear;
+  pointer-events: none;
+}
+
+.play-dj__preview-bar--dragging .play-dj__preview-fill {
+  transition: none;
+}
+
+.play-dj__preview-thumb {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 999px;
+  border: 2px solid var(--teal);
+  background: var(--bg-elevated);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--teal) 20%, transparent);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.play-dj__preview-bar--seekable:hover .play-dj__preview-thumb,
+.play-dj__preview-bar--dragging .play-dj__preview-thumb {
+  opacity: 1;
 }
 
 .play-dj__preview-meta {
@@ -9959,6 +10025,11 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   }
 
   .play-dj__preview-btn {
+    width: var(--touch-min);
+    height: var(--touch-min);
+  }
+
+  .play-dj__preview-skip {
     width: var(--touch-min);
     height: var(--touch-min);
   }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Loader2, Pause, Play, Shuffle } from 'lucide-react';
+import { Shuffle } from 'lucide-react';
 import { useTapBpm } from '../hooks/useTapBpm';
 import { useTrackPreview } from '../hooks/useTrackPreview';
 import type { CompatibilityOptions } from '../lib/compatibility';
@@ -15,6 +15,7 @@ import type { KeyPathStep } from '../lib/sessionCrate';
 import type { Track, VinylRecord } from '../lib/types';
 import { CompatibilityList } from './play/CompatibilityList';
 import { MixStrip } from './play/MixStrip';
+import { PreviewControls } from './play/PreviewControls';
 import { SessionCratePanel } from './play/SessionCratePanel';
 import { RecordArtwork } from './RecordArtwork';
 
@@ -33,13 +34,6 @@ interface PlayNextPanelProps {
   onMoveCrateDown: (index: number) => void;
   onClearCrate: () => void;
   onLoadCrateToQueue: () => void;
-}
-
-function formatPreviewTime(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${m}:${r.toString().padStart(2, '0')}`;
 }
 
 function NowPlayingArtwork({
@@ -77,79 +71,6 @@ function NowPlayingArtwork({
       </div>
       <span className="play-dj__disc-spindle" aria-hidden />
     </button>
-  );
-}
-
-function PreviewControls({
-  status,
-  source,
-  youtubeMuted,
-  progress,
-  elapsed,
-  duration,
-  onToggle,
-}: {
-  status: ReturnType<typeof useTrackPreview>['status'];
-  source: ReturnType<typeof useTrackPreview>['source'];
-  youtubeMuted: boolean;
-  progress: number;
-  elapsed: number;
-  duration: number;
-  onToggle: () => void;
-}) {
-  const busy = status === 'loading';
-  const playing = status === 'playing';
-  const unavailable = status === 'unavailable' || status === 'rate_limited';
-  const canPlay = !busy && !unavailable;
-
-  let hint = 'Tap to play';
-  if (status === 'loading') hint = 'Finding audio…';
-  else if (status === 'rate_limited') hint = 'Spotify busy — retry shortly';
-  else if (status === 'unavailable') hint = 'No audio found';
-  else if (status === 'error') hint = 'Playback failed — tap to retry';
-  else if (source === 'spotify') hint = 'Spotify · 30s preview';
-  else if (source === 'youtube' && youtubeMuted && playing) hint = 'Tap play for sound';
-  else if (source === 'youtube') hint = 'YouTube audio';
-
-  return (
-    <div className="play-dj__preview" role="group" aria-label="Track preview playback">
-      <button
-        type="button"
-        className="play-dj__preview-btn"
-        onClick={onToggle}
-        disabled={!canPlay}
-        aria-label={playing ? 'Pause playback' : 'Play track audio'}
-      >
-        {busy ? (
-          <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
-        ) : playing ? (
-          <Pause className="h-4 w-4 fill-current" strokeWidth={0} />
-        ) : (
-          <Play className="h-4 w-4 fill-current" strokeWidth={0} />
-        )}
-      </button>
-      <div className="play-dj__preview-track">
-        <div
-          className="play-dj__preview-bar"
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={duration}
-          aria-valuenow={Math.round(elapsed)}
-          aria-label="Preview progress"
-        >
-          <div
-            className="play-dj__preview-fill"
-            style={{ width: `${Math.round(progress * 100)}%` }}
-          />
-        </div>
-        <div className="play-dj__preview-meta">
-          <span className="play-dj__preview-time tabular-nums">
-            {formatPreviewTime(elapsed)} / {formatPreviewTime(duration)}
-          </span>
-          <span className="play-dj__preview-hint">{hint}</span>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -338,6 +259,8 @@ export function PlayNextPanel({
                       elapsed={preview.elapsed}
                       duration={preview.duration}
                       onToggle={handlePreviewToggle}
+                      onSeek={preview.seekTo}
+                      onSkip={preview.skipBy}
                     />
                   </div>
                 </div>

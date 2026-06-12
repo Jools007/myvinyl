@@ -364,6 +364,53 @@ export function useTrackPreview() {
     [applyPlayback, playCurrent]
   );
 
+  const seekTo = useCallback(
+    (seconds: number) => {
+      if (sourceRef.current === 'spotify') {
+        const audio = audioRef.current;
+        if (!audio) return;
+        const dur =
+          audio.duration && Number.isFinite(audio.duration)
+            ? audio.duration
+            : SPOTIFY_PREVIEW_SECONDS;
+        const t = Math.max(0, Math.min(seconds, dur));
+        audio.currentTime = t;
+        setDuration(dur);
+        setElapsed(t);
+        setProgress(dur > 0 ? t / dur : 0);
+        if (status === 'ended' && t < dur) setStatus('paused');
+        return;
+      }
+
+      if (sourceRef.current === 'youtube') {
+        const yt = youtubeRef.current;
+        if (!yt) return;
+        const dur = yt.getDuration() || duration;
+        const t = Math.max(0, Math.min(seconds, dur > 0 ? dur : seconds));
+        yt.seekTo(t);
+        setDuration(dur > 0 ? dur : duration);
+        setElapsed(t);
+        setProgress(dur > 0 ? t / dur : 0);
+        if (status === 'ended' && dur > 0 && t < dur) setStatus('paused');
+      }
+    },
+    [duration, status]
+  );
+
+  const skipBy = useCallback(
+    (deltaSeconds: number) => {
+      let current = elapsed;
+      if (sourceRef.current === 'spotify') {
+        const audio = audioRef.current;
+        if (audio && Number.isFinite(audio.currentTime)) current = audio.currentTime;
+      } else if (sourceRef.current === 'youtube') {
+        current = youtubeRef.current?.getCurrentTime() ?? elapsed;
+      }
+      seekTo(current + deltaSeconds);
+    },
+    [elapsed, seekTo]
+  );
+
   const toggle = useCallback(() => {
     if (
       status === 'playing' &&
@@ -427,6 +474,8 @@ export function useTrackPreview() {
     youtubeMuted,
     load,
     toggle,
+    seekTo,
+    skipBy,
     reset,
     matchesSelection,
     /** @deprecated use duration */
