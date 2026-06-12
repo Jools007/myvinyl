@@ -10,6 +10,11 @@ import {
   isRhythmMixPartner,
   rhythmCompatibilityScore,
 } from './rhythmSource';
+import {
+  computeMatchProbability,
+  matchTierToCompatibilityTier,
+  type MatchProbabilityResult,
+} from './matchProbability';
 import { playSelectionKey, type PlaySelection, type ResolvedPlaySelection } from './playSession';
 import type { Track, VinylRecord } from './types';
 
@@ -22,6 +27,8 @@ export type CompatibilityPick = {
   score: number;
   reason: string;
   bpmDelta: number | null;
+  probability: number;
+  match: MatchProbabilityResult;
 };
 
 export type TieredCompatibility = {
@@ -194,13 +201,22 @@ function coldStartPicks(
             ? `Key ${code}`
             : 'From your crate';
 
+      const coldScore =
+        (track.bpm != null ? 2 : 0) + (code ? 2 : 0) + (track.isPrimary ? 1 : 0);
       picks.push({
         record,
         track,
         tier: 'smooth',
-        score: (track.bpm != null ? 2 : 0) + (code ? 2 : 0),
+        score: coldScore,
         reason,
         bpmDelta: null,
+        probability: 50 + coldScore * 5,
+        match: {
+          probability: 50 + coldScore * 5,
+          tier: 'good',
+          factors: [],
+          confidence: 'low',
+        },
       });
     }
   }
@@ -214,11 +230,18 @@ function coldStartPicks(
   };
 }
 
+export type CompatibilityOptions = {
+  /** Live tap BPM from mixer — refines anchor tempo for matching */
+  anchorBpmOverride?: number;
+  bpmUncertainty?: number;
+};
+
 export function recommendTieredCompatibility(
   collection: VinylRecord[],
   anchor: ResolvedPlaySelection | null,
   exclude: PlaySelection[] = [],
-  perTier = 5
+  perTier = 5,
+  options: CompatibilityOptions = {}
 ): TieredCompatibility {
   const excludeKeys = new Set(exclude.map(playSelectionKey));
   const empty: TieredCompatibility = { perfect: [], smooth: [], stretch: [] };
@@ -248,8 +271,23 @@ export function recommendTieredCompatibility(
         continue;
       }
 
-      const tier = classifyCompatibilityTier(anchorTrack, track);
-      if (!tier) continue;
+      const harmonicTier = classifyCompatibilityTier(anchorTrack, track);
+      if (!harmonicTier) continue;
+
+      const match = computeMatchProbability({
+        anchor: anchorTrack,
+        candidate: track,
+        anchorGenres: anchor.record.genres,
+        candidateGenres: record.genres,
+        anchorArtist: anchor.record.artist,
+        candidateArtist: record.artist,
+        anchorBpmOverride: options.anchorBpmOverride,
+        bpmUncertainty: options.bpmUncertainty ?? 3,
+      });
+
+      if (match.probability < 28) continue;
+
+      const tier = matchTierToCompatibilityTier(match.tier);
 
       const score = scoreCandidate(
         anchorTrack,
@@ -262,12 +300,13 @@ export function recommendTieredCompatibility(
       );
       if (score <= -999) continue;
 
-      const pick: CompatibilityPick = {
-        record,
-        track,
-        tier,
-        score,
-        reason: buildPickReason(
+      const topFactors = match.factors
+        .filter((f) => f.delta !== 0)
+        .slice(0, 2)
+        .map((f) => f.label);
+      const reason =
+        topFactors.join(' · ') ||
+        buildPickReason(
           anchorTrack,
           track,
           tier,
@@ -275,8 +314,20 @@ export function recommendTieredCompatibility(
           record.genres,
           anchor.record.artist,
           record.artist
+        );
+
+      const pick: CompatibilityPick = {
+        record,
+        track,
+        tier,
+        score: match.probability,
+        reason,
+        bpmDelta: bpmDelta(
+          options.anchorBpmOverride ?? anchorTrack.bpm,
+          track.bpm
         ),
-        bpmDelta: bpmDelta(anchorTrack.bpm, track.bpm),
+        probability: match.probability,
+        match,
       };
 
       if (!bestPick) {
@@ -285,7 +336,10 @@ export function recommendTieredCompatibility(
       }
 
       const tierDiff = TIER_ORDER[pick.tier] - TIER_ORDER[bestPick.tier];
-      if (tierDiff < 0 || (tierDiff === 0 && pick.score > bestPick.score)) {
+      if (
+        tierDiff < 0 ||
+        (tierDiff === 0 && pick.probability > bestPick.probability)
+      ) {
         bestPick = pick;
       }
     }
@@ -296,7 +350,7 @@ export function recommendTieredCompatibility(
   candidates.sort((a, b) => {
     const tierDiff = TIER_ORDER[a.tier] - TIER_ORDER[b.tier];
     if (tierDiff !== 0) return tierDiff;
-    return b.score - a.score;
+    return b.probability - a.probability;
   });
 
   for (const pick of candidates) {
@@ -309,13 +363,13 @@ export function recommendTieredCompatibility(
 }
 
 export const TIER_LABELS: Record<CompatibilityTier, string> = {
-  perfect: 'Perfect match',
-  smooth: 'Smooth blend',
+  perfect: 'Strong match',
+  smooth: 'Good blend',
   stretch: 'Stretch mix',
 };
 
 export const TIER_HINTS: Record<CompatibilityTier, string> = {
-  perfect: 'Same Camelot code — safest harmonic match',
-  smooth: 'Relative or ±1 on the wheel',
-  stretch: 'Energy lift — shorter blends',
+  perfect: 'High probability — verified key/BPM or tight harmonic lock',
+  smooth: 'Solid partners — relative or ±1 on the wheel',
+  stretch: 'Wider moves — shorter blends, use your ears',
 };

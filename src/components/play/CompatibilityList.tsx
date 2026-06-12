@@ -1,12 +1,14 @@
-import { ListPlus, Play } from 'lucide-react';
+import { ListPlus, Play, Shuffle } from 'lucide-react';
 import {
   recommendTieredCompatibility,
   TIER_HINTS,
   TIER_LABELS,
+  type CompatibilityOptions,
   type CompatibilityPick,
   type CompatibilityTier,
   type TieredCompatibility,
 } from '../../lib/compatibility';
+import { RESEARCH_MATCH_HINTS } from '../../lib/matchProbability';
 import { openRecordDetail } from '../../lib/recordDetail';
 import { trackPositionLabel, type PlaySelection, type ResolvedPlaySelection } from '../../lib/playSession';
 import type { Track, VinylRecord } from '../../lib/types';
@@ -19,6 +21,8 @@ type CompatibilityListProps = {
   collection: VinylRecord[];
   anchor: ResolvedPlaySelection | null;
   exclude: PlaySelection[];
+  matchOptions?: CompatibilityOptions;
+  onShufflePractice?: () => void;
   isInCrate: (recordId: string, trackId: string) => boolean;
   onPlayNow: (record: VinylRecord, track: Track) => void;
   onAddToCrate: (record: VinylRecord, track: Track) => void;
@@ -35,7 +39,7 @@ function CompatibilityRow({
   onPlayNow: () => void;
   onAddToCrate: () => void;
 }) {
-  const { record, track, reason } = pick;
+  const { record, track, reason, probability, tier } = pick;
   const trackIndex = Math.max(0, record.tracks.findIndex((t) => t.id === track.id));
 
   return (
@@ -52,7 +56,15 @@ function CompatibilityRow({
           className="play-dj__cover play-dj__cover--queue shrink-0"
         />
         <div className="play-compat__body">
-          <p className="play-compat__title">{track.title}</p>
+          <div className="play-compat__title-row">
+            <p className="play-compat__title">{track.title}</p>
+            <span
+              className={`play-compat__prob play-compat__prob--${tier}`}
+              title="Blend probability"
+            >
+              {probability}%
+            </span>
+          </div>
           <p className="play-compat__artist">
             <span className="text-[var(--text-muted)]">
               {trackPositionLabel(track, trackIndex)}
@@ -131,6 +143,8 @@ export function CompatibilityList({
   collection,
   anchor,
   exclude,
+  matchOptions,
+  onShufflePractice,
   isInCrate,
   onPlayNow,
   onAddToCrate,
@@ -139,7 +153,8 @@ export function CompatibilityList({
     collection,
     anchor,
     exclude,
-    5
+    5,
+    matchOptions
   );
 
   const total =
@@ -154,13 +169,37 @@ export function CompatibilityList({
         {total > 0 ? (
           <span className="play-compat__count tabular-nums">{total}</span>
         ) : null}
+        {onShufflePractice ? (
+          <button
+            type="button"
+            className="play-compat__shuffle"
+            onClick={onShufflePractice}
+            title="Pick a random enriched track to practice blending"
+          >
+            <Shuffle className="h-3 w-3" strokeWidth={2} />
+            <span>Shuffle</span>
+          </button>
+        ) : null}
       </div>
+
+      {anchor && matchOptions?.anchorBpmOverride ? (
+        <p className="play-compat__tap-note">
+          Matching against tapped {matchOptions.anchorBpmOverride} BPM
+          <span className="text-[var(--text-muted)]"> ±{matchOptions.bpmUncertainty ?? 3}</span>
+        </p>
+      ) : null}
+
+      {anchor ? (
+        <p className="play-compat__research-hint" title={RESEARCH_MATCH_HINTS.join(' ')}>
+          {RESEARCH_MATCH_HINTS[0]}
+        </p>
+      ) : null}
 
       {total === 0 ? (
         <p className="play-compat__empty text-sm text-[var(--text-muted)]">
           {anchor
-            ? 'No harmonic matches in range — try a wider BPM or enrich more tracks.'
-            : 'Play a track to see tiered compatibility from your library.'}
+            ? 'No viable blends in range — tap BPM on the deck or enrich more tracks.'
+            : 'Play a track or shuffle a random pick to start practicing blends.'}
         </p>
       ) : (
         TIER_ORDER.map((tier) => (

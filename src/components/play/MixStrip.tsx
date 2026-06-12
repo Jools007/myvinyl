@@ -4,12 +4,15 @@ import type { Track } from '../../lib/types';
 export function MixStrip({
   track,
   variant,
+  tapBpm,
 }: {
   track: Track | null;
   variant: 'now' | 'queue';
+  tapBpm?: number | null;
 }) {
   const { code } = track ? resolveTrackCamelot(track) : {};
   const vibes = (track?.vibeTags ?? []).slice(0, 2);
+  const showTap = variant === 'now' && tapBpm != null;
 
   return (
     <div
@@ -20,7 +23,11 @@ export function MixStrip({
       <div className="play-dj__mix-cell">
         <span className="play-dj__mix-label">BPM</span>
         <span className="play-dj__mix-value tabular-nums">
-          {track?.bpm != null ? (
+          {showTap ? (
+            <span className="play-dj__mix-tap" title="Live tapped tempo">
+              {tapBpm}
+            </span>
+          ) : track?.bpm != null ? (
             <>
               {track.bpmEstimated ? <span className="text-[var(--text-muted)]">~</span> : null}
               {track.bpm}

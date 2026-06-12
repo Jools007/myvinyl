@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { Loader2, Pause, Play } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { Loader2, Pause, Play, Shuffle } from 'lucide-react';
+import { useTapBpm } from '../hooks/useTapBpm';
 import { useTrackPreview } from '../hooks/useTrackPreview';
+import type { CompatibilityOptions } from '../lib/compatibility';
+import { pickRandomPracticeAnchor } from '../lib/practiceAnchor';
 import {
   playSelectionKey,
   trackPositionLabel,
@@ -165,6 +168,7 @@ export function PlayNextPanel({
   onLoadCrateToQueue,
 }: PlayNextPanelProps) {
   const preview = useTrackPreview();
+  const tapBpm = useTapBpm();
   const autoplayPendingRef = useRef<string | null>(null);
 
   const exclude = useMemo((): PlaySelection[] => {
@@ -194,12 +198,23 @@ export function PlayNextPanel({
   }, [nowKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handlePlay = (record: VinylRecord, track: Track) => {
+    tapBpm.reset();
     autoplayPendingRef.current = playSelectionKey({
       recordId: record.id,
       trackId: track.id,
     });
     onPlayNow(record, track);
   };
+
+  const matchOptions = useMemo((): CompatibilityOptions | undefined => {
+    if (tapBpm.bpm == null) return undefined;
+    return { anchorBpmOverride: tapBpm.bpm, bpmUncertainty: 3 };
+  }, [tapBpm.bpm]);
+
+  const handleShufflePractice = useCallback(() => {
+    const pick = pickRandomPracticeAnchor(collection, exclude);
+    if (pick) handlePlay(pick.record, pick.track);
+  }, [collection, exclude]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handlePreviewToggle = () => {
     if (!nowPlaying) return;
@@ -290,7 +305,39 @@ export function PlayNextPanel({
                 duration={preview.duration}
                 onToggle={handlePreviewToggle}
               />
-              <MixStrip track={nowPlaying.track} variant="now" />
+              <MixStrip
+                track={nowPlaying.track}
+                variant="now"
+                tapBpm={tapBpm.bpm}
+              />
+              <div className="play-dj__tap-row" role="group" aria-label="Live BPM tap">
+                <button
+                  type="button"
+                  className={`play-dj__tap-btn${tapBpm.isActive ? ' play-dj__tap-btn--active' : ''}`}
+                  onClick={tapBpm.tap}
+                  aria-label="Tap tempo on beat"
+                >
+                  Tap BPM
+                  {tapBpm.tapCount > 0 && tapBpm.tapCount < 4 ? (
+                    <span className="play-dj__tap-count tabular-nums">{tapBpm.tapCount}/4</span>
+                  ) : null}
+                </button>
+                {tapBpm.bpm != null ? (
+                  <>
+                    <span className="play-dj__tap-result tabular-nums">{tapBpm.bpm} BPM</span>
+                    <button
+                      type="button"
+                      className="play-dj__tap-clear"
+                      onClick={tapBpm.reset}
+                      aria-label="Clear tapped BPM"
+                    >
+                      Clear
+                    </button>
+                  </>
+                ) : (
+                  <span className="play-dj__tap-hint">Tap on the beat — refines matches</span>
+                )}
+              </div>
             </div>
           </div>
         ) : (
@@ -299,8 +346,16 @@ export function PlayNextPanel({
               Pick a track to start mixing
             </p>
             <p className="mt-1 text-sm leading-relaxed text-[var(--text-secondary)]">
-              Tap play on a compatible pick below — or open a release and use Play Now on a track.
+              Shuffle a random enriched cut from your crate, or tap play on a match below.
             </p>
+            <button
+              type="button"
+              className="play-dj__shuffle-btn"
+              onClick={handleShufflePractice}
+            >
+              <Shuffle className="h-3.5 w-3.5" strokeWidth={2} />
+              Random mix test
+            </button>
           </div>
         )}
       </div>
@@ -310,6 +365,8 @@ export function PlayNextPanel({
           collection={collection}
           anchor={nowPlaying}
           exclude={exclude}
+          matchOptions={matchOptions}
+          onShufflePractice={handleShufflePractice}
           isInCrate={isInCrate}
           onPlayNow={handlePlay}
           onAddToCrate={onAddToCrate}
