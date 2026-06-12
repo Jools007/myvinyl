@@ -1,6 +1,11 @@
 import { camelotDistance, isCompatibleKey, resolveTrackCamelot } from './camelot';
 import { genreAffinityScore, isDowntempoLane } from './genreAffinity';
 import { mixabilityAdjustment, isMixPartnerCandidate } from './mixability';
+import {
+  isGridRhythmSource,
+  isRhythmMixPartner,
+  rhythmCompatibilityScore,
+} from './rhythmSource';
 import { playSelectionKey, type PlaySelection, type ResolvedPlaySelection } from './playSession';
 import { getPrimaryTrack } from './tracks';
 import type { Track, VinylRecord } from './types';
@@ -64,6 +69,15 @@ export function scoreNextPlay(
   score += vibeOverlapTracks(lastTrack, candidateTrack) * 12;
   score += genreOverlap(last.record, candidate) * 6;
   score += genreAffinityScore(last.record.genres, candidate.genres);
+
+  const rhythmScore = rhythmCompatibilityScore(
+    last.record.genres,
+    candidate.genres,
+    last.record.artist,
+    candidate.artist
+  );
+  if (rhythmScore <= -999) return -1;
+  score += rhythmScore;
 
   if (isDowntempoLane(last.record.genres) && !isDowntempoLane(candidate.genres)) {
     score -= 10;
@@ -177,8 +191,17 @@ function bestTrackForRecord(
   record: VinylRecord
 ): { track: Track; score: number } | null {
   let best: { track: Track; score: number } | null = null;
-  const mixable = record.tracks.filter((t) => isMixPartnerCandidate(t, record.genres));
-  const pool = mixable.length > 0 ? mixable : record.tracks.filter((t) => t.isPrimary);
+  const rhythmOk = (r: VinylRecord) =>
+    isRhythmMixPartner(anchor.record.genres, r.genres, anchor.record.artist, r.artist);
+  const mixable = record.tracks.filter(
+    (t) => isMixPartnerCandidate(t, record.genres) && rhythmOk(record)
+  );
+  const pool =
+    mixable.length > 0
+      ? mixable
+      : rhythmOk(record)
+        ? record.tracks.filter((t) => t.isPrimary)
+        : [];
 
   for (const track of pool) {
     const score = scoreNextPlay(anchor, record, track);
@@ -261,6 +284,12 @@ function buildReasons(
     next.genres.some((x) => x.toLowerCase() === g.toLowerCase())
   );
   if (genres.length) reasons.push(genres[0]);
+  if (
+    isGridRhythmSource(last.record.genres, last.record.artist) &&
+    isGridRhythmSource(next.genres, next.artist)
+  ) {
+    reasons.push('Grid tempo — beatmatch safe');
+  }
   if (!reasons.length) reasons.push('Complementary energy');
   return reasons.slice(0, 3);
 }

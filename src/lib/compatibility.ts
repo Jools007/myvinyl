@@ -5,6 +5,11 @@ import {
   mixabilityAdjustment,
   mixabilityLabel,
 } from './mixability';
+import {
+  isGridRhythmSource,
+  isRhythmMixPartner,
+  rhythmCompatibilityScore,
+} from './rhythmSource';
 import { playSelectionKey, type PlaySelection, type ResolvedPlaySelection } from './playSession';
 import type { Track, VinylRecord } from './types';
 
@@ -65,7 +70,9 @@ function scoreCandidate(
   candidate: Track,
   tier: CompatibilityTier,
   anchorGenres: string[],
-  candidateGenres: string[]
+  candidateGenres: string[],
+  anchorArtist?: string,
+  candidateArtist?: string
 ): number {
   const anchorKey = resolveTrackCamelot(anchor).code;
   const candKey = resolveTrackCamelot(candidate).code;
@@ -103,6 +110,15 @@ function scoreCandidate(
   if (mixAdj <= -999) return -999;
   score += mixAdj;
 
+  const rhythmAdj = rhythmCompatibilityScore(
+    anchorGenres,
+    candidateGenres,
+    anchorArtist,
+    candidateArtist
+  );
+  if (rhythmAdj <= -999) return -999;
+  score += rhythmAdj;
+
   if (
     tier === 'perfect' &&
     (anchor.bpmEstimated || candidate.bpmEstimated || anchor.keyEstimated || candidate.keyEstimated) &&
@@ -114,13 +130,28 @@ function scoreCandidate(
   return score;
 }
 
-function buildPickReason(anchor: Track, candidate: Track, tier: CompatibilityTier): string {
+function buildPickReason(
+  anchor: Track,
+  candidate: Track,
+  tier: CompatibilityTier,
+  anchorGenres: string[],
+  candidateGenres: string[],
+  anchorArtist?: string,
+  candidateArtist?: string
+): string {
   const anchorKey = resolveTrackCamelot(anchor).code;
   const candKey = resolveTrackCamelot(candidate).code;
   const parts: string[] = [];
 
   if (anchorKey && candKey) {
     parts.push(keyRelationship(anchorKey, candKey));
+  }
+
+  if (
+    isGridRhythmSource(anchorGenres, anchorArtist) &&
+    isGridRhythmSource(candidateGenres, candidateArtist)
+  ) {
+    parts.push('Grid tempo');
   }
 
   const delta = bpmDelta(anchor.bpm, candidate.bpm);
@@ -206,11 +237,29 @@ export function recommendTieredCompatibility(
       const key = playSelectionKey({ recordId: record.id, trackId: track.id });
       if (excludeKeys.has(key)) continue;
       if (!isMixPartnerCandidate(track, record.genres)) continue;
+      if (
+        !isRhythmMixPartner(
+          anchor.record.genres,
+          record.genres,
+          anchor.record.artist,
+          record.artist
+        )
+      ) {
+        continue;
+      }
 
       const tier = classifyCompatibilityTier(anchorTrack, track);
       if (!tier) continue;
 
-      const score = scoreCandidate(anchorTrack, track, tier, anchor.record.genres, record.genres);
+      const score = scoreCandidate(
+        anchorTrack,
+        track,
+        tier,
+        anchor.record.genres,
+        record.genres,
+        anchor.record.artist,
+        record.artist
+      );
       if (score <= -999) continue;
 
       const pick: CompatibilityPick = {
@@ -218,7 +267,15 @@ export function recommendTieredCompatibility(
         track,
         tier,
         score,
-        reason: buildPickReason(anchorTrack, track, tier),
+        reason: buildPickReason(
+          anchorTrack,
+          track,
+          tier,
+          anchor.record.genres,
+          record.genres,
+          anchor.record.artist,
+          record.artist
+        ),
         bpmDelta: bpmDelta(anchorTrack.bpm, track.bpm),
       };
 
