@@ -618,14 +618,14 @@ function App() {
       />
 
       <main
-        className={`mx-auto max-w-7xl px-3 sm:px-6 ${
+        className={`app-main mx-auto max-w-7xl px-3 sm:px-6 ${
           page === 'collection'
-            ? 'pb-8 pt-0 sm:pt-4'
+            ? 'app-main--collection pb-8 pt-0 sm:pt-4'
             : page === 'labels'
-              ? 'pb-0 pt-3 sm:py-8'
+              ? 'app-main--labels pb-0 pt-3 sm:py-8'
               : page === 'insights'
-                ? 'pb-10 pt-2 sm:pt-4 sm:pb-12'
-                : 'py-8'
+                ? 'app-main--insights pb-10 pt-2 sm:pt-4 sm:pb-12'
+                : 'app-main--play py-8'
         }`}
       >
         <AnimatePresence mode="wait">
