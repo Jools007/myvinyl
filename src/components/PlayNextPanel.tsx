@@ -269,61 +269,71 @@ export function PlayNextPanel({
                   <MixStrip
                     track={nowPlaying.track}
                     variant="now"
-                    tapBpm={tapBpm.bpm}
+                    tapBpm={!tapBpm.isActive ? tapBpm.bpm : null}
                   />
-                  <div className="play-dj__tap-row" role="group" aria-label="Live BPM tap">
-                    <button
-                      type="button"
-                      className={`play-dj__tap-btn${tapBpm.isActive ? ' play-dj__tap-btn--active' : ''}`}
-                      onClick={tapBpm.tap}
-                      aria-label="Tap tempo on beat"
+                  <div className="play-dj__tap-block" role="group" aria-label="Live BPM tap">
+                    <div className="play-dj__tap-row">
+                      <button
+                        type="button"
+                        className={`play-dj__tap-btn${tapBpm.isActive ? ' play-dj__tap-btn--active' : ''}`}
+                        onClick={tapBpm.tap}
+                        aria-label="Tap tempo on beat"
+                      >
+                        <span>Tap BPM</span>
+                        <span className="play-dj__tap-count tabular-nums" aria-hidden={tapBpm.tapCount === 0}>
+                          {tapBpm.tapCount > 0 ? `${Math.min(tapBpm.tapCount, 4)}/4` : '·'}
+                        </span>
+                      </button>
+                      <p className="play-dj__tap-readout tabular-nums">
+                        {tapBpm.bpm != null ? (
+                          <span className="play-dj__tap-result">{tapBpm.bpm} BPM</span>
+                        ) : (
+                          <span className="play-dj__tap-hint">Tap on the beat while spinning</span>
+                        )}
+                      </p>
+                    </div>
+                    <div
+                      className={`play-dj__tap-actions${showSaveTap && !tapBpm.isActive ? '' : ' play-dj__tap-actions--idle'}`}
                     >
-                      Tap BPM
-                      {tapBpm.tapCount > 0 && tapBpm.tapCount < 4 ? (
-                        <span className="play-dj__tap-count tabular-nums">
-                          {tapBpm.tapCount}/4
-                        </span>
+                      {showSaveTap && !tapBpm.isActive && tapBpm.bpm != null ? (
+                        <>
+                          <button
+                            type="button"
+                            className="play-dj__tap-save"
+                            onClick={handleSaveTapBpm}
+                          >
+                            {nowPlaying.track.bpmEstimated || catalogBpm == null
+                              ? `Save ${tapBpm.bpm} BPM`
+                              : `Replace ~${catalogBpm}`}
+                          </button>
+                          <button
+                            type="button"
+                            className="play-dj__tap-clear"
+                            onClick={tapBpm.reset}
+                            aria-label="Clear tapped BPM"
+                          >
+                            Clear
+                          </button>
+                        </>
                       ) : null}
-                    </button>
-                    {tapBpm.bpm != null ? (
-                      <span className="play-dj__tap-result tabular-nums">{tapBpm.bpm} BPM</span>
-                    ) : (
-                      <span className="play-dj__tap-hint">Tap on the beat while spinning</span>
-                    )}
-                    {showSaveTap ? (
-                      <button
-                        type="button"
-                        className="play-dj__tap-save"
-                        onClick={handleSaveTapBpm}
-                      >
-                        {nowPlaying.track.bpmEstimated || catalogBpm == null
-                          ? `Save ${tapBpm.bpm} BPM`
-                          : `Replace ~${catalogBpm}`}
-                      </button>
-                    ) : null}
-                    {tapBpm.bpm != null ? (
-                      <button
-                        type="button"
-                        className="play-dj__tap-clear"
-                        onClick={tapBpm.reset}
-                        aria-label="Clear tapped BPM"
-                      >
-                        Clear
-                      </button>
-                    ) : null}
-                  </div>
-                  {tapBpm.bpm != null ? (
+                    </div>
                     <p className="play-dj__tap-note">
-                      Matching at {tapBpm.bpm} BPM
-                      <span className="text-[var(--text-muted)]"> ±3</span>
-                      {showSaveTap ? (
-                        <span className="text-[var(--text-muted)]">
-                          {' '}
-                          · save to replace catalog estimate
-                        </span>
-                      ) : null}
+                      {tapBpm.bpm != null ? (
+                        <>
+                          Matching at {tapBpm.bpm} BPM
+                          <span className="text-[var(--text-muted)]"> ±3</span>
+                          {showSaveTap && !tapBpm.isActive ? (
+                            <span className="text-[var(--text-muted)]">
+                              {' '}
+                              · save to replace catalog estimate
+                            </span>
+                          ) : null}
+                        </>
+                      ) : (
+                        <span className="text-[var(--text-muted)]">Live tempo refines mix partners</span>
+                      )}
                     </p>
-                  ) : null}
+                  </div>
                 </div>
               </div>
         ) : (
