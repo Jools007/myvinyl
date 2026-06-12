@@ -43,7 +43,14 @@ export function Login() {
     setSubmitting(false);
 
     if (authError) {
-      setError(authError.message);
+      const lower = authError.message.toLowerCase();
+      if (lower.includes('403') || lower.includes('401') || lower.includes('session')) {
+        setError(
+          'Your saved login session is invalid. Clear site data for localhost (or run localStorage.clear() in the console), then sign in again.'
+        );
+      } else {
+        setError(authError.message);
+      }
       return;
     }
 

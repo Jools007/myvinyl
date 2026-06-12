@@ -1,10 +1,10 @@
 import { motion } from 'framer-motion';
-import { LayoutGrid, Play, Plus, Printer, Scan } from 'lucide-react';
+import { BarChart3, LayoutGrid, Play, Plus, Printer, Scan } from 'lucide-react';
 import { UserMenu } from './Auth/UserMenu';
 import { MyVinylBrandMark } from './MyVinylBrandMark';
 import { ThemeToggle } from './ThemeToggle';
 
-export type NavPage = 'collection' | 'play' | 'labels';
+export type NavPage = 'collection' | 'insights' | 'play' | 'labels';
 
 interface NavigationProps {
   page: NavPage;
@@ -16,6 +16,7 @@ interface NavigationProps {
 
 const links: { id: NavPage; label: string; icon: typeof LayoutGrid }[] = [
   { id: 'collection', label: 'Collection', icon: LayoutGrid },
+  { id: 'insights', label: 'Insights', icon: BarChart3 },
   { id: 'play', label: 'Play', icon: Play },
   { id: 'labels', label: 'Labels', icon: Printer },
 ];
@@ -29,15 +30,17 @@ export function Navigation({ page, onNavigate, recordCount, onScan, onAddRecord 
   const countLabel = recordCount === 1 ? 'record' : 'records';
 
   return (
+    <>
     <header className="no-print app-nav sticky top-0 z-50 border-b border-[var(--border)] glass-panel">
-      <div className="mx-auto flex h-12 sm:h-16 max-w-7xl items-center justify-between gap-3 sm:gap-4 px-3 sm:px-6">
+      <div className="app-nav__row mx-auto flex max-w-7xl items-center justify-between px-2 sm:gap-4 sm:px-6">
         <button
           type="button"
           onClick={() => onNavigate('collection')}
-          className="app-brand"
+          className="app-brand app-nav__brand"
           aria-label={`MyVinyl home — ${recordCount} ${countLabel} in collection`}
         >
-          <MyVinylBrandMark className="app-brand__mark" size={36} />
+          <MyVinylBrandMark className="app-brand__mark app-brand__mark--mobile" size={24} />
+          <MyVinylBrandMark className="app-brand__mark app-brand__mark--desktop" size={36} />
           <span className="app-brand__copy">
             <span className="app-brand__wordmark" style={{ fontFamily: 'var(--font-display)' }}>
               MyVinyl
@@ -48,7 +51,10 @@ export function Navigation({ page, onNavigate, recordCount, onScan, onAddRecord 
           </span>
         </button>
 
-        <nav className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-subtle)] p-1 sm:flex">
+        <nav
+          className="hidden items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-subtle)] p-1 sm:flex"
+          aria-label="Main"
+        >
           {links.map(({ id, label, icon: Icon }) => {
             const active = page === id;
             return (
@@ -56,8 +62,9 @@ export function Navigation({ page, onNavigate, recordCount, onScan, onAddRecord 
                 key={id}
                 type="button"
                 onClick={() => onNavigate(id)}
-                className="relative flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-colors"
+                className="relative flex min-h-[2.75rem] items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-colors"
                 style={{ color: active ? 'var(--text)' : 'var(--text-secondary)' }}
+                aria-current={active ? 'page' : undefined}
               >
                 {active && (
                   <motion.div
@@ -74,8 +81,13 @@ export function Navigation({ page, onNavigate, recordCount, onScan, onAddRecord 
           })}
         </nav>
 
-        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          <ThemeToggle />
+        <div className="app-nav__actions flex shrink-0 items-center sm:gap-3">
+          <div className="hidden sm:inline-flex">
+            <ThemeToggle />
+          </div>
+          <div className="sm:hidden">
+            <ThemeToggle compact />
+          </div>
           <button
             type="button"
             onClick={() => onScan?.()}
@@ -83,42 +95,47 @@ export function Navigation({ page, onNavigate, recordCount, onScan, onAddRecord 
             aria-label="Scan barcode"
             title="Scan barcode"
           >
-            <Scan className="h-[1.125rem] w-[1.125rem] sm:h-5 sm:w-5" strokeWidth={2} />
+            <Scan className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2} />
           </button>
           <UserMenu />
           <button
             type="button"
             onClick={handleAddRecord}
-            className="btn-primary inline-flex h-5 text-[9px] py-0 px-1 sm:h-auto sm:text-[0.8125rem] sm:py-[0.625rem] sm:px-[1.25rem]"
+            className="btn-primary app-nav__add-btn"
+            aria-label="Add vinyl"
           >
-            <Plus className="h-2 w-2 sm:h-4 sm:w-4" />
-            Add vinyl
-          </button>
-          <button
-            type="button"
-            onClick={handleAddRecord}
-            className="hidden"
-            aria-label="Add record from Discogs"
-          >
-            <Plus className="h-2.5 w-2.5" />
+            <Plus className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" strokeWidth={2.25} />
+            <span className="app-nav__add-label app-nav__add-label--short">Add</span>
+            <span className="app-nav__add-label app-nav__add-label--full">Add vinyl</span>
           </button>
         </div>
       </div>
+    </header>
 
-      <div className="flex border-t border-[var(--border)] sm:hidden">
-        {links.map(({ id, label, icon: Icon }) => (
+    <nav
+      className="mobile-tab-bar no-print sm:hidden"
+      aria-label="Main"
+    >
+      {links.map(({ id, label, icon: Icon }) => {
+        const active = page === id;
+        return (
           <button
             key={id}
             type="button"
             onClick={() => onNavigate(id)}
-            className="flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] font-medium uppercase tracking-wider"
-            style={{ color: page === id ? 'var(--accent)' : 'var(--text-muted)' }}
+            className={`mobile-tab-bar__btn${active ? ' mobile-tab-bar__btn--active' : ''}`}
+            aria-current={active ? 'page' : undefined}
           >
-            <Icon className="h-4 w-4" />
-            {label}
+            <Icon
+              className="mobile-tab-bar__icon"
+              strokeWidth={active ? 2.25 : 1.75}
+              fill={id === 'play' && active ? 'currentColor' : 'none'}
+            />
+            <span className="mobile-tab-bar__label">{label}</span>
           </button>
-        ))}
-      </div>
-    </header>
+        );
+      })}
+    </nav>
+    </>
   );
 }

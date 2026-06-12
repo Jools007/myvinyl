@@ -11,7 +11,7 @@ import {
   parseEnrichBody,
   parseEnrichQuery,
 } from './handlers/enrich';
-import { resolvePlayableAudio } from './play-audio';
+import { handlePlayAudio } from './handlers/play-audio';
 import {
   getSpotifyRateLimitRetrySec,
   isSpotifyRateLimited,
@@ -23,6 +23,7 @@ import {
   handleDiscogsRelease,
   handleDiscogsSearch,
 } from './handlers/discogs';
+import { fetchProxiedImage, parseImageProxyUrl } from './handlers/image-proxy';
 
 type Env = Record<string, string>;
 
@@ -175,8 +176,8 @@ export function apiPlugin(env: Env): Plugin {
 
           // ── Play audio: aggressive Spotify + YouTube lookup ──
           if (path === '/api/play/audio' && req.method === 'GET') {
-            const artist = url.searchParams.get('artist')?.trim();
-            const title = url.searchParams.get('title')?.trim();
+            const artist = url.searchParams.get('artist')?.trim() ?? '';
+            const title = url.searchParams.get('title')?.trim() ?? '';
             if (!artist || !title) {
               return json(res, 400, { error: 'artist and title required' });
             }
@@ -185,7 +186,7 @@ export function apiPlugin(env: Env): Plugin {
             const albumIndex = albumIndexRaw ? parseInt(albumIndexRaw, 10) : undefined;
             const spotifyTrackId = url.searchParams.get('spotifyTrackId')?.trim();
 
-            const playback = await resolvePlayableAudio({
+            const result = await handlePlayAudio({
               artist,
               title,
               album,
@@ -199,16 +200,14 @@ export function apiPlugin(env: Env): Plugin {
               youtubeApiKey,
             });
 
-            if (playback) return json(res, 200, playback);
-
-            if (isSpotifyRateLimited()) {
+            if (result.ok) return json(res, 200, result.data);
+            if (result.status === 503) {
               return json(res, 503, {
-                error: 'Spotify is temporarily rate-limited — try again in a few seconds',
-                retryAfterSec: getSpotifyRateLimitRetrySec(),
+                error: result.error,
+                retryAfterSec: result.retryAfterSec,
               });
             }
-
-            return json(res, 404, { error: 'No playable audio found' });
+            return json(res, 404, { error: result.error });
           }
 
           // ── Enrich (Discogs + Spotify + Last.fm combined) ──
@@ -293,6 +292,22 @@ export function apiPlugin(env: Env): Plugin {
                 : Promise.resolve([]),
             ]);
             return json(res, 200, { artists, tracks });
+          }
+
+          // ── Image proxy (PDF export, CORS-safe artwork) ──
+          if (path === '/api/image' && req.method === 'GET') {
+            const imageUrl = parseImageProxyUrl(url.searchParams.get('url'));
+            if (!imageUrl) return json(res, 400, { error: 'Valid image url required' });
+
+            const result = await fetchProxiedImage(imageUrl);
+            if (!result) return json(res, 404, { error: 'Image not found' });
+
+            res.statusCode = 200;
+            res.setHeader('Content-Type', result.contentType);
+            res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.end(result.buffer);
+            return;
           }
 
           // ── Last.fm vibe discovery ──

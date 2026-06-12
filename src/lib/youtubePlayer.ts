@@ -1,6 +1,7 @@
-/** YouTube playback for preview fallback (IFrame API + simple embed fallback). */
+/** YouTube preview playback — IFrame API for reliable play/pause/sound; simple embed as fallback. */
 
 const YT_SCRIPT = 'https://www.youtube.com/iframe_api';
+const YT_EMBED_HOST = 'https://www.youtube.com';
 
 type YTPlayer = {
   playVideo: () => void;
@@ -23,7 +24,6 @@ type YTNamespace = {
       height: string | number;
       width: string | number;
       videoId: string;
-      host?: string;
       playerVars?: Record<string, number | string>;
       events?: {
         onReady?: (e: { target: YTPlayer }) => void;
@@ -57,7 +57,13 @@ function pageOrigin(): string {
   return window.location.origin || `${window.location.protocol}//${window.location.host}`;
 }
 
-export function loadYouTubeIframeApi(): Promise<void> {
+/** IFrame API postMessage requires an exact origin match — skip on local dev hosts. */
+function preferSimpleIframe(): boolean {
+  const host = window.location.hostname;
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+}
+
+function loadYouTubeIframeApi(): Promise<void> {
   if (window.YT?.Player) return Promise.resolve();
   if (apiReady) return apiReady;
 
@@ -110,15 +116,16 @@ function buildEmbedSrc(videoId: string, autoplay: boolean, muted: boolean): stri
   const params = new URLSearchParams({
     autoplay: autoplay ? '1' : '0',
     mute: muted ? '1' : '0',
-    enablejsapi: '1',
-    origin: pageOrigin(),
     rel: '0',
     playsinline: '1',
     modestbranding: '1',
     iv_load_policy: '3',
   });
-  return `https://www.youtube-nocookie.com/embed/${videoId}?${params}`;
+  return `${YT_EMBED_HOST}/embed/${videoId}?${params}`;
 }
+
+const YT_IFRAME_ALLOW =
+  'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; compute-pressure *';
 
 export type YouTubePlayerHandlers = {
   onReady?: () => void;
@@ -129,32 +136,41 @@ export type YouTubePlayerHandlers = {
   onMutedChange?: (muted: boolean) => void;
 };
 
+export type YouTubePlayerOptions = {
+  autoplay?: boolean;
+  enableSound?: boolean;
+};
+
 export class YouTubePreviewPlayer {
   private player: YTPlayer | null = null;
   private iframe: HTMLIFrameElement | null = null;
   private hostEl: HTMLElement | null = null;
-
-  private readyResolve: (() => void) | null = null;
-  private readyPromise: Promise<void> | null = null;
   private mode: 'api' | 'iframe' = 'api';
+  private readyFired = false;
+  private abandoned = false;
+  private initTimeout: ReturnType<typeof setTimeout> | null = null;
   private readonly videoId: string;
   private readonly handlers: YouTubePlayerHandlers;
-  private playPending = false;
-  private startMuted = true;
   private soundEnabled = false;
 
-  constructor(videoId: string, handlers: YouTubePlayerHandlers) {
+  constructor(videoId: string, handlers: YouTubePlayerHandlers, opts?: YouTubePlayerOptions) {
     this.videoId = videoId;
     this.handlers = handlers;
-    this.readyPromise = new Promise((resolve) => {
-      this.readyResolve = resolve;
-    });
+    this.soundEnabled = opts?.enableSound === true;
     void this.initApi();
   }
 
+  private clearInitTimeout(): void {
+    if (this.initTimeout != null) {
+      clearTimeout(this.initTimeout);
+      this.initTimeout = null;
+    }
+  }
+
   private markReady(): void {
-    this.readyResolve?.();
-    this.readyResolve = null;
+    if (this.readyFired) return;
+    this.readyFired = true;
+    this.clearInitTimeout();
     this.handlers.onReady?.();
   }
 
@@ -163,6 +179,7 @@ export class YouTubePreviewPlayer {
   }
 
   private mountIframeFallback(autoplay: boolean): void {
+    this.abandoned = false;
     this.mode = 'iframe';
     this.player = null;
 
@@ -171,8 +188,7 @@ export class YouTubePreviewPlayer {
     const iframe = document.createElement('iframe');
     iframe.className = 'play-dj__yt-frame';
     iframe.title = 'Track audio preview';
-    iframe.allow =
-      'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+    iframe.allow = YT_IFRAME_ALLOW;
     iframe.allowFullscreen = true;
     const muted = !this.soundEnabled;
     iframe.src = buildEmbedSrc(this.videoId, autoplay, muted);
@@ -181,20 +197,37 @@ export class YouTubePreviewPlayer {
 
     iframe.addEventListener('load', () => {
       this.markReady();
-      if (autoplay) {
-        this.handlers.onPlaying?.();
-        this.notifyMuted();
-      }
     });
+  }
 
-    console.info('[yt-player] iframe fallback', this.videoId);
+  private startIframePlayback(): void {
+    if (!this.iframe) return;
+    const muted = !this.soundEnabled;
+    const next = buildEmbedSrc(this.videoId, true, muted);
+    if (this.iframe.src !== next) this.iframe.src = next;
+    this.handlers.onPlaying?.();
+    this.notifyMuted();
   }
 
   private async initApi(): Promise<void> {
+    if (preferSimpleIframe()) {
+      this.mountIframeFallback(false);
+      return;
+    }
+
+    this.initTimeout = setTimeout(() => {
+      if (!this.readyFired) {
+        this.abandoned = true;
+        this.destroyHostOnly();
+        this.mountIframeFallback(false);
+      }
+    }, 8_000);
+
     await loadYouTubeIframeApi();
     const YT = window.YT;
     if (!YT?.Player) {
-      this.mountIframeFallback(this.playPending);
+      this.clearInitTimeout();
+      this.mountIframeFallback(false);
       return;
     }
 
@@ -205,7 +238,6 @@ export class YouTubePreviewPlayer {
       const instance = new YT.Player(id, {
         height: 180,
         width: 320,
-        host: 'https://www.youtube-nocookie.com',
         videoId: this.videoId,
         playerVars: {
           autoplay: 0,
@@ -218,12 +250,13 @@ export class YouTubePreviewPlayer {
           rel: 0,
           enablejsapi: 1,
           origin: pageOrigin(),
-          mute: this.startMuted ? 1 : 0,
+          mute: this.soundEnabled ? 0 : 1,
         },
         events: {
           onReady: (e) => {
+            if (this.abandoned) return;
             this.player = e.target;
-            if (this.startMuted) {
+            if (!this.soundEnabled) {
               try {
                 e.target.mute();
               } catch {
@@ -232,15 +265,13 @@ export class YouTubePreviewPlayer {
             }
             this.markReady();
             this.notifyMuted();
-            if (this.playPending) {
-              this.playPending = false;
-              void this.playInternal();
-            }
           },
           onStateChange: (e) => {
+            if (this.abandoned) return;
             const { ENDED, PLAYING, PAUSED, BUFFERING } = YT.PlayerState;
             if (e.data === PLAYING || e.data === BUFFERING) {
               this.handlers.onPlaying?.();
+              this.notifyMuted();
             } else if (e.data === PAUSED) {
               this.handlers.onPaused?.();
             } else if (e.data === ENDED) {
@@ -248,10 +279,10 @@ export class YouTubePreviewPlayer {
             }
           },
           onError: (e) => {
-            console.warn('[yt-player] error', e.data, this.videoId);
             if (e.data === 101 || e.data === 150 || e.data === 2 || e.data === 100) {
+              this.clearInitTimeout();
               this.destroyHostOnly();
-              this.mountIframeFallback(this.playPending);
+              this.mountIframeFallback(false);
               return;
             }
             this.handlers.onError?.(e.data);
@@ -259,9 +290,9 @@ export class YouTubePreviewPlayer {
         },
       });
       this.player = instance;
-    } catch (err) {
-      console.warn('[yt-player] init failed', err);
-      this.mountIframeFallback(this.playPending);
+    } catch {
+      this.clearInitTimeout();
+      this.mountIframeFallback(false);
     }
   }
 
@@ -280,66 +311,55 @@ export class YouTubePreviewPlayer {
     this.hostEl = null;
   }
 
-  private async awaitReady(): Promise<void> {
-    if (this.readyPromise) await this.readyPromise;
-  }
-
-  getPlayerState(): number | null {
-    try {
-      const state = this.player?.getPlayerState?.();
-      return typeof state === 'number' ? state : null;
-    } catch {
-      return null;
-    }
-  }
-
   isSoundEnabled(): boolean {
     return this.soundEnabled;
   }
 
+  private isApiPlaying(): boolean {
+    try {
+      const YT = window.YT;
+      if (!YT || !this.player) return false;
+      const state = this.player.getPlayerState();
+      return state === YT.PlayerState.PLAYING || state === YT.PlayerState.BUFFERING;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Sync — call directly from a click handler for unmuted playback. */
   enableSound(): void {
     this.soundEnabled = true;
-    if (this.mode === 'iframe' && this.iframe) {
-      const playing = this.iframe.src.includes('autoplay=1');
-      this.iframe.src = buildEmbedSrc(this.videoId, playing, false);
-      this.notifyMuted();
+    if (this.mode === 'iframe') {
+      this.startIframePlayback();
       return;
     }
     try {
       this.player?.unMute();
+      if (!this.isApiPlaying()) this.player?.playVideo();
     } catch {
       /* ignore */
     }
     this.notifyMuted();
   }
 
-  private async playInternal(): Promise<void> {
-    if (this.mode === 'iframe' && this.iframe) {
-      const muted = !this.soundEnabled;
-      this.iframe.src = buildEmbedSrc(this.videoId, true, muted);
-      this.handlers.onPlaying?.();
-      this.notifyMuted();
+  /** Sync — call directly from a click handler. */
+  play(enableSound = false): void {
+    if (enableSound) this.soundEnabled = true;
+    if (!this.readyFired) return;
+
+    if (this.mode === 'iframe') {
+      this.startIframePlayback();
       return;
     }
 
     try {
-      if (!this.soundEnabled) {
-        this.player?.mute?.();
-      }
+      if (!this.soundEnabled) this.player?.mute();
+      else this.player?.unMute();
       this.player?.playVideo();
-    } catch (err) {
-      console.warn('[yt-player] playVideo failed', err);
-      this.mountIframeFallback(true);
-      await this.awaitReady();
+      this.notifyMuted();
+    } catch {
+      /* ignore */
     }
-  }
-
-  async play(enableSound = false): Promise<void> {
-    if (enableSound) this.soundEnabled = true;
-    this.playPending = true;
-    await this.awaitReady();
-    this.playPending = false;
-    await this.playInternal();
   }
 
   pause(): void {
@@ -349,31 +369,51 @@ export class YouTubePreviewPlayer {
       this.handlers.onPaused?.();
       return;
     }
-    this.player?.pauseVideo();
+    try {
+      this.player?.pauseVideo();
+    } catch {
+      /* ignore */
+    }
   }
 
   seekStart(): void {
-    if (this.mode === 'iframe' && this.iframe) {
-      const muted = !this.soundEnabled;
-      this.iframe.src = buildEmbedSrc(this.videoId, true, muted);
+    if (this.mode === 'iframe') {
+      this.startIframePlayback();
       return;
     }
-    this.player?.seekTo(0, true);
+    try {
+      this.player?.seekTo(0, true);
+      this.player?.playVideo();
+    } catch {
+      /* ignore */
+    }
   }
 
   getCurrentTime(): number {
-    const t = this.player?.getCurrentTime?.();
-    return typeof t === 'number' && Number.isFinite(t) ? t : 0;
+    try {
+      const t = this.player?.getCurrentTime?.();
+      return typeof t === 'number' && Number.isFinite(t) ? t : 0;
+    } catch {
+      return 0;
+    }
   }
 
   getDuration(): number {
-    const d = this.player?.getDuration?.();
-    return typeof d === 'number' && Number.isFinite(d) && d > 0 ? d : 0;
+    try {
+      const d = this.player?.getDuration?.();
+      return typeof d === 'number' && Number.isFinite(d) && d > 0 ? d : 0;
+    } catch {
+      return 0;
+    }
   }
 
   destroy(): void {
+    this.abandoned = true;
+    this.clearInitTimeout();
+    if (this.iframe) {
+      this.iframe.src = 'about:blank';
+    }
     this.destroyHostOnly();
-    this.readyResolve = null;
-    this.readyPromise = null;
+    this.readyFired = false;
   }
 }

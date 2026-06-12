@@ -23,6 +23,16 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+async function clearLocalAuthSession(): Promise<void> {
+  await supabase.auth.signOut({ scope: 'local' });
+}
+
+function isStaleSessionError(error: AuthError | null | undefined): boolean {
+  if (!error) return false;
+  const status = (error as AuthError & { status?: number }).status;
+  return status === 401 || status === 403;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -31,16 +41,68 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
-      if (!mounted) return;
-      setSession(initialSession);
-      setUser(initialSession?.user ?? null);
-      setLoading(false);
-    });
+    const initAuth = async () => {
+      try {
+        const {
+          data: { session: storedSession },
+          error: sessionError,
+        } = await supabase.auth.getSession();
+
+        if (sessionError) {
+          console.warn('[auth] getSession failed; clearing local session', sessionError.message);
+          await clearLocalAuthSession();
+          if (!mounted) return;
+          setSession(null);
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+
+        if (storedSession) {
+          const {
+            data: { user: verifiedUser },
+            error: userError,
+          } = await supabase.auth.getUser();
+
+          if (userError || !verifiedUser) {
+            if (isStaleSessionError(userError)) {
+              console.warn('[auth] Stale session removed after /user check');
+            }
+            await clearLocalAuthSession();
+            if (!mounted) return;
+            setSession(null);
+            setUser(null);
+            setLoading(false);
+            return;
+          }
+
+          if (!mounted) return;
+          setSession(storedSession);
+          setUser(verifiedUser);
+          setLoading(false);
+          return;
+        }
+
+        if (!mounted) return;
+        setSession(null);
+        setUser(null);
+        setLoading(false);
+      } catch (err) {
+        console.error('[auth] init failed; clearing local session', err);
+        await clearLocalAuthSession().catch(() => undefined);
+        if (!mounted) return;
+        setSession(null);
+        setUser(null);
+        setLoading(false);
+      }
+    };
+
+    void initAuth();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!mounted) return;
       setSession(nextSession);
       setUser(nextSession?.user ?? null);
       setLoading(false);
@@ -53,13 +115,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signUp = useCallback(async (email: string, password: string): Promise<AuthResult> => {
-    const { error } = await supabase.auth.signUp({ email, password });
-    return { error };
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) return { error };
+    if (!data.session && !data.user) {
+      return {
+        error: {
+          name: 'AuthApiError',
+          message: 'Sign-up did not return a user. Check Supabase auth settings.',
+        } as AuthError,
+      };
+    }
+    return { error: null };
   }, []);
 
   const signIn = useCallback(async (email: string, password: string): Promise<AuthResult> => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error };
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { error };
+    if (!data.session) {
+      return {
+        error: {
+          name: 'AuthApiError',
+          message:
+            'Sign-in succeeded but no session was created. Clear site data for localhost and try again.',
+        } as AuthError,
+      };
+    }
+    return { error: null };
   }, []);
 
   const signOut = useCallback(async (): Promise<AuthResult> => {

@@ -1,9 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { handleDiscogsCollectionPage } from '../_lib/discogs/handlers';
-import { getApiEnv, logApiEnvStatus } from '../_lib/env';
-import { logApiError, logApiRequest } from '../_lib/log';
-import { queryRecord } from '../_lib/request';
-import { json } from '../_lib/response';
+import { handleDiscogsCollectionPage } from '../../../api/_lib/discogs/handlers';
+import { getApiEnv, logApiEnvStatus } from '../../../api/_lib/env';
+import { logApiError, logApiRequest } from '../../../api/_lib/log';
+import { queryRecord } from '../../../api/_lib/request';
+import { json } from '../../../api/_lib/response';
 
 const ROUTE = 'api/discogs/collection';
 

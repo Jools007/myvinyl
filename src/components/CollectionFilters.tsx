@@ -1,6 +1,27 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown, LayoutGrid, Rows3, Search, X } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  Disc3,
+  BarChart3,
+  FileDown,
+  KeyRound,
+  LayoutGrid,
+  List,
+  Loader2,
+  MoreHorizontal,
+  Rows3,
+  Search,
+  X,
+} from 'lucide-react';
+import {
+  normalizeCondition,
+  normalizeFormat,
+  normalizeGenre,
+  normalizeVibe,
+  parseFilterList,
+} from '../lib/filterLabels';
 import { buildFormatFilterOptions, isCdFormat } from '../lib/formats';
 import type { RecordCondition, ViewMode } from '../lib/types';
 import { VIBE_TAG_SUGGESTIONS } from '../lib/vibes';
@@ -22,6 +43,7 @@ export interface CollectionFilterState {
   condition: RecordCondition | null;
   vibe: string | null;
   bpmRangeId: string;
+  camelotKey: string | null;
 }
 
 export const DEFAULT_COLLECTION_FILTERS: CollectionFilterState = {
@@ -31,6 +53,7 @@ export const DEFAULT_COLLECTION_FILTERS: CollectionFilterState = {
   condition: null,
   vibe: null,
   bpmRangeId: 'all',
+  camelotKey: null,
 };
 
 interface CollectionFiltersProps {
@@ -45,9 +68,37 @@ interface CollectionFiltersProps {
   availableGenres: string[];
   availableVibes: string[];
   onResetCollection?: () => void;
+  onEnrichTracklists?: () => void;
+  enrichingTracklists?: boolean;
+  discogsLinkedCount?: number;
+  onExportPdf?: () => void;
+  exportingPdf?: boolean;
+  onOpenInsights?: () => void;
+  onEnrichMetadata?: () => void;
+  enrichingMetadata?: boolean;
 }
 
 type FilterOption = { value: string; label: string };
+
+function buildSelectOptions(
+  placeholder: string,
+  values: unknown[],
+  normalize: (raw: unknown) => string,
+): FilterOption[] {
+  const seen = new Set<string>();
+  const options: FilterOption[] = [{ value: '', label: placeholder }];
+
+  for (const raw of values) {
+    for (const token of parseFilterList(raw)) {
+      const label = normalize(token);
+      if (!label || seen.has(label)) continue;
+      seen.add(label);
+      options.push({ value: label, label });
+    }
+  }
+
+  return options;
+}
 
 function FilterDropdown({
   id,
@@ -58,6 +109,7 @@ function FilterDropdown({
   active,
   openId,
   onOpenChange,
+  formatLabel,
 }: {
   id: string;
   label: string;
@@ -67,6 +119,7 @@ function FilterDropdown({
   active?: boolean;
   openId: string | null;
   onOpenChange: (id: string | null) => void;
+  formatLabel: (raw: string) => string;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -79,10 +132,11 @@ function FilterDropdown({
     const trigger = triggerRef.current;
     if (!trigger) return;
     const rect = trigger.getBoundingClientRect();
+    const isMobile = window.matchMedia('(max-width: 639px)').matches;
     setMenuPos({
       top: rect.bottom + 4,
       left: rect.left,
-      width: rect.width,
+      width: isMobile ? Math.max(rect.width, 168) : rect.width,
     });
   }, []);
 
@@ -131,10 +185,11 @@ function FilterDropdown({
         width: menuPos.width,
         zIndex: 100,
       }}
-      className="max-h-52 overflow-y-auto rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)] p-1 shadow-[var(--shadow-lg)] backdrop-blur-md"
+      className="collection-filter-menu max-h-56 overflow-y-auto rounded-xl border border-[var(--border-strong)] bg-[var(--bg-elevated)] p-1 shadow-[var(--shadow-lg)] backdrop-blur-md"
     >
       {options.map((opt) => {
         const isSelected = opt.value === value;
+        const optionLabel = formatLabel(opt.label);
         return (
           <li key={opt.value || '__all'} role="none">
             <button
@@ -145,13 +200,13 @@ function FilterDropdown({
                 onChange(opt.value);
                 onOpenChange(null);
               }}
-              className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-[11px] transition-colors ${
+              className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs leading-snug transition-colors sm:px-2 sm:py-1.5 sm:text-[11px] ${
                 isSelected
                   ? 'bg-[var(--accent-soft)] text-[var(--text)]'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)]'
               }`}
             >
-              <span className="truncate">{opt.label}</span>
+              <span className="min-w-0 flex-1 break-words">{optionLabel}</span>
               {isSelected ? <Check className="h-3 w-3 shrink-0 text-[var(--accent)]" /> : null}
             </button>
           </li>
@@ -169,13 +224,13 @@ function FilterDropdown({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={label}
-        className={`flex w-full cursor-pointer items-center justify-between gap-1 rounded-lg border py-2 pl-3 pr-2 text-left text-xs font-medium tracking-wide transition-colors outline-none focus-visible:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)] sm:py-1.5 sm:pl-2.5 sm:text-[11px] ${
+        className={`collection-filter-trigger flex w-full min-w-0 cursor-pointer items-center justify-between gap-0.5 rounded-md border py-1.5 pl-2 pr-1.5 text-left text-[10px] font-medium leading-none transition-colors outline-none focus-visible:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)] sm:gap-1 sm:rounded-lg sm:py-1.5 sm:pl-2.5 sm:pr-2 sm:text-[11px] ${
           active
             ? 'border-[color-mix(in_srgb,var(--accent)_35%,var(--border))] bg-[var(--accent-soft)] text-[var(--text)]'
             : 'border-[var(--border)] bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)]'
         }`}
       >
-        <span className="sm:truncate">{selected.label}</span>
+        <span className="min-w-0 flex-1 truncate">{formatLabel(selected.label)}</span>
         <ChevronDown
           className={`h-3 w-3 shrink-0 text-[var(--text-muted)] transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
           aria-hidden
@@ -199,8 +254,18 @@ export function CollectionFilters({
   availableGenres,
   availableVibes,
   onResetCollection,
+  onEnrichTracklists,
+  enrichingTracklists = false,
+  discogsLinkedCount = 0,
+  onExportPdf,
+  exportingPdf = false,
+  onOpenInsights,
+  onEnrichMetadata,
+  enrichingMetadata = false,
 }: CollectionFiltersProps) {
   const [openFilterId, setOpenFilterId] = useState<string | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
 
   const hasActiveFilters =
     filters.query.trim() !== '' ||
@@ -208,7 +273,34 @@ export function CollectionFilters({
     filters.genre != null ||
     filters.condition != null ||
     filters.vibe != null ||
-    filters.bpmRangeId !== 'all';
+    filters.bpmRangeId !== 'all' ||
+    filters.camelotKey != null;
+
+  const activeFilterCount =
+    (filters.query.trim() ? 1 : 0) +
+    (filters.format ? 1 : 0) +
+    (filters.genre ? 1 : 0) +
+    (filters.condition ? 1 : 0) +
+    (filters.vibe ? 1 : 0) +
+    (filters.bpmRangeId !== 'all' ? 1 : 0) +
+    (filters.camelotKey ? 1 : 0);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (moreRef.current?.contains(e.target as Node)) return;
+      setMoreOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMoreOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [moreOpen]);
 
   const formatOptions = buildFormatFilterOptions(
     availableFormats.filter((f) => !isCdFormat(f))
@@ -216,40 +308,29 @@ export function CollectionFilters({
   const vibeOptions = [...new Set([...VIBE_TAG_SUGGESTIONS, ...availableVibes])];
   const genreOptions = availableGenres;
 
-  const formatSelectOptions: FilterOption[] = [
-    { value: '', label: 'Format' },
-    ...formatOptions.map((f) => ({ value: f, label: f })),
-  ];
-  const genreSelectOptions: FilterOption[] = [
-    { value: '', label: 'Genre' },
-    ...genreOptions.map((g) => ({ value: g, label: g })),
-  ];
-  const conditionSelectOptions: FilterOption[] = [
-    { value: '', label: 'Condition' },
-    ...CONDITIONS.map((c) => ({ value: c, label: c })),
-  ];
-  const vibeSelectOptions: FilterOption[] = [
-    { value: '', label: 'Vibe' },
-    ...vibeOptions.map((v) => ({ value: v, label: v })),
-  ];
+  const formatSelectOptions = buildSelectOptions('Format', formatOptions, normalizeFormat);
+  const genreSelectOptions = buildSelectOptions('Genre', genreOptions, normalizeGenre);
+  const conditionSelectOptions = buildSelectOptions('Condition', CONDITIONS, normalizeCondition);
+  const vibeSelectOptions = buildSelectOptions('Vibe', vibeOptions, normalizeVibe);
   const bpmSelectOptions: FilterOption[] = BPM_RANGES.map((r) => ({
     value: r.id,
     label: r.id === 'all' ? 'BPM' : r.label,
   }));
 
   return (
-    <div className="collection-toolbar-sticky static sm:sticky -mt-2 !pt-0 pb-0.5 sm:mt-0 sm:pt-1 sm:pb-2">
+    <div className="collection-toolbar-sticky !pt-0 !pb-0">
       <div className="collection-toolbar relative z-30 overflow-visible sm:rounded-xl sm:border sm:border-[var(--border)] bg-[var(--bg-elevated)] shadow-[var(--shadow)]">
-      <div className="px-0 pt-0 sm:pt-2.5 sm:px-3.5 sticky top-[6.25rem] w-full bg-[#111] z-[60] sm:static sm:top-[var(--nav-height)] sm:bg-transparent sm:z-auto">
+      <div className="collection-toolbar__search z-[60] w-full bg-[var(--bg-elevated)] px-0 pt-0 sm:static sm:z-auto sm:bg-transparent sm:px-3.5 sm:pt-2.5">
         <div className="relative flex items-center">
           <Search
-            className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]"
+            className="pointer-events-none absolute left-3 top-1/2 h-3 w-3 -translate-y-1/2 text-[var(--text-muted)] sm:left-3.5 sm:h-3.5 sm:w-3.5"
             aria-hidden
           />
           <input
             type="search"
-            className="input-field !h-9 !w-full !py-0 !pl-11 !pr-10 text-sm leading-[1.25] placeholder:text-[color-mix(in_srgb,var(--text-muted)_50%,transparent)]"
+            className="input-field collection-toolbar__search-input !w-full !py-0 !pl-10 !pr-9 text-[13px] leading-[1.25] placeholder:text-[color-mix(in_srgb,var(--text-muted)_50%,transparent)] sm:!h-9 sm:!pl-11 sm:!pr-10 sm:text-sm"
             placeholder="Search artist or title…"
+            aria-label="Search your collection by artist or title"
             value={filters.query}
             onChange={(e) => onChange({ query: e.target.value })}
           />
@@ -257,7 +338,7 @@ export function CollectionFilters({
             <button
               type="button"
               onClick={() => onChange({ query: '' })}
-              className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"
+              className="collection-toolbar__clear-search absolute right-2 top-1/2 flex -translate-y-1/2 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"
               aria-label="Clear search"
             >
               <X className="h-3 w-3" />
@@ -266,8 +347,8 @@ export function CollectionFilters({
         </div>
       </div>
 
-      <div className="relative flex flex-wrap items-center gap-1 overflow-visible px-2 py-0 sm:flex-nowrap sm:gap-2 sm:px-3.5 sm:py-2">
-        <div className="relative flex flex-wrap min-w-0 flex-1 basis-full gap-2 overflow-visible sm:flex-nowrap sm:gap-1.5 sm:basis-auto">
+      <div className="collection-toolbar__filters-row relative flex flex-wrap items-center gap-0.5 overflow-visible px-1.5 py-0.5 sm:flex-nowrap sm:gap-2 sm:px-3.5 sm:py-2">
+        <div className="collection-toolbar__filters relative flex flex-wrap min-w-0 flex-1 basis-full gap-1 overflow-visible sm:flex-nowrap sm:gap-1.5 sm:basis-auto">
           <FilterDropdown
             id="format"
             label="Format"
@@ -276,6 +357,7 @@ export function CollectionFilters({
             active={filters.format != null}
             openId={openFilterId}
             onOpenChange={setOpenFilterId}
+            formatLabel={normalizeFormat}
             onChange={(v) => onChange({ format: v || null })}
           />
           <FilterDropdown
@@ -286,6 +368,7 @@ export function CollectionFilters({
             active={filters.genre != null}
             openId={openFilterId}
             onOpenChange={setOpenFilterId}
+            formatLabel={normalizeGenre}
             onChange={(v) => onChange({ genre: v || null })}
           />
           <FilterDropdown
@@ -296,6 +379,7 @@ export function CollectionFilters({
             active={filters.condition != null}
             openId={openFilterId}
             onOpenChange={setOpenFilterId}
+            formatLabel={normalizeCondition}
             onChange={(v) => onChange({ condition: (v || null) as RecordCondition | null })}
           />
           <FilterDropdown
@@ -306,6 +390,7 @@ export function CollectionFilters({
             active={filters.vibe != null}
             openId={openFilterId}
             onOpenChange={setOpenFilterId}
+            formatLabel={normalizeVibe}
             onChange={(v) => onChange({ vibe: v || null })}
           />
           <FilterDropdown
@@ -316,68 +401,213 @@ export function CollectionFilters({
             active={filters.bpmRangeId !== 'all'}
             openId={openFilterId}
             onOpenChange={setOpenFilterId}
+            formatLabel={(label) => label}
             onChange={(v) => onChange({ bpmRangeId: v || 'all' })}
           />
         </div>
 
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        <div className="collection-toolbar__actions ml-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
+          {filters.camelotKey ? (
+            <button
+              type="button"
+              onClick={() => onChange({ camelotKey: null })}
+              className="collection-toolbar__chip"
+              title="Clear key filter"
+            >
+              <KeyRound className="h-3 w-3" aria-hidden />
+              {filters.camelotKey}
+              <X className="h-2.5 w-2.5 opacity-60" aria-hidden />
+            </button>
+          ) : null}
+
+          {activeFilterCount > 0 ? (
+            <span
+              className="collection-filter-count sm:hidden"
+              aria-label={`${activeFilterCount} active filter${activeFilterCount === 1 ? '' : 's'}`}
+            >
+              {activeFilterCount}
+            </span>
+          ) : null}
+
           {hasActiveFilters ? (
             <button
               type="button"
               onClick={onClear}
-              className="text-xs font-medium tracking-wide text-[var(--text-muted)] transition-colors hover:text-[var(--accent)] sm:text-[10px]"
+              className="collection-toolbar__clear-btn text-[10px] font-medium tracking-wide text-[var(--text-muted)] transition-colors hover:text-[var(--accent)] sm:text-[10px]"
             >
               Clear
             </button>
           ) : null}
 
-          <p className="hidden text-xs tabular-nums text-[var(--text-muted)] sm:block sm:text-[10px]">
+          <p className="collection-toolbar__count hidden text-xs tabular-nums text-[var(--text-muted)] sm:block">
             <span className="font-medium text-[var(--text-secondary)]">{resultCount}</span>
-            <span className="text-[var(--text-muted)]"> / {totalCount}</span>
+            <span className="text-[var(--text-muted)]">/{totalCount}</span>
           </p>
 
-          <div className="flex rounded-lg border border-[var(--border)] bg-[var(--bg-subtle)] p-0.5">
+          <div
+            className="collection-view-toggle flex rounded-md border border-[var(--border)] bg-[var(--bg-subtle)] p-px"
+            role="group"
+            aria-label="Collection view"
+          >
             <button
               type="button"
               onClick={() => onViewModeChange('grid')}
-              className={`flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-all sm:px-2 sm:py-1 sm:text-[10px] ${
+              className={`collection-view-toggle__btn flex min-h-[1.75rem] min-w-[1.75rem] items-center justify-center rounded-[5px] p-1 transition-all ${
                 viewMode === 'grid'
                   ? 'bg-[var(--bg-elevated)] text-[var(--text)] shadow-sm'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
               }`}
               aria-pressed={viewMode === 'grid'}
+              aria-label="Grid view"
+              title="Grid view"
             >
               <LayoutGrid className="h-3 w-3" />
-              <span className="hidden sm:inline">List</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onViewModeChange('list')}
+              className={`collection-view-toggle__btn flex min-h-[1.75rem] min-w-[1.75rem] items-center justify-center rounded-[5px] p-1 transition-all ${
+                viewMode === 'list'
+                  ? 'bg-[var(--bg-elevated)] text-[var(--text)] shadow-sm'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+              }`}
+              aria-pressed={viewMode === 'list'}
+              aria-label="List view"
+              title="List view"
+            >
+              <List className="h-3 w-3" />
             </button>
             <button
               type="button"
               onClick={() => onViewModeChange('shelf')}
-              className={`flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-all sm:px-2 sm:py-1 sm:text-[10px] ${
+              className={`collection-view-toggle__btn flex min-h-[1.75rem] min-w-[1.75rem] items-center justify-center rounded-[5px] p-1 transition-all ${
                 viewMode === 'shelf'
                   ? 'bg-[var(--bg-elevated)] text-[var(--text)] shadow-sm'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
               }`}
               aria-pressed={viewMode === 'shelf'}
+              aria-label="Shelf view"
+              title="Shelf view"
             >
               <Rows3 className="h-3 w-3" />
-              <span className="hidden sm:inline">Shelf</span>
             </button>
           </div>
 
-          {totalCount > 0 && onResetCollection ? (
+          <div ref={moreRef} className="collection-toolbar__more relative">
             <button
               type="button"
-              onClick={onResetCollection}
-              className="collection-toolbar__reset-btn"
+              onClick={() => setMoreOpen((v) => !v)}
+              className="collection-toolbar__more-btn"
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+              aria-label="More actions"
+              title="More actions"
             >
-              Reset collection
+              <MoreHorizontal className="h-3.5 w-3.5" aria-hidden />
             </button>
-          ) : null}
+            {moreOpen ? (
+              <ul className="collection-toolbar__more-menu" role="menu">
+                {totalCount > 0 && onOpenInsights ? (
+                  <li role="none">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="collection-toolbar__more-item"
+                      onClick={() => {
+                        setMoreOpen(false);
+                        onOpenInsights();
+                      }}
+                    >
+                      <BarChart3 className="h-3.5 w-3.5" aria-hidden />
+                      Insights
+                    </button>
+                  </li>
+                ) : null}
+                {resultCount > 0 && onExportPdf ? (
+                  <li role="none">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="collection-toolbar__more-item"
+                      disabled={exportingPdf}
+                      onClick={() => {
+                        setMoreOpen(false);
+                        onExportPdf();
+                      }}
+                    >
+                      {exportingPdf ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      ) : (
+                        <FileDown className="h-3.5 w-3.5" aria-hidden />
+                      )}
+                      Export PDF
+                    </button>
+                  </li>
+                ) : null}
+                {totalCount > 0 && onEnrichMetadata ? (
+                  <li role="none">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="collection-toolbar__more-item"
+                      disabled={enrichingMetadata}
+                      onClick={() => {
+                        setMoreOpen(false);
+                        onEnrichMetadata();
+                      }}
+                    >
+                      {enrichingMetadata ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      ) : (
+                        <KeyRound className="h-3.5 w-3.5" aria-hidden />
+                      )}
+                      Enrich metadata
+                    </button>
+                  </li>
+                ) : null}
+                {discogsLinkedCount > 0 && onEnrichTracklists ? (
+                  <li role="none">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="collection-toolbar__more-item"
+                      disabled={enrichingTracklists}
+                      onClick={() => {
+                        setMoreOpen(false);
+                        onEnrichTracklists();
+                      }}
+                    >
+                      {enrichingTracklists ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      ) : (
+                        <Disc3 className="h-3.5 w-3.5" aria-hidden />
+                      )}
+                      Enrich tracklists
+                    </button>
+                  </li>
+                ) : null}
+                {totalCount > 0 && onResetCollection ? (
+                  <li role="none" className="collection-toolbar__more-divider">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="collection-toolbar__more-item collection-toolbar__more-item--danger"
+                      onClick={() => {
+                        setMoreOpen(false);
+                        onResetCollection();
+                      }}
+                    >
+                      Reset collection
+                    </button>
+                  </li>
+                ) : null}
+              </ul>
+            ) : null}
+          </div>
         </div>
       </div>
 
-      <p className="border-t border-[var(--border)] px-2 py-1 text-center text-[10px] tabular-nums text-[var(--text-muted)] sm:hidden">
+      <p className="border-t border-[var(--border)] px-2 py-1 text-center text-[11px] tabular-nums text-[var(--text-muted)] sm:hidden">
         <span className="font-medium text-[var(--text-secondary)]">{resultCount}</span>
         {' of '}
         {totalCount} records

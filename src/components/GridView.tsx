@@ -4,25 +4,25 @@ import { RecordCard } from './RecordCard';
 
 interface GridViewProps {
   records: VinylRecord[];
-  onSelect: (record: VinylRecord) => void;
   onPlay: (record: VinylRecord) => void;
 }
 
-export function GridView({ records, onSelect, onPlay }: GridViewProps) {
+export function GridView({ records, onPlay }: GridViewProps) {
   return (
-    <div className="collection-grid">
-      <AnimatePresence mode="popLayout">
-        {records.map((record, i) => (
-          <RecordCard
-            key={record.id}
-            record={record}
-            index={i}
-            dense
-            onClick={() => onSelect(record)}
-            onPlay={() => onPlay(record)}
-          />
-        ))}
-      </AnimatePresence>
+    <div className="collection-grid-view min-w-0 overflow-x-hidden">
+      <div className="collection-grid">
+        <AnimatePresence mode="popLayout">
+          {records.map((record, i) => (
+            <RecordCard
+              key={record.id}
+              record={record}
+              index={i}
+              dense
+              onPlay={() => onPlay(record)}
+            />
+          ))}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }

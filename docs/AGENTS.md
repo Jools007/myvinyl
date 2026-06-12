@@ -1,5 +1,6 @@
 # MyVinyl — Agent Instructions
 
+> **Primary guide:** [`../AGENTS.md`](../AGENTS.md) (deploy, Vercel env, API map, smoke tests).  
 > **Start every task with [`../CONTEXT.md`](../CONTEXT.md)** (~50 lines). Load `MISSION.md`, `ROADMAP.md`, or `SCHEMA.md` only when relevant.
 
 ## Workflow

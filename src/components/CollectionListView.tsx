@@ -5,15 +5,15 @@ import { resolveDiscogsCoverUrl } from '../lib/discogsCover';
 import { resolveTrackCamelot } from '../lib/camelot';
 import { getPrimaryTrack, isReleaseFullyEnriched } from '../lib/tracks';
 import type { LiveEnrichState } from '../hooks/useCollection';
+import { openRecordDetail } from '../lib/recordDetail';
 import type { Track, VinylRecord } from '../lib/types';
+import { RecordArtworkButton } from './RecordArtworkButton';
 
 interface CollectionListViewProps {
   records: VinylRecord[];
   liveEnrich?: LiveEnrichState;
-  onSelect: (record: VinylRecord) => void;
   onPlayNow: (record: VinylRecord, track: Track) => void;
   onAddToQueue: (record: VinylRecord, track: Track) => void;
-  onEdit: (record: VinylRecord) => void;
   onDelete: (id: string) => void;
   onEnrichRelease: (recordId: string) => Promise<void>;
 }
@@ -24,9 +24,11 @@ const headerLabelClass =
 function ListTag({
   children,
   variant = 'default',
+  compact = false,
 }: {
   children: ReactNode;
   variant?: 'default' | 'accent' | 'violet';
+  compact?: boolean;
 }) {
   const styles = {
     default: 'bg-[var(--bg-subtle)] text-[var(--text-muted)]',
@@ -35,7 +37,9 @@ function ListTag({
   };
   return (
     <span
-      className={`inline-flex max-w-full truncate rounded px-1.5 py-px text-[9px] font-medium leading-none sm:text-[8px] ${styles[variant]}`}
+      className={`inline-flex max-w-full shrink-0 truncate rounded px-1.5 py-0.5 text-[9px] font-medium leading-none sm:rounded-md sm:px-1.5 sm:py-px sm:text-[8px] ${
+        compact ? 'collection-list-tag--compact rounded-[5px] px-1 py-px text-[8px]' : 'rounded-md'
+      } ${styles[variant]}`}
     >
       {children}
     </span>
@@ -103,7 +107,7 @@ function ListArtwork({ src, title }: { src?: string; title: string }) {
 
   return (
     <div
-      className="relative z-[1] h-11 w-11 shrink-0 overflow-hidden rounded-md bg-[var(--bg-subtle)] ring-1 ring-[var(--border)]"
+      className="collection-list-artwork relative z-[1] h-16 w-16 shrink-0 overflow-hidden rounded-md bg-[var(--bg-subtle)] ring-1 ring-[var(--border)] sm:h-11 sm:w-11"
       aria-hidden={false}
     >
       {imageSrc && !failed ? (
@@ -148,7 +152,7 @@ function CamelotBadge({ track }: { track: Track | null | undefined }) {
   }
   return (
     <span
-      className={`inline-flex min-w-[2.25rem] items-center justify-center rounded-md px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-wider ${
+      className={`inline-flex min-w-[2.5rem] items-center justify-center rounded-md px-2 py-1 font-mono text-[11px] font-bold tracking-wider sm:min-w-[2.25rem] sm:px-1.5 sm:py-0.5 sm:text-[10px] ${
         estimated
           ? 'bg-[color-mix(in_srgb,var(--violet-soft)_60%,transparent)] text-[var(--violet)]/90'
           : 'bg-[var(--violet-soft)] text-[var(--violet)]'
@@ -158,6 +162,42 @@ function CamelotBadge({ track }: { track: Track | null | undefined }) {
       {estimated ? <span className="mr-px text-[8px] font-normal opacity-60">~</span> : null}
       {code}
     </span>
+  );
+}
+
+function MobileRecordMeta({ record }: { record: VinylRecord }) {
+  const track = getPrimaryTrack(record);
+  const hasBpm = track?.bpm != null;
+  const hasKey = !!track?.camelotKey;
+  const vibes = (track?.vibeTags ?? []).slice(0, 2);
+
+  if (!hasBpm && !hasKey && vibes.length === 0) return null;
+
+  return (
+    <div className="collection-list-mobile-meta sm:hidden">
+      <span className="collection-list-tag-slot collection-list-tag-slot--bpm">
+        {hasBpm ? (
+          <ListTag variant="default" compact>
+            {track?.bpmEstimated ? '~' : ''}
+            {track?.bpm} BPM
+          </ListTag>
+        ) : null}
+      </span>
+      <span className="collection-list-tag-slot collection-list-tag-slot--key">
+        {hasKey ? (
+          <ListTag variant="violet" compact>
+            {track?.camelotKey}
+          </ListTag>
+        ) : null}
+      </span>
+      <span className="collection-list-tag-slot collection-list-tag-slot--vibe">
+        {vibes.map((t) => (
+          <ListTag key={t} variant="accent" compact>
+            {t}
+          </ListTag>
+        ))}
+      </span>
+    </div>
   );
 }
 
@@ -213,7 +253,7 @@ function ReleaseEnrichAction({
         onEnrich();
       }}
       onPointerDown={stopRow}
-      className={`relative z-10 flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--violet-soft)] ${
+      className={`collection-list-action-btn relative z-10 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--violet-soft)] sm:h-7 sm:w-7 ${
         enriching
           ? 'text-[var(--violet)]'
           : complete
@@ -318,11 +358,11 @@ function TrackPlayActions({
           stopRow(e);
           onPlayNow();
         }}
-        className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]"
+        className="collection-list-action-btn flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--accent)] sm:h-7 sm:w-7"
         title="Play now"
         aria-label="Play now"
       >
-        <Play className="h-3 w-3 fill-current" strokeWidth={0} />
+        <Play className="h-3.5 w-3.5 fill-current sm:h-3 sm:w-3" strokeWidth={0} />
       </button>
       <button
         type="button"
@@ -330,7 +370,7 @@ function TrackPlayActions({
           stopRow(e);
           onAddToQueue();
         }}
-        className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--teal)]/10 hover:text-[var(--teal)]"
+        className="collection-list-action-btn flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--teal)]/10 hover:text-[var(--teal)] sm:h-7 sm:w-7"
         title="Add to queue"
         aria-label="Add to queue"
       >
@@ -357,48 +397,60 @@ function TrackListRow({
 }) {
   const vibes = (track.vibeTags ?? []).slice(0, 3);
 
-  const vibeCell =
-    vibes.length > 0 ? (
-      <span className="flex flex-wrap gap-0.5">
-        {vibes.map((t) => (
-          <ListTag key={t} variant="accent">
-            {t}
-          </ListTag>
-        ))}
-      </span>
-    ) : (
-      <span className="text-[9px] text-[var(--text-muted)]">—</span>
-    );
-
   return (
     <>
       <div
-        className={`flex flex-col gap-1 border-t border-[var(--border)]/40 px-3 py-1.5 first:border-t-0 sm:hidden ${
+        className={`collection-list-mobile-track border-t border-[var(--border)]/35 first:border-t-0 sm:hidden ${
           enriching ? 'bg-[color-mix(in_srgb,var(--violet-soft)_22%,transparent)]' : ''
         }`}
       >
-        <div className="flex items-baseline gap-2">
-          <span className="w-7 shrink-0 tabular-nums text-[9px] font-medium text-[var(--text-muted)]">
+        <div className="collection-list-mobile-track-grid">
+          <span className="collection-list-mobile-track-num tabular-nums text-[9px] font-medium text-[var(--text-muted)]">
             {trackNumberLabel(track, index)}
           </span>
-          <p className="min-w-0 flex-1 truncate text-[10px] font-medium text-[var(--text-secondary)]">
+          <p
+            className="collection-list-mobile-track-title min-w-0 truncate text-[10px] font-medium leading-tight text-[var(--text-secondary)]"
+            title={track.title}
+          >
             {track.title}
           </p>
-        </div>
-        <div className="flex items-center justify-between gap-2 pl-9">
-          <div className="flex flex-wrap items-center gap-2 min-w-0">
-            {enriching ? (
-              <Loader2 className="h-3 w-3 shrink-0 animate-spin text-[var(--violet)]" strokeWidth={2} />
-            ) : null}
-            <BpmDisplay track={track} />
-            <CamelotBadge track={track} />
-            {vibeCell}
+          <div className="collection-list-mobile-track-actions">
+            <TrackPlayActions
+              onPlayNow={onPlayNow}
+              onAddToQueue={onAddToQueue}
+              stopRow={stopRow}
+            />
           </div>
-          <TrackPlayActions
-            onPlayNow={onPlayNow}
-            onAddToQueue={onAddToQueue}
-            stopRow={stopRow}
-          />
+          <div className="collection-list-mobile-track-tags">
+            {enriching ? (
+              <Loader2
+                className="collection-list-mobile-track-loader h-2.5 w-2.5 shrink-0 animate-spin text-[var(--violet)]"
+                strokeWidth={2}
+              />
+            ) : null}
+            <span className="collection-list-tag-slot collection-list-tag-slot--bpm">
+              {track.bpm != null ? (
+                <ListTag variant="default" compact>
+                  {track.bpmEstimated ? '~' : ''}
+                  {track.bpm}
+                </ListTag>
+              ) : null}
+            </span>
+            <span className="collection-list-tag-slot collection-list-tag-slot--key">
+              {resolveTrackCamelot(track).code ? (
+                <ListTag variant="violet" compact>
+                  {resolveTrackCamelot(track).code}
+                </ListTag>
+              ) : null}
+            </span>
+            <span className="collection-list-tag-slot collection-list-tag-slot--vibe">
+              {vibes.map((t) => (
+                <ListTag key={t} variant="accent" compact>
+                  {t}
+                </ListTag>
+              ))}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -425,7 +477,17 @@ function TrackListRow({
           <CamelotBadge track={track} />
         </MetaCell>
         <MetaCell label="Vibe" vibeCol>
-          {vibeCell}
+          {vibes.length > 0 ? (
+            <span className="flex flex-wrap gap-0.5">
+              {vibes.map((t) => (
+                <ListTag key={t} variant="accent">
+                  {t}
+                </ListTag>
+              ))}
+            </span>
+          ) : (
+            <span className="text-[var(--text-muted)]">—</span>
+          )}
         </MetaCell>
         <TrackPlayActions
           onPlayNow={onPlayNow}
@@ -438,10 +500,10 @@ function TrackListRow({
 }
 
 function ReleaseEditAction({
-  onEdit,
+  record,
   stopRow,
 }: {
-  onEdit: () => void;
+  record: VinylRecord;
   stopRow: (e: MouseEvent | PointerEvent) => void;
 }) {
   return (
@@ -449,10 +511,10 @@ function ReleaseEditAction({
       type="button"
       onClick={(e) => {
         stopRow(e);
-        onEdit();
+        openRecordDetail(record, true);
       }}
       onPointerDown={stopRow}
-      className="collection-list-edit-btn relative z-10 flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--text-muted)] transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)]"
+      className="collection-list-edit-btn collection-list-action-btn relative z-10 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--text-muted)] transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)] sm:h-7 sm:w-7"
       title="Edit record"
       aria-label="Edit record"
     >
@@ -466,8 +528,6 @@ interface ReleaseListRowProps {
   expanded: boolean;
   enriching: boolean;
   onToggle: () => void;
-  onSelect: () => void;
-  onEdit: () => void;
   onEnrich: () => void;
   onDelete: () => void;
   stopRow: (e: MouseEvent | PointerEvent) => void;
@@ -478,38 +538,42 @@ function ReleaseListRow({
   expanded,
   enriching,
   onToggle,
-  onSelect,
-  onEdit,
   onEnrich,
   onDelete,
   stopRow,
 }: ReleaseListRowProps) {
   const hasTracks = record.tracks.length > 0;
   const rowActions = (
-    <div
-      data-row-action
-      className="relative z-10 flex shrink-0 items-center gap-0.5"
-      onClick={stopRow}
-      onPointerDown={stopRow}
-    >
+    <>
       <ReleaseEnrichAction
         record={record}
         enriching={enriching}
         onEnrich={onEnrich}
         stopRow={stopRow}
       />
-      <ReleaseEditAction onEdit={onEdit} stopRow={stopRow} />
+      <ReleaseEditAction record={record} stopRow={stopRow} />
       <button
         type="button"
         onClick={(e) => {
           stopRow(e);
           onDelete();
         }}
-        className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-red-500/10 hover:text-red-400/90"
+        className="collection-list-action-btn flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-red-500/10 hover:text-red-400/90 sm:h-7 sm:w-7"
         aria-label="Remove from collection"
       >
-        <Trash2 className="h-3 w-3" strokeWidth={2} />
+        <Trash2 className="h-3.5 w-3.5 sm:h-3 sm:w-3" strokeWidth={2} />
       </button>
+    </>
+  );
+
+  const desktopRowActions = (
+    <div
+      data-row-action
+      className="relative z-10 flex shrink-0 items-center gap-0.5"
+      onClick={stopRow}
+      onPointerDown={stopRow}
+    >
+      {rowActions}
     </div>
   );
 
@@ -517,80 +581,93 @@ function ReleaseListRow({
     <>
       {/* Mobile */}
       <div
-        tabIndex={0}
-        onClick={(e) => {
-          if ((e.target as HTMLElement).closest('[data-row-action]')) return;
-          onToggle();
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onToggle();
-          }
-        }}
-        className={`grid cursor-pointer grid-cols-[1.25rem_2.75rem_minmax(0,1fr)_auto] items-center gap-x-2 px-3 py-2.5 transition-colors sm:hidden ${
+        className={`collection-list-mobile-release sm:hidden ${
           enriching ? 'bg-[color-mix(in_srgb,var(--violet-soft)_18%,transparent)]' : ''
         }`}
         aria-expanded={hasTracks ? expanded : undefined}
         aria-busy={enriching}
       >
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (hasTracks) onToggle();
-          }}
-          className="flex h-6 w-5 shrink-0 items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text)]"
-          aria-label={expanded ? 'Collapse tracks' : 'Expand tracks'}
-          disabled={!hasTracks}
-        >
-          {hasTracks ? (
-            <motion.span
-              animate={{ rotate: expanded ? 90 : 0 }}
-              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-              className="inline-flex"
-            >
-              <ChevronRight className="h-3.5 w-3.5" />
-            </motion.span>
-          ) : (
-            <span className="inline-block w-3.5" />
-          )}
-        </button>
-        <button
-          type="button"
-          className="flex shrink-0 border-0 bg-transparent p-0"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect();
-          }}
-          aria-label={`${record.title} by ${record.artist}`}
-        >
-          <ListArtwork src={record.coverUrl} title={record.title} />
-        </button>
-        <div className="min-w-0 text-left">
-          <p
-            className="truncate text-sm font-semibold leading-tight text-[var(--text)]"
-            style={{ fontFamily: 'var(--font-display)' }}
-          >
-            {record.title}
-          </p>
-          <p className="mt-px truncate text-xs text-[var(--text-secondary)]">
-            {record.artist}
-            {record.year ? (
-              <span className="text-[var(--text-muted)]"> · {record.year}</span>
-            ) : null}
-          </p>
-          {record.format ? (
-            <p className="mt-0.5 truncate text-[10px] text-[var(--text-muted)]">{record.format}</p>
-          ) : null}
-        </div>
-        {rowActions}
         <div
-          className="col-span-4 grid grid-cols-2 gap-3 border-t border-[var(--border)]/60 pt-3 min-[400px]:grid-cols-4"
-          onClick={stopRow}
-          onPointerDown={stopRow}
+          tabIndex={0}
+          onClick={(e) => {
+            if ((e.target as HTMLElement).closest('[data-row-action]')) return;
+            onToggle();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onToggle();
+            }
+          }}
+          className="collection-list-mobile-row cursor-pointer"
         >
-          <RecordMetaFields record={record} />
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (hasTracks) onToggle();
+            }}
+            className="collection-list-expand-btn flex h-7 w-5 shrink-0 items-center justify-center self-center rounded text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-subtle)] hover:text-[var(--text)]"
+            aria-label={expanded ? 'Collapse tracks' : 'Expand tracks'}
+            disabled={!hasTracks}
+          >
+            {hasTracks ? (
+              <motion.span
+                animate={{ rotate: expanded ? 90 : 0 }}
+                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                className="inline-flex"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </motion.span>
+            ) : (
+              <span className="inline-block w-3.5" aria-hidden />
+            )}
+          </button>
+
+          <RecordArtworkButton
+            record={record}
+            className="collection-list-mobile-art shrink-0 border-0 bg-transparent p-0"
+          >
+            <ListArtwork src={record.coverUrl} title={record.title} />
+          </RecordArtworkButton>
+
+          <button
+            type="button"
+            className="collection-list-mobile-body min-w-0 border-0 bg-transparent p-0 text-left"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              openRecordDetail(record);
+            }}
+            aria-label={`View ${record.title} by ${record.artist}`}
+          >
+            <p
+              className="line-clamp-2 text-[12px] font-semibold leading-[1.15] tracking-[-0.01em] text-[var(--text)] sm:text-[13px] sm:leading-[1.2]"
+              style={{ fontFamily: 'var(--font-display)' }}
+              title={record.title}
+            >
+              {record.title}
+            </p>
+            <p
+              className="mt-px truncate text-[10px] leading-tight text-[var(--text-secondary)] sm:mt-0.5 sm:text-[11px]"
+              title={`${record.artist}${record.year ? ` · ${record.year}` : ''}`}
+            >
+              {record.artist}
+              {record.year ? (
+                <span className="text-[var(--text-muted)]"> · {record.year}</span>
+              ) : null}
+            </p>
+            {!expanded ? <MobileRecordMeta record={record} /> : null}
+          </button>
+
+          <div
+            data-row-action
+            className="collection-list-mobile-actions"
+            onClick={stopRow}
+            onPointerDown={stopRow}
+          >
+            {rowActions}
+          </div>
         </div>
       </div>
 
@@ -635,18 +712,22 @@ function ReleaseListRow({
             <span className="inline-block w-3.5" />
           )}
         </button>
-        <button
-          type="button"
+        <RecordArtworkButton
+          record={record}
           className="flex shrink-0 border-0 bg-transparent p-0"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect();
-          }}
-          aria-label={`${record.title} by ${record.artist}`}
         >
           <ListArtwork src={record.coverUrl} title={record.title} />
-        </button>
-        <div className="min-w-0 text-left">
+        </RecordArtworkButton>
+        <button
+          type="button"
+          className="min-w-0 border-0 bg-transparent p-0 text-left"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            openRecordDetail(record);
+          }}
+          aria-label={`View ${record.title} by ${record.artist}`}
+        >
           <p
             className="truncate text-xs font-semibold leading-tight tracking-tight text-[var(--text)]"
             style={{ fontFamily: 'var(--font-display)' }}
@@ -662,11 +743,11 @@ function ReleaseListRow({
           {record.format ? (
             <p className="mt-0.5 truncate text-[9px] text-[var(--text-muted)]">{record.format}</p>
           ) : null}
-        </div>
+        </button>
         <div className="contents" onClick={stopRow} onPointerDown={stopRow}>
           <RecordMetaFields record={record} />
         </div>
-        {rowActions}
+        {desktopRowActions}
       </div>
     </>
   );
@@ -675,10 +756,8 @@ function ReleaseListRow({
 export function CollectionListView({
   records,
   liveEnrich = null,
-  onSelect,
   onPlayNow,
   onAddToQueue,
-  onEdit,
   onDelete,
   onEnrichRelease,
 }: CollectionListViewProps) {
@@ -710,7 +789,7 @@ export function CollectionListView({
   };
 
   return (
-    <ul className="collection-list flex flex-col gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-2 shadow-[var(--shadow)] sm:gap-1 sm:p-1.5">
+    <ul className="collection-list flex min-w-0 flex-col overflow-x-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-0.5 shadow-[var(--shadow)] sm:gap-1 sm:p-1.5">
       <CollectionListHeader />
       {records.map((record) => {
         const expanded = expandedIds.has(record.id);
@@ -736,8 +815,6 @@ export function CollectionListView({
               expanded={expanded}
               enriching={enriching}
               onToggle={() => toggleExpanded(record.id)}
-              onSelect={() => onSelect(record)}
-              onEdit={() => onEdit(record)}
               onDelete={() => onDelete(record.id)}
               stopRow={stopRow}
               onEnrich={async () => {

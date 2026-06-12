@@ -15,13 +15,13 @@ export type ClientEnrichResult = {
   spotifyTrackId?: string;
 };
 
-/** True when `/api/enrich` exists (Vite dev server only). */
+/** True when the app can call the serverless `/api/enrich` route (dev + production). */
 export function isLiveServerEnrichmentAvailable(): boolean {
-  return import.meta.env.DEV;
+  return true;
 }
 
 export const ENRICHMENT_ESTIMATE_HINT =
-  'BPM and key are genre-based estimates on the live site. Run locally for Spotify/Last.fm enrichment.';
+  'BPM and key are genre-based estimates — server enrichment was unavailable for this lookup.';
 
 const WHEEL_NEIGHBORS: Record<string, string[]> = {
   '1A': ['12A', '2A', '1B'],

@@ -77,3 +77,13 @@ export function sanitizeVinylFormat(format?: string): string | undefined {
   if (!format?.trim() || isCdFormat(format)) return undefined;
   return format.trim();
 }
+
+/** Map a stored or Discogs format string to a vinyl chip value for UI selection. */
+export function normalizeVinylFormatForChip(format?: string | null): VinylFormatOption | '' {
+  if (!format?.trim() || isCdFormat(format)) return '';
+  const trimmed = format.trim();
+  if ((VINYL_FORMATS as readonly string[]).includes(trimmed)) {
+    return trimmed as VinylFormatOption;
+  }
+  return pickVinylFormatFromDiscogs([trimmed]);
+}

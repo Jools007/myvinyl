@@ -4,9 +4,10 @@ import type { BackgroundSyncState } from '../lib/recordMigration';
 
 interface BackgroundSyncIndicatorProps {
   status: BackgroundSyncState;
+  onCancel?: () => void;
 }
 
-export function BackgroundSyncIndicator({ status }: BackgroundSyncIndicatorProps) {
+export function BackgroundSyncIndicator({ status, onCancel }: BackgroundSyncIndicatorProps) {
   const visible = status.phase !== 'idle';
 
   return (
@@ -17,7 +18,7 @@ export function BackgroundSyncIndicator({ status }: BackgroundSyncIndicatorProps
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 8 }}
           transition={{ duration: 0.2 }}
-          className="pointer-events-none fixed bottom-20 right-4 z-50 sm:bottom-6"
+          className={`fixed bottom-6 right-4 z-40 ${onCancel ? 'pointer-events-auto' : 'pointer-events-none'}`}
           role="status"
           aria-live="polite"
         >
@@ -31,6 +32,15 @@ export function BackgroundSyncIndicator({ status }: BackgroundSyncIndicatorProps
                 </span>
               ) : null}
             </span>
+            {onCancel ? (
+              <button
+                type="button"
+                className="ml-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                onClick={onCancel}
+              >
+                Cancel
+              </button>
+            ) : null}
           </div>
         </motion.div>
       ) : null}

@@ -1,4 +1,5 @@
 import { resolveDiscogsCoverUrl } from './discogsCover';
+import { parseFilterList } from './filterLabels';
 import { migrateRecord } from './tracks';
 import { supabase } from './supabase';
 import type { RecordCondition, Track, VinylRecord } from './types';
@@ -50,15 +51,16 @@ async function resolveUserId(userId?: string): Promise<string> {
   if (userId?.trim()) return userId.trim();
 
   const {
-    data: { user },
+    data: { session },
     error,
-  } = await supabase.auth.getUser();
+  } = await supabase.auth.getSession();
 
-  if (error || !user) {
+  const userIdFromSession = session?.user?.id;
+  if (error || !userIdFromSession) {
     throw new Error('Not authenticated');
   }
 
-  return user.id;
+  return userIdFromSession;
 }
 
 function toRecordsError(error: { message: string; code?: string }): RecordsError {
@@ -73,16 +75,10 @@ export function isPersistedRecordId(value: string): boolean {
 
 function parseGenre(genre: string | string[] | null | undefined): string[] {
   if (!genre) return [];
-  if (Array.isArray(genre)) return genre.map((g) => g.trim()).filter(Boolean);
-  const text = genre.trim();
-  if (!text) return [];
-  if (text.includes(',')) {
-    return text
-      .split(',')
-      .map((g) => g.trim())
-      .filter(Boolean);
+  if (Array.isArray(genre)) {
+    return genre.flatMap((g) => parseFilterList(g));
   }
-  return [text];
+  return parseFilterList(genre);
 }
 
 function serializeGenre(genres: string[]): string[] {

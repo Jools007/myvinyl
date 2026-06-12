@@ -5,14 +5,29 @@
   "framework": null,
   "functions": {
 
-    "api/album-info.ts": {
+    "api/album-info.js": {
       "maxDuration": 10
     },
     "api/health.ts": {
       "maxDuration": 15
     },
-    "api/discogs/collection.ts": {
+    "api/discogs/collection.js": {
       "maxDuration": 30
+    },
+    "api/image.js": {
+      "maxDuration": 10
+    },
+    "api/play/audio.js": {
+      "maxDuration": 22
+    },
+    "api/spotify/audio.js": {
+      "maxDuration": 15
+    },
+    "api/lastfm/vibe.js": {
+      "maxDuration": 10
+    },
+    "api/lastfm/similar.js": {
+      "maxDuration": 10
     }
   },
   "rewrites": [

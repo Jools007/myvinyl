@@ -1,0 +1,210 @@
+import { camelotDistance, resolveTrackCamelot } from './camelot';
+import { playSelectionKey, type PlaySelection, type ResolvedPlaySelection } from './playSession';
+import type { Track, VinylRecord } from './types';
+
+export type CompatibilityTier = 'perfect' | 'smooth' | 'stretch';
+
+export type CompatibilityPick = {
+  record: VinylRecord;
+  track: Track;
+  tier: CompatibilityTier;
+  score: number;
+  reason: string;
+  bpmDelta: number | null;
+};
+
+export type TieredCompatibility = {
+  perfect: CompatibilityPick[];
+  smooth: CompatibilityPick[];
+  stretch: CompatibilityPick[];
+};
+
+const TIER_ORDER: Record<CompatibilityTier, number> = {
+  perfect: 0,
+  smooth: 1,
+  stretch: 2,
+};
+
+function bpmDelta(a?: number, b?: number): number | null {
+  if (a == null || b == null) return null;
+  return b - a;
+}
+
+function keyRelationship(anchorCode: string, candidateCode: string): string {
+  const dist = camelotDistance(anchorCode, candidateCode);
+  if (dist === 0) return `Same key · ${candidateCode}`;
+  if (dist === 1) return `Relative major/minor · ${candidateCode}`;
+  if (dist === 2) return `Adjacent on wheel · ${candidateCode}`;
+  if (dist === 4) return `Energy lift · ${candidateCode}`;
+  return `Key blend · ${candidateCode}`;
+}
+
+export function classifyCompatibilityTier(
+  anchor: Track,
+  candidate: Track
+): CompatibilityTier | null {
+  const anchorKey = resolveTrackCamelot(anchor).code;
+  const candKey = resolveTrackCamelot(candidate).code;
+  if (!anchorKey || !candKey) return null;
+
+  const dist = camelotDistance(anchorKey, candKey);
+  if (dist === 0) return 'perfect';
+  if (dist <= 2) return 'smooth';
+  if (dist <= 4) return 'stretch';
+  return null;
+}
+
+function scoreCandidate(anchor: Track, candidate: Track, tier: CompatibilityTier): number {
+  const anchorKey = resolveTrackCamelot(anchor).code;
+  const candKey = resolveTrackCamelot(candidate).code;
+  let score = TIER_ORDER[tier] * -10;
+
+  if (anchorKey && candKey) {
+    score += 10 - camelotDistance(anchorKey, candKey);
+  }
+
+  const delta = bpmDelta(anchor.bpm, candidate.bpm);
+  if (delta != null) {
+    const abs = Math.abs(delta);
+    if (abs <= 2) score += 8;
+    else if (abs <= 5) score += 5;
+    else if (abs <= 8) score += 2;
+  }
+
+  const vibeOverlap = (anchor.vibeTags ?? []).filter((t) =>
+    (candidate.vibeTags ?? []).some((v) => v.toLowerCase() === t.toLowerCase())
+  ).length;
+  score += vibeOverlap * 3;
+
+  return score;
+}
+
+function buildPickReason(anchor: Track, candidate: Track, tier: CompatibilityTier): string {
+  const anchorKey = resolveTrackCamelot(anchor).code;
+  const candKey = resolveTrackCamelot(candidate).code;
+  const parts: string[] = [];
+
+  if (anchorKey && candKey) {
+    parts.push(keyRelationship(anchorKey, candKey));
+  }
+
+  const delta = bpmDelta(anchor.bpm, candidate.bpm);
+  if (delta != null) {
+    if (Math.abs(delta) <= 2) parts.push(`BPM ${candidate.bpm}`);
+    else if (delta > 0) parts.push(`+${delta} BPM`);
+    else parts.push(`${delta} BPM`);
+  }
+
+  if (tier === 'stretch' && parts.length === 0) {
+    parts.push('Wider mix — use your ears');
+  }
+
+  return parts.join(' · ') || 'Compatible energy';
+}
+
+function coldStartPicks(
+  collection: VinylRecord[],
+  excludeKeys: Set<string>,
+  perTier: number
+): TieredCompatibility {
+  const picks: CompatibilityPick[] = [];
+
+  for (const record of collection) {
+    for (const track of record.tracks) {
+      const key = playSelectionKey({ recordId: record.id, trackId: track.id });
+      if (excludeKeys.has(key)) continue;
+      if (track.bpm == null && !resolveTrackCamelot(track).code) continue;
+
+      const code = resolveTrackCamelot(track).code;
+      const reason = track.bpm != null && code
+        ? `Ready to mix · ${track.bpm} BPM · ${code}`
+        : track.bpm != null
+          ? `BPM ${track.bpm}`
+          : code
+            ? `Key ${code}`
+            : 'From your crate';
+
+      picks.push({
+        record,
+        track,
+        tier: 'smooth',
+        score: (track.bpm != null ? 2 : 0) + (code ? 2 : 0),
+        reason,
+        bpmDelta: null,
+      });
+    }
+  }
+
+  picks.sort((a, b) => b.score - a.score);
+  const slice = picks.slice(0, perTier * 3);
+  return {
+    perfect: [],
+    smooth: slice,
+    stretch: [],
+  };
+}
+
+export function recommendTieredCompatibility(
+  collection: VinylRecord[],
+  anchor: ResolvedPlaySelection | null,
+  exclude: PlaySelection[] = [],
+  perTier = 5
+): TieredCompatibility {
+  const excludeKeys = new Set(exclude.map(playSelectionKey));
+  const empty: TieredCompatibility = { perfect: [], smooth: [], stretch: [] };
+
+  if (!anchor) {
+    return coldStartPicks(collection, excludeKeys, perTier);
+  }
+
+  const anchorTrack = anchor.track;
+  const candidates: CompatibilityPick[] = [];
+
+  for (const record of collection) {
+    for (const track of record.tracks) {
+      const key = playSelectionKey({ recordId: record.id, trackId: track.id });
+      if (excludeKeys.has(key)) continue;
+
+      const tier = classifyCompatibilityTier(anchorTrack, track);
+      if (!tier) continue;
+
+      candidates.push({
+        record,
+        track,
+        tier,
+        score: scoreCandidate(anchorTrack, track, tier),
+        reason: buildPickReason(anchorTrack, track, tier),
+        bpmDelta: bpmDelta(anchorTrack.bpm, track.bpm),
+      });
+    }
+  }
+
+  candidates.sort((a, b) => {
+    const tierDiff = TIER_ORDER[a.tier] - TIER_ORDER[b.tier];
+    if (tierDiff !== 0) return tierDiff;
+    return b.score - a.score;
+  });
+
+  const seen = new Set<string>();
+  for (const pick of candidates) {
+    if (seen.has(pick.record.id)) continue;
+    const bucket = empty[pick.tier];
+    if (bucket.length >= perTier) continue;
+    seen.add(pick.record.id);
+    bucket.push(pick);
+  }
+
+  return empty;
+}
+
+export const TIER_LABELS: Record<CompatibilityTier, string> = {
+  perfect: 'Perfect match',
+  smooth: 'Smooth blend',
+  stretch: 'Stretch mix',
+};
+
+export const TIER_HINTS: Record<CompatibilityTier, string> = {
+  perfect: 'Same Camelot code — safest harmonic match',
+  smooth: 'Relative or ±1 on the wheel',
+  stretch: 'Energy lift — shorter blends',
+};

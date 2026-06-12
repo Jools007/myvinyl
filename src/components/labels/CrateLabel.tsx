@@ -1,5 +1,5 @@
 import { buildCrateLabelContent } from '../../lib/labelContent';
-import type { VinylRecord } from '../../lib/types';
+import type { LabelDisplayPrefs, VinylRecord } from '../../lib/types';
 
 export type CrateLabelSize = 'preview' | 'print';
 
@@ -10,6 +10,8 @@ interface CrateLabelProps {
   descriptionOverride?: string;
   /** Live override for vibe tags on the primary track (modal editor). */
   vibesOverride?: string[];
+  /** Live override for title layout and field visibility (modal editor). */
+  displayOverride?: LabelDisplayPrefs;
   className?: string;
   onClick?: () => void;
 }
@@ -19,11 +21,14 @@ export function CrateLabel({
   size = 'preview',
   descriptionOverride,
   vibesOverride,
+  displayOverride,
   className = '',
   onClick,
 }: CrateLabelProps) {
   const useDraft =
-    descriptionOverride !== undefined || vibesOverride !== undefined;
+    descriptionOverride !== undefined ||
+    vibesOverride !== undefined ||
+    displayOverride !== undefined;
   const data = buildCrateLabelContent(
     record,
     useDraft
@@ -32,6 +37,8 @@ export function CrateLabel({
           useDescriptionDraft: descriptionOverride !== undefined,
           vibes: vibesOverride,
           useVibesDraft: vibesOverride !== undefined,
+          display: displayOverride,
+          useDisplayDraft: displayOverride !== undefined,
         }
       : undefined
   );
@@ -45,6 +52,19 @@ export function CrateLabel({
   const showPlaceholder = !hasDesc && size !== 'print';
 
   const railMeta = [data.format, data.year].filter(Boolean).join(' · ');
+  const identityLines =
+    data.titleLayout === 'album-only'
+      ? [{ key: 'album', text: data.album, className: 'crate-label__album crate-label__album--solo' }]
+      : data.titleLayout === 'album-artist'
+        ? [
+            { key: 'album', text: data.album, className: 'crate-label__album crate-label__album--lead' },
+            { key: 'artist', text: data.artist, className: 'crate-label__artist crate-label__artist--sub' },
+          ]
+        : [
+            { key: 'artist', text: data.artist, className: 'crate-label__artist' },
+            { key: 'album', text: data.album, className: 'crate-label__album' },
+          ];
+  const showMix = data.showBpm || data.showKey;
 
   return (
     <Tag
@@ -59,33 +79,44 @@ export function CrateLabel({
     >
       <div className="crate-label__surface">
         <div className="crate-label__identity">
-          <h3 className="crate-label__artist" title={data.artist}>
-            {data.artist}
-          </h3>
-          <p className="crate-label__album" title={data.album}>
-            {data.album}
-          </p>
+          {identityLines.map((line) =>
+            line.key === 'artist' ? (
+              <h3 key={line.key} className={line.className} title={line.text}>
+                {line.text}
+              </h3>
+            ) : (
+              <p key={line.key} className={line.className} title={line.text}>
+                {line.text}
+              </p>
+            )
+          )}
         </div>
 
-        <div className="crate-label__mix" aria-label="BPM and key">
-          <div className="crate-label__stat">
-            <span className="crate-label__stat-label">BPM</span>
-            <span className="crate-label__stat-value tabular-nums">{bpmText}</span>
-          </div>
-          <div className="crate-label__stat">
-            <span className="crate-label__stat-label">Key</span>
-            <span className="crate-label__stat-value crate-label__stat-value--key tabular-nums">
-              {keyText}
-              {data.keyEstimated && data.camelot ? (
-                <span className="crate-label__est" aria-hidden>
-                  ~
+        {showMix ? (
+          <div className="crate-label__mix" aria-label="BPM and key">
+            {data.showBpm ? (
+              <div className="crate-label__stat">
+                <span className="crate-label__stat-label">BPM</span>
+                <span className="crate-label__stat-value tabular-nums">{bpmText}</span>
+              </div>
+            ) : null}
+            {data.showKey ? (
+              <div className="crate-label__stat">
+                <span className="crate-label__stat-label">Key</span>
+                <span className="crate-label__stat-value crate-label__stat-value--key tabular-nums">
+                  {keyText}
+                  {data.keyEstimated && data.camelot ? (
+                    <span className="crate-label__est" aria-hidden>
+                      ~
+                    </span>
+                  ) : null}
                 </span>
-              ) : null}
-            </span>
+              </div>
+            ) : null}
           </div>
-        </div>
+        ) : null}
 
-        {data.vibes.length > 0 ? (
+        {data.showVibes && data.vibes.length > 0 ? (
           <ul className="crate-label__vibes" aria-label="Vibe tags">
             {data.vibes.map((v) => (
               <li key={v} className="crate-label__vibe">

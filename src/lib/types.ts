@@ -1,5 +1,23 @@
 export type RecordCondition = 'Mint' | 'NM' | 'VG+' | 'VG' | 'G+' | 'G' | 'P';
 
+/** How artist/album titles appear on printed crate stickers. */
+export type LabelTitleLayout = 'artist-album' | 'album-artist' | 'album-only';
+
+/** Per-record overrides for what appears on crate labels. */
+export interface LabelDisplayPrefs {
+  titleLayout?: LabelTitleLayout;
+  showBpm?: boolean;
+  showKey?: boolean;
+  showVibes?: boolean;
+}
+
+export const DEFAULT_LABEL_DISPLAY: Required<LabelDisplayPrefs> = {
+  titleLayout: 'artist-album',
+  showBpm: true,
+  showKey: true,
+  showVibes: true,
+};
+
 /** How a release entered the local collection. */
 export type RecordAddSource = 'manual' | 'discogs-import';
 
@@ -58,6 +76,8 @@ export interface VinylRecord {
   genres: string[];
   condition: RecordCondition;
   notes?: string;
+  /** Optional sticker layout overrides (title order, BPM/key/vibe visibility). */
+  labelDisplay?: LabelDisplayPrefs;
   tracks: Track[];
   /** Denormalized: last time any track on this copy was marked played */
   lastPlayedAt?: string;
@@ -106,7 +126,7 @@ export interface DiscogsSearchHit {
   resource_url?: string;
 }
 
-export type ViewMode = 'grid' | 'shelf';
+export type ViewMode = 'grid' | 'list' | 'shelf';
 
 export interface AppSettings {
   starterVibe?: StarterVibe;

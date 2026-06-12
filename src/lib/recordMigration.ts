@@ -61,7 +61,7 @@ function recordNeedsEnrichment(record: VinylRecord): boolean {
   return record.tracks.some((t) => t.bpm == null || !t.camelotKey);
 }
 
-export type BackgroundSyncPhase = 'idle' | 'tracklists' | 'enriching';
+export type BackgroundSyncPhase = 'idle' | 'tracklists' | 'enriching' | 'full-tracklists';
 
 export interface BackgroundSyncState {
   phase: BackgroundSyncPhase;

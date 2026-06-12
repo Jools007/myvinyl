@@ -4,6 +4,18 @@ import { useAuth } from '../contexts/AuthContext';
 import { DEMO_RECORDS } from '../lib/seed';
 import { isCdFormat, sanitizeVinylFormat } from '../lib/formats';
 import {
+  runFullMetadataEnrichment,
+  idleMetadataEnrichment,
+  type FullMetadataEnrichmentProgress,
+  type FullMetadataEnrichmentResult,
+} from '../lib/fullMetadataEnrichment';
+import {
+  runFullTracklistEnrichment,
+  idleTracklistEnrichment,
+  type FullTracklistEnrichmentProgress,
+  type FullTracklistEnrichmentResult,
+} from '../lib/fullTracklistEnrichment';
+import {
   mergePreservingTrackEnrichment,
   needsBackgroundMigration,
   runBackgroundMigrations,
@@ -60,9 +72,15 @@ export function useCollection() {
   const [collectionError, setCollectionError] = useState<string | null>(null);
   const fetchGenerationRef = useRef(0);
   const [backgroundSync, setBackgroundSync] = useState<BackgroundSyncState>(idleSync);
+  const [tracklistEnrichment, setTracklistEnrichment] =
+    useState<FullTracklistEnrichmentProgress>(idleTracklistEnrichment);
+  const [metadataEnrichment, setMetadataEnrichment] =
+    useState<FullMetadataEnrichmentProgress>(idleMetadataEnrichment);
   const [liveEnrich, setLiveEnrich] = useState<LiveEnrichState>(null);
   const backgroundStarted = useRef(false);
   const enrichRunRef = useRef(0);
+  const tracklistEnrichmentRunRef = useRef(0);
+  const metadataEnrichmentRunRef = useRef(0);
   const persistTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   /** While set, background migrations must not overwrite this release (live per-track enrich). */
   const enrichActiveRecordIdRef = useRef<string | null>(null);
@@ -418,7 +436,77 @@ export function useCollection() {
     void loadCollection();
   }, [loadCollection]);
 
+  const runFullTracklistEnrichmentJob = useCallback(async (): Promise<FullTracklistEnrichmentResult | null> => {
+    const runId = ++tracklistEnrichmentRunRef.current;
+
+    const result = await runFullTracklistEnrichment(recordsRef.current, {
+      onRecordsChange: (next) => {
+        if (tracklistEnrichmentRunRef.current !== runId) return;
+        setRecords((prev) => mergePreservingTrackEnrichment(prev, next));
+      },
+      onProgress: (progress) => {
+        if (tracklistEnrichmentRunRef.current !== runId) return;
+        setTracklistEnrichment(progress);
+      },
+      onPersist: (record) => {
+        persistRecordNow(record);
+      },
+      isCancelled: () => tracklistEnrichmentRunRef.current !== runId,
+    });
+
+    if (tracklistEnrichmentRunRef.current === runId) {
+      window.setTimeout(() => {
+        if (tracklistEnrichmentRunRef.current === runId) {
+          setTracklistEnrichment(idleTracklistEnrichment);
+        }
+      }, 4000);
+    }
+
+    return tracklistEnrichmentRunRef.current === runId ? result : null;
+  }, [persistRecordNow]);
+
+  const runFullMetadataEnrichmentJob = useCallback(async (): Promise<FullMetadataEnrichmentResult | null> => {
+    const runId = ++metadataEnrichmentRunRef.current;
+
+    const result = await runFullMetadataEnrichment(recordsRef.current, {
+      onRecordsChange: (next) => {
+        if (metadataEnrichmentRunRef.current !== runId) return;
+        const migrated = next.map((r) => migrateRecord(r));
+        flushSync(() => {
+          recordsRef.current = migrated;
+          setRecords(migrated);
+        });
+      },
+      onProgress: (progress) => {
+        if (metadataEnrichmentRunRef.current !== runId) return;
+        setMetadataEnrichment(progress);
+      },
+      onPersist: (record) => {
+        persistRecordNow(record);
+      },
+      isCancelled: () => metadataEnrichmentRunRef.current !== runId,
+      getRecord: (id) => recordsRef.current.find((r) => r.id === id),
+    });
+
+    if (metadataEnrichmentRunRef.current === runId) {
+      window.setTimeout(() => {
+        if (metadataEnrichmentRunRef.current === runId) {
+          setMetadataEnrichment(idleMetadataEnrichment);
+        }
+      }, 4000);
+    }
+
+    return metadataEnrichmentRunRef.current === runId ? result : null;
+  }, [persistRecordNow]);
+
+  const cancelMetadataEnrichmentJob = useCallback(() => {
+    metadataEnrichmentRunRef.current += 1;
+    setMetadataEnrichment(idleMetadataEnrichment);
+  }, []);
+
   const collectionLoading = Boolean(user) && !authLoading && isFetchingCollection;
+  const isFullTracklistEnrichmentRunning = tracklistEnrichment.phase === 'running';
+  const isFullMetadataEnrichmentRunning = metadataEnrichment.phase === 'running';
 
   return {
     records,
@@ -428,6 +516,13 @@ export function useCollection() {
     collectionError,
     retryCollectionLoad,
     backgroundSync,
+    tracklistEnrichment,
+    metadataEnrichment,
+    isFullTracklistEnrichmentRunning,
+    isFullMetadataEnrichmentRunning,
+    runFullTracklistEnrichmentJob,
+    runFullMetadataEnrichmentJob,
+    cancelMetadataEnrichmentJob,
     liveEnrich,
     addRecord,
     importDiscogsCollection,

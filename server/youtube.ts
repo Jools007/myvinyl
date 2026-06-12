@@ -13,7 +13,7 @@ export type YouTubeVideoMatch = {
 
 /** Public InnerTube key used by youtube.com web client (playback search only). */
 const INNERTUBE_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHL6lAD7tEDd8Ep_Rk';
-const INNERTUBE_CLIENT_VERSION = '2.20240101.00.00';
+const INNERTUBE_CLIENT_VERSION = '2.20240601.00.00';
 
 const HARD_SKIP_TITLE =
   /\b(karaoke|instrumental\s+only|how\s+to\s+play|guitar\s+lesson|drum\s+cover|reaction|podcast|unboxing|teaser|trailer|vlog)\b/i;
@@ -186,12 +186,12 @@ async function fetchYouTubeBatch(
   query: string,
   apiKey?: string
 ): Promise<YouTubeVideoMatch[]> {
-  const inner = await searchYouTubeInnerTube(query);
-  if (inner.length) return inner;
   if (apiKey) {
     const api = await searchYouTubeDataApi(apiKey, query);
     if (api.length) return api;
   }
+  const inner = await searchYouTubeInnerTube(query);
+  if (inner.length) return inner;
   return [];
 }
 
@@ -252,7 +252,7 @@ async function isYouTubeEmbeddable(videoId: string): Promise<boolean> {
     const url = `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(
       `https://www.youtube.com/watch?v=${videoId}`
     )}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(4500) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(2500) });
     return res.ok;
   } catch {
     return false;
@@ -261,7 +261,7 @@ async function isYouTubeEmbeddable(videoId: string): Promise<boolean> {
 
 async function pickEmbeddable(
   ranked: YouTubeVideoMatch[],
-  maxTry = 4
+  maxTry = 2
 ): Promise<YouTubeVideoMatch | null> {
   const slice = ranked.slice(0, maxTry);
   const checks = await Promise.all(
@@ -300,28 +300,50 @@ export async function searchYouTubeForTrack(
   const seenIds = new Set<string>();
   const all: YouTubeVideoMatch[] = [];
 
-  const maxQueries = 10;
-  for (let i = 0; i < Math.min(queries.length, maxQueries); i++) {
-    const q = queries[i];
-    const batch = await fetchYouTubeBatch(q, apiKey);
+  const ingestBatch = (batch: YouTubeVideoMatch[]) => {
     for (const row of batch) {
       if (seenIds.has(row.videoId)) continue;
       seenIds.add(row.videoId);
       all.push(row);
     }
+  };
 
-    const picks = rankCandidates(a, t, al, all, 0.32);
+  const tryReturnHit = async (
+    minScore: number,
+    phase: string,
+    query?: string
+  ): Promise<YouTubeVideoMatch | null> => {
+    const picks = rankCandidates(a, t, al, all, minScore);
     const top = picks[0];
-    if (top && top.score >= 0.45) {
-      const pick = (await pickEmbeddable(picks)) ?? top;
-      playAudioLog('youtube-hit', {
-        videoId: pick.videoId,
-        title: pick.title,
-        score: pick.score,
-        query: q,
-      });
-      return pick;
-    }
+    if (!top || top.score < 0.45) return null;
+    const pick =
+      top.score >= 0.72 ? top : (await pickEmbeddable(picks)) ?? top;
+    playAudioLog('youtube-hit', {
+      videoId: pick.videoId,
+      title: pick.title,
+      score: pick.score,
+      phase,
+      query: query ?? null,
+    });
+    return pick;
+  };
+
+  const maxQueries = 10;
+  const parallelCount = Math.min(3, queries.length);
+  const initialBatches = await Promise.all(
+    queries.slice(0, parallelCount).map((q) => fetchYouTubeBatch(q, apiKey))
+  );
+  for (let i = 0; i < initialBatches.length; i++) {
+    ingestBatch(initialBatches[i]);
+    const hit = await tryReturnHit(0.32, 'parallel', queries[i]);
+    if (hit) return hit;
+  }
+
+  for (let i = parallelCount; i < Math.min(queries.length, maxQueries); i++) {
+    const q = queries[i];
+    ingestBatch(await fetchYouTubeBatch(q, apiKey));
+    const hit = await tryReturnHit(0.32, 'sequential', q);
+    if (hit) return hit;
   }
 
   const relaxedList = rankCandidates(a, t, al, all, 0.22);

@@ -1,4 +1,4 @@
-import { camelotDistance, isCompatibleKey } from './camelot';
+import { camelotDistance, isCompatibleKey, resolveTrackCamelot } from './camelot';
 import { playSelectionKey, type PlaySelection, type ResolvedPlaySelection } from './playSession';
 import { getPrimaryTrack } from './tracks';
 import type { Track, VinylRecord } from './types';
@@ -58,6 +58,59 @@ export type UpNextSuggestion = {
   reasons: string[];
 };
 
+function coldStartReasons(record: VinylRecord, track: Track): string[] {
+  const key = resolveTrackCamelot(track).code;
+  if (track.bpm != null && key) return [`Ready to mix · ${track.bpm} BPM · ${key}`];
+  if (track.bpm != null) return [`BPM ${track.bpm}`];
+  if (key) return [`Key ${key}`];
+  if (track.vibeTags?.length) return [`Vibe: ${track.vibeTags[0]}`];
+  if (record.genres[0]) return [record.genres[0]];
+  return ['From your crate'];
+}
+
+function coldStartScore(record: VinylRecord, track: Track): number {
+  let score = 0;
+  const key = resolveTrackCamelot(track).code;
+  if (track.bpm != null) score += 12;
+  if (key) score += 12;
+  if (track.vibeTags?.length) score += 6;
+  if (record.genres.length) score += 2;
+  const addedMs = Date.parse(record.addedAt);
+  if (!Number.isNaN(addedMs)) {
+    const days = (Date.now() - addedMs) / 86400000;
+    if (days <= 7) score += 8;
+    else if (days <= 30) score += 4;
+  }
+  return score;
+}
+
+/** Suggestions when nothing is playing and no play history exists yet. */
+function recommendColdStart(
+  collection: VinylRecord[],
+  limit: number,
+  excludeKeys: Set<string>
+): UpNextSuggestion[] {
+  const candidates: UpNextSuggestion[] = [];
+
+  for (const record of [...collection].sort((a, b) =>
+    (b.addedAt ?? '').localeCompare(a.addedAt ?? '')
+  )) {
+    const track = getPrimaryTrack(record);
+    if (!track) continue;
+    const key = playSelectionKey({ recordId: record.id, trackId: track.id });
+    if (excludeKeys.has(key)) continue;
+
+    candidates.push({
+      record,
+      track,
+      score: coldStartScore(record, track),
+      reasons: coldStartReasons(record, track),
+    });
+  }
+
+  return candidates.sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
 export function recommendNext(
   collection: VinylRecord[],
   anchor: ResolvedPlaySelection | null,
@@ -66,23 +119,28 @@ export function recommendNext(
 ): UpNextSuggestion[] {
   const excludeKeys = new Set(exclude.map(playSelectionKey));
 
+  if (!anchor) {
+    const recent = getLastPlayed(collection);
+    if (recent) {
+      const recentTrack = getPrimaryTrack(recent);
+      if (recentTrack) {
+        return recommendNext(
+          collection,
+          { record: recent, track: recentTrack },
+          limit,
+          exclude
+        );
+      }
+    }
+    return recommendColdStart(collection, limit, excludeKeys);
+  }
+
   const candidates: UpNextSuggestion[] = [];
   for (const record of collection) {
     const track = getPrimaryTrack(record);
     if (!track) continue;
     const key = playSelectionKey({ recordId: record.id, trackId: track.id });
     if (excludeKeys.has(key)) continue;
-
-    if (!anchor) {
-      if (!record.lastPlayedAt) continue;
-      candidates.push({
-        record,
-        track,
-        score: 0,
-        reasons: ['Recently played'],
-      });
-      continue;
-    }
 
     const score = scoreNextPlay(anchor, record, track);
     if (score <= 0) continue;
@@ -92,17 +150,6 @@ export function recommendNext(
       score,
       reasons: buildReasons(anchor, record, track),
     });
-  }
-
-  if (!anchor) {
-    const recent = [...collection]
-      .filter((r) => r.lastPlayedAt)
-      .sort((a, b) => (b.lastPlayedAt ?? '').localeCompare(a.lastPlayedAt ?? ''))[0];
-    if (!recent) return [];
-    const recentTrack = getPrimaryTrack(recent);
-    if (!recentTrack) return [];
-    const anchorResolved = { record: recent, track: recentTrack };
-    return recommendNext(collection, anchorResolved, limit, exclude);
   }
 
   return candidates.sort((a, b) => b.score - a.score).slice(0, limit);

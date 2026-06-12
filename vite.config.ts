@@ -6,7 +6,20 @@ import { apiPlugin } from './server/api-plugin';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
-    plugins: [react(), tailwindcss(), apiPlugin(env)],
-    server: { port: 5174, host: true },
+    appType: 'spa',
+    plugins: [
+      react(),
+      tailwindcss(),
+      // Local dev: /api/* is served by server/api-plugin.ts (not the api/ folder).
+      // Production (Vercel): /api/* is served by serverless functions in api/.
+      apiPlugin(env),
+    ],
+    server: {
+      port: 5174,
+      host: true,
+    },
+    preview: {
+      port: 5174,
+    },
   };
 });

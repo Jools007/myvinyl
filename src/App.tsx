@@ -1,7 +1,8 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
+import { AppToaster } from './components/AppToaster';
 import { Login } from './components/Auth/Login';
 import { CollectionLoadError } from './components/CollectionLoadError';
 import { CollectionLoading } from './components/CollectionLoading';
@@ -25,8 +26,12 @@ import { BackgroundSyncIndicator } from './components/BackgroundSyncIndicator';
 import { CollectionHero } from './components/CollectionHero';
 import { EmptyCollection } from './components/EmptyCollection';
 import { ClearCollectionModal } from './components/ClearCollectionModal';
+import { EnrichMetadataModal } from './components/EnrichMetadataModal';
+import { EnrichTracklistsModal } from './components/EnrichTracklistsModal';
 import { DiscogsImportModal } from './components/DiscogsImportModal';
 import { DiscoverAddPanel } from './components/DiscoverAddPanel';
+import { InsightsDashboard } from './components/InsightsDashboard';
+import type { InsightFilterAction } from './lib/collectionInsights';
 import {
   isSamePlaySelection,
   resolvePlayQueue,
@@ -37,10 +42,23 @@ import {
 import { getLastPlayed } from './lib/recommendations';
 import { useAuth } from './contexts/AuthContext';
 import { useCollection } from './hooks/useCollection';
+import { useSessionCrate } from './hooks/useSessionCrate';
+import { SESSION_CRATE_MAX } from './lib/sessionCrate';
 import { normalizeGenre, normalizeVibe, parseFilterList } from './lib/filterLabels';
 import { isCdFormat } from './lib/formats';
+import { resolveTrackCamelot } from './lib/camelot';
+import { formatMetadataEnrichmentSummary } from './lib/fullMetadataEnrichment';
+import {
+  countDiscogsLinkedRecords,
+  formatEnrichmentSummary,
+} from './lib/fullTracklistEnrichment';
+import type { BackgroundSyncState } from './lib/recordMigration';
 import { getPrimaryTrack, isReleaseFullyEnriched, patchPrimaryTrack } from './lib/tracks';
 import type { DiscogsReleaseDetail } from './lib/api';
+import {
+  buildCollectionFilterNote,
+  exportCollectionToPdf,
+} from './lib/collectionPdfExport';
 import { closeRecordDetail, setRecordDetailController } from './lib/recordDetail';
 import type { DiscogsSearchHit, Track, VinylRecord } from './lib/types';
 
@@ -54,6 +72,13 @@ function App() {
     records,
     settings,
     backgroundSync,
+    tracklistEnrichment,
+    metadataEnrichment,
+    isFullTracklistEnrichmentRunning,
+    isFullMetadataEnrichmentRunning,
+    runFullTracklistEnrichmentJob,
+    runFullMetadataEnrichmentJob,
+    cancelMetadataEnrichmentJob,
     addRecord,
     importDiscogsCollection,
     clearCollection,
@@ -81,11 +106,15 @@ function App() {
   const [labelSelection, setLabelSelection] = useState<Set<string>>(new Set());
   const [discogsImportOpen, setDiscogsImportOpen] = useState(false);
   const [clearCollectionOpen, setClearCollectionOpen] = useState(false);
+  const [enrichTracklistsOpen, setEnrichTracklistsOpen] = useState(false);
+  const [enrichMetadataOpen, setEnrichMetadataOpen] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [collectionFilters, setCollectionFilters] = useState<CollectionFilterState>(
     DEFAULT_COLLECTION_FILTERS
   );
   const [nowPlaying, setNowPlaying] = useState<PlaySelection | null>(null);
   const [playQueue, setPlayQueue] = useState<PlaySelection[]>([]);
+  const sessionCrate = useSessionCrate(records);
 
   useEffect(() => {
     if (!detail) return;
@@ -112,6 +141,89 @@ function App() {
     () => records.map((r) => r.discogsId).filter((id): id is number => id != null),
     [records]
   );
+
+  const discogsLinkedCount = useMemo(() => countDiscogsLinkedRecords(records), [records]);
+
+  const activeBackgroundSync = useMemo((): BackgroundSyncState => {
+    if (metadataEnrichment.phase === 'running') {
+      return {
+        phase: 'enriching',
+        message: metadataEnrichment.currentRelease
+          ? `${metadataEnrichment.message} · ${metadataEnrichment.currentRelease}`
+          : metadataEnrichment.message,
+        completed: metadataEnrichment.tracksCompleted,
+        total: metadataEnrichment.tracksTotal,
+      };
+    }
+    if (tracklistEnrichment.phase === 'running') {
+      return {
+        phase: 'full-tracklists',
+        message: tracklistEnrichment.message,
+        completed: tracklistEnrichment.completed,
+        total: tracklistEnrichment.total,
+      };
+    }
+    return backgroundSync;
+  }, [tracklistEnrichment, metadataEnrichment, backgroundSync]);
+
+  const handleEnrichAllTracklists = useCallback(() => {
+    void runFullTracklistEnrichmentJob().then((result) => {
+      if (!result) return;
+      if (result.updated > 0) {
+        toast.success(
+          result.updated === 1 ? '1 release updated' : `${result.updated} releases updated`,
+          { description: formatEnrichmentSummary(result) }
+        );
+      } else if (result.failed > 0 && result.updated === 0) {
+        toast.error('Tracklist enrichment failed', {
+          description: formatEnrichmentSummary(result),
+        });
+      } else {
+        toast.message('Tracklists already complete', {
+          description: formatEnrichmentSummary(result),
+        });
+      }
+    });
+  }, [runFullTracklistEnrichmentJob]);
+
+  const handleEnrichAllMetadata = useCallback(() => {
+    void runFullMetadataEnrichmentJob().then((result) => {
+      if (!result) return;
+      if (result.cancelled) {
+        toast.message('Enrichment cancelled', {
+          description: formatMetadataEnrichmentSummary(result),
+        });
+        return;
+      }
+      if (result.tracksEnriched > 0 || result.updated > 0) {
+        toast.success(
+          result.tracksEnriched > 0
+            ? result.tracksEnriched === 1
+              ? '1 track enriched'
+              : `${result.tracksEnriched} tracks enriched`
+            : result.updated === 1
+              ? '1 release enriched'
+              : `${result.updated} releases enriched`,
+          { description: formatMetadataEnrichmentSummary(result) }
+        );
+      } else if (result.failed > 0) {
+        toast.error('Metadata enrichment failed', {
+          description: formatMetadataEnrichmentSummary(result),
+        });
+      } else {
+        toast.message('Metadata already complete', {
+          description: formatMetadataEnrichmentSummary(result),
+        });
+      }
+    });
+  }, [runFullMetadataEnrichmentJob]);
+
+  const handleCancelMetadataEnrichment = useCallback(() => {
+    cancelMetadataEnrichmentJob();
+    toast.message('Stopping enrichment…', {
+      description: 'Already-enriched tracks are saved.',
+    });
+  }, [cancelMetadataEnrichmentJob]);
 
   const availableFormats = useMemo(
     () =>
@@ -163,9 +275,61 @@ function App() {
       }
       const primary = getPrimaryTrack(r);
       if (!recordMatchesBpm(primary?.bpm, collectionFilters.bpmRangeId)) return false;
+      if (collectionFilters.camelotKey) {
+        const key = collectionFilters.camelotKey;
+        const hasKey = r.tracks.some((t) => resolveTrackCamelot(t).code === key);
+        if (!hasKey) return false;
+      }
       return true;
     });
   }, [records, collectionFilters]);
+
+  const handleExportPdf = useCallback(async () => {
+    if (filtered.length === 0) return;
+
+    const bpmLabels: Record<string, string> = {
+      slow: '< 100',
+      mid: '100–120',
+      dance: '120–130',
+      fast: '130+',
+    };
+
+    setExportingPdf(true);
+    const preparing = toast.loading('Preparing your catalog…', {
+      description: 'Loading artwork and layout',
+    });
+    try {
+      await exportCollectionToPdf({
+        records: filtered,
+        totalInCollection: records.length,
+        collectionName: 'Jools Collection',
+        curatorName: user?.email?.split('@')[0],
+        filterNote: buildCollectionFilterNote(
+          collectionFilters,
+          collectionFilters.bpmRangeId !== 'all'
+            ? bpmLabels[collectionFilters.bpmRangeId]
+            : undefined
+        ),
+        onProgress: (message) => {
+          toast.loading(message, { id: preparing });
+        },
+      });
+      toast.dismiss(preparing);
+      const scope =
+        filtered.length === records.length
+          ? `${filtered.length} release${filtered.length === 1 ? '' : 's'}`
+          : `${filtered.length} of ${records.length} releases`;
+      toast.success('Jools Collection PDF ready', {
+        description: `Your catalog with ${scope} is downloaded.`,
+      });
+    } catch (err) {
+      toast.dismiss(preparing);
+      const message = err instanceof Error ? err.message : 'Something went wrong';
+      toast.error('PDF export failed', { description: message });
+    } finally {
+      setExportingPdf(false);
+    }
+  }, [filtered, records.length, collectionFilters, user?.email]);
 
   const hadUserRef = useRef(false);
   useEffect(() => {
@@ -196,6 +360,34 @@ function App() {
     [markPlayed]
   );
 
+  const handleApplyInsightFilter = useCallback((patch: InsightFilterAction) => {
+    setCollectionFilters((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  const handleQueueMany = useCallback(
+    (items: { record: VinylRecord; track: Track }[], label?: string) => {
+      if (items.length === 0) return;
+      let added = 0;
+      setPlayQueue((q) => {
+        const next = [...q];
+        for (const { record, track } of items) {
+          const ref: PlaySelection = { recordId: record.id, trackId: track.id };
+          if (nowPlaying && isSamePlaySelection(nowPlaying, ref)) continue;
+          if (next.some((item) => isSamePlaySelection(item, ref))) continue;
+          next.push(ref);
+          added += 1;
+        }
+        return next;
+      });
+      if (added > 0) {
+        toast.success(label ?? `${added} tracks queued`, {
+          description: 'Open Play to start your set.',
+        });
+      }
+    },
+    [nowPlaying]
+  );
+
   const handleAddToQueue = useCallback(
     (record: VinylRecord, track: Track) => {
       const ref: PlaySelection = { recordId: record.id, trackId: track.id };
@@ -219,6 +411,68 @@ function App() {
     },
     [nowPlaying]
   );
+
+  const handleAddToCrate = useCallback(
+    (record: VinylRecord, track: Track) => {
+      if (sessionCrate.isInCrate(record.id, track.id)) {
+        toast.message('Already in crate', { description: track.title });
+        return;
+      }
+      if (sessionCrate.isFull) {
+        toast.error('Crate is full', {
+          description: `Tonight's crate holds up to ${SESSION_CRATE_MAX} tracks.`,
+        });
+        return;
+      }
+      if (sessionCrate.add(record, track)) {
+        toast.success('Added to tonight\'s crate', {
+          description: `${track.title} · ${record.artist}`,
+        });
+      }
+    },
+    [sessionCrate]
+  );
+
+  const handleAddManyToCrate = useCallback(
+    (items: { record: VinylRecord; track: Track }[], label?: string) => {
+      if (items.length === 0) return;
+      const added = sessionCrate.addMany(items);
+      if (added > 0) {
+        toast.success(label ?? `Added ${added} to tonight's crate`, {
+          description:
+            added < items.length
+              ? `Crate full — ${items.length - added} skipped`
+              : 'Open Play to review your set.',
+        });
+      } else if (sessionCrate.isFull) {
+        toast.error('Crate is full', {
+          description: `Tonight's crate holds up to ${SESSION_CRATE_MAX} tracks.`,
+        });
+      } else {
+        toast.message('Already in crate', {
+          description: 'Those tracks are already in tonight\'s crate.',
+        });
+      }
+    },
+    [sessionCrate]
+  );
+
+  const handleLoadCrateToQueue = useCallback(() => {
+    const items = sessionCrate.resolved;
+    if (items.length === 0) return;
+
+    const refs = items.map((item) => ({
+      recordId: item.record.id,
+      trackId: item.track.id,
+    }));
+    const [, ...rest] = refs;
+    setPlayQueue(rest);
+    const opener = items[0];
+    handlePlayNow(opener.record, opener.track);
+    toast.success('Crate loaded', {
+      description: `${items.length} track${items.length === 1 ? '' : 's'} ready to spin.`,
+    });
+  }, [sessionCrate.resolved, handlePlayNow]);
 
   const handleCloseRecordDetail = useCallback(() => {
     setDetail(null);
@@ -311,7 +565,7 @@ function App() {
         <div className="flex min-h-dvh items-center justify-center bg-[var(--bg)] p-4">
           <Loader2 className="h-6 w-6 animate-spin text-[var(--accent)]" aria-label="Loading" />
         </div>
-        <Toaster position="bottom-center" richColors theme="system" />
+        <AppToaster />
       </>
     );
   }
@@ -320,7 +574,7 @@ function App() {
     return (
       <>
         <Login />
-        <Toaster position="bottom-center" richColors theme="system" />
+        <AppToaster />
       </>
     );
   }
@@ -332,7 +586,7 @@ function App() {
           message={collectionError}
           onRetry={retryCollectionLoad}
         />
-        <Toaster position="bottom-center" richColors theme="system" />
+        <AppToaster />
       </>
     );
   }
@@ -341,14 +595,20 @@ function App() {
     return (
       <>
         <CollectionLoading />
-        <Toaster position="bottom-center" richColors theme="system" />
+        <AppToaster />
       </>
     );
   }
 
   return (
     <div className="app-shell--mobile-tabs min-h-dvh">
-      <BackgroundSyncIndicator status={backgroundSync} />
+      <a href="#collection-main" className="skip-to-content">
+        Skip to collection
+      </a>
+      <BackgroundSyncIndicator
+        status={activeBackgroundSync}
+        onCancel={isFullMetadataEnrichmentRunning ? handleCancelMetadataEnrichment : undefined}
+      />
       <Navigation
         page={page}
         onNavigate={setPage}
@@ -363,7 +623,9 @@ function App() {
             ? 'pb-8 pt-0 sm:pt-4'
             : page === 'labels'
               ? 'pb-0 pt-3 sm:py-8'
-              : 'py-8'
+              : page === 'insights'
+                ? 'pb-10 pt-2 sm:pt-4 sm:pb-12'
+                : 'py-8'
         }`}
       >
         <AnimatePresence mode="wait">
@@ -391,7 +653,7 @@ function App() {
                 }}
               />
 
-              <section className="collection-main sm:pt-1">
+              <section id="collection-main" className="collection-main">
                 <CollectionFilters
                   filters={collectionFilters}
                   onChange={(patch) =>
@@ -406,6 +668,14 @@ function App() {
                   availableGenres={availableGenres}
                   availableVibes={availableVibes}
                   onResetCollection={() => setClearCollectionOpen(true)}
+                  onEnrichTracklists={() => setEnrichTracklistsOpen(true)}
+                  enrichingTracklists={isFullTracklistEnrichmentRunning}
+                  onEnrichMetadata={() => setEnrichMetadataOpen(true)}
+                  enrichingMetadata={isFullMetadataEnrichmentRunning}
+                  discogsLinkedCount={discogsLinkedCount}
+                  onExportPdf={() => void handleExportPdf()}
+                  exportingPdf={exportingPdf}
+                  onOpenInsights={() => setPage('insights')}
                 />
 
                 {records.length === 0 ? (
@@ -446,6 +716,28 @@ function App() {
             </motion.div>
           )}
 
+          {page === 'insights' && (
+            <motion.div
+              key="insights"
+              initial={false}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+            >
+              <InsightsDashboard
+                records={records}
+                onApplyFilter={handleApplyInsightFilter}
+                onOpenCollection={() => setPage('collection')}
+                onEnrichTracklists={() => setEnrichTracklistsOpen(true)}
+                onEnrichMetadata={() => setEnrichMetadataOpen(true)}
+                onPlayNow={handlePlayNow}
+                onAddToQueue={handleAddToQueue}
+                onQueueMany={handleQueueMany}
+                onAddToCrate={handleAddToCrate}
+                onAddManyToCrate={handleAddManyToCrate}
+              />
+            </motion.div>
+          )}
+
           {page === 'play' && (
             <motion.div
               key="play"
@@ -457,7 +749,16 @@ function App() {
                 collection={records}
                 nowPlaying={playAnchor}
                 queue={resolvedQueue}
+                crateItems={sessionCrate.resolved}
+                crateKeyPath={sessionCrate.keyPath}
+                isInCrate={sessionCrate.isInCrate}
                 onPlayNow={handlePlayNow}
+                onAddToCrate={handleAddToCrate}
+                onRemoveFromCrate={sessionCrate.remove}
+                onMoveCrateUp={sessionCrate.moveUp}
+                onMoveCrateDown={sessionCrate.moveDown}
+                onClearCrate={sessionCrate.clear}
+                onLoadCrateToQueue={handleLoadCrateToQueue}
               />
             </motion.div>
           )}
@@ -554,6 +855,28 @@ function App() {
         onPlay={markPlayed}
       />
 
+      <EnrichTracklistsModal
+        open={enrichTracklistsOpen}
+        records={records}
+        running={isFullTracklistEnrichmentRunning}
+        onClose={() => setEnrichTracklistsOpen(false)}
+        onConfirm={() => {
+          setEnrichTracklistsOpen(false);
+          handleEnrichAllTracklists();
+        }}
+      />
+
+      <EnrichMetadataModal
+        open={enrichMetadataOpen}
+        records={records}
+        running={isFullMetadataEnrichmentRunning}
+        onClose={() => setEnrichMetadataOpen(false)}
+        onConfirm={() => {
+          setEnrichMetadataOpen(false);
+          handleEnrichAllMetadata();
+        }}
+      />
+
       <ClearCollectionModal
         open={clearCollectionOpen}
         records={records}
@@ -596,7 +919,7 @@ function App() {
         }}
       />
 
-      <Toaster position="bottom-center" richColors theme="system" />
+      <AppToaster />
     </div>
   );
 }

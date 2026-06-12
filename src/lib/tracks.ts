@@ -192,12 +192,12 @@ export function mergeEnrichedTracksIntoRelease(
         position: existing.position,
         duration: existing.duration ?? enriched.duration,
         artist: existing.artist ?? enriched.artist,
-        bpm: enriched.bpm,
-        camelotKey: enriched.camelotKey,
-        musicalKey: enriched.musicalKey,
-        bpmEstimated: enriched.bpmEstimated,
-        keyEstimated: enriched.keyEstimated,
-        vibeTags: enriched.vibeTags ?? existing.vibeTags ?? [],
+        bpm: enriched.bpm ?? existing.bpm,
+        camelotKey: enriched.camelotKey ?? existing.camelotKey,
+        musicalKey: enriched.musicalKey ?? existing.musicalKey,
+        bpmEstimated: enriched.bpmEstimated ?? existing.bpmEstimated,
+        keyEstimated: enriched.keyEstimated ?? existing.keyEstimated,
+        vibeTags: [...new Set([...(existing.vibeTags ?? []), ...(enriched.vibeTags ?? [])])].slice(0, 6),
         isPrimary: existing.isPrimary,
       };
     }),
@@ -220,11 +220,14 @@ export async function enrichReleaseTracksSequential(
     onTrackStart?: (track: Track) => void;
     onTrackEnriched: (track: Track) => void;
     getTrack?: (trackId: string) => Track | undefined;
+    isCancelled?: () => boolean;
   }
 ): Promise<void> {
   const trackIds = record.tracks.map((t) => t.id);
   const usedKeys: string[] = [];
   for (let i = 0; i < trackIds.length; i++) {
+    if (callbacks.isCancelled?.()) return;
+
     const source =
       callbacks.getTrack?.(trackIds[i]) ??
       record.tracks.find((t) => t.id === trackIds[i]);
@@ -251,6 +254,7 @@ export async function enrichReleaseTracksSequential(
     if (code) usedKeys.push(code);
 
     callbacks.onTrackEnriched(enriched);
+    if (callbacks.isCancelled?.()) return;
     if (i < trackIds.length - 1) await sleep(ENRICH_DELAY_MS);
   }
 }

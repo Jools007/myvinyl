@@ -3,6 +3,7 @@ export type ApiEnv = {
   spotifyId?: string;
   spotifySecret?: string;
   lastfmKey?: string;
+  youtubeApiKey?: string;
 };
 
 function readEnv(key: string): string | undefined {
@@ -19,6 +20,7 @@ export function getApiEnv(): ApiEnv {
     spotifyId: readEnv('SPOTIFY_CLIENT_ID'),
     spotifySecret: readEnv('SPOTIFY_CLIENT_SECRET'),
     lastfmKey: readEnv('LASTFM_API_KEY'),
+    youtubeApiKey: readEnv('YOUTUBE_API_KEY'),
   };
 }
 
@@ -30,5 +32,6 @@ export function logApiEnvStatus(route: string): void {
     SPOTIFY_CLIENT_ID: Boolean(env.spotifyId),
     SPOTIFY_CLIENT_SECRET: Boolean(env.spotifySecret),
     LASTFM_API_KEY: Boolean(env.lastfmKey),
+    YOUTUBE_API_KEY: Boolean(env.youtubeApiKey),
   });
 }

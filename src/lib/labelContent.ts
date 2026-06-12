@@ -1,5 +1,10 @@
 import { resolveTrackCamelot } from './camelot';
-import { getPrimaryTrack } from './types';
+import {
+  DEFAULT_LABEL_DISPLAY,
+  getPrimaryTrack,
+  type LabelDisplayPrefs,
+  type LabelTitleLayout,
+} from './types';
 import type { Track, VinylRecord } from './types';
 
 /** Max characters saved on the record & shown on the printed label (2 lines). */
@@ -8,6 +13,10 @@ export const LABEL_DESCRIPTION_MAX = 120;
 export type CrateLabelContent = {
   artist: string;
   album: string;
+  titleLayout: LabelTitleLayout;
+  showBpm: boolean;
+  showKey: boolean;
+  showVibes: boolean;
   bpm?: number;
   bpmEstimated?: boolean;
   camelot?: string;
@@ -17,6 +26,17 @@ export type CrateLabelContent = {
   format?: string;
   year?: string;
 };
+
+export function resolveLabelDisplayPrefs(
+  record: VinylRecord,
+  override?: LabelDisplayPrefs
+): Required<LabelDisplayPrefs> {
+  return {
+    ...DEFAULT_LABEL_DISPLAY,
+    ...record.labelDisplay,
+    ...override,
+  };
+}
 
 export function clampLabelDescription(text: string): string {
   return text.slice(0, LABEL_DESCRIPTION_MAX);
@@ -60,10 +80,17 @@ export function buildCrateLabelContent(
     /** When set with useVibesDraft, preview shows these tags (max 3) */
     vibes?: string[];
     useVibesDraft?: boolean;
+    /** Live override for sticker layout (modal editor). */
+    display?: LabelDisplayPrefs;
+    useDisplayDraft?: boolean;
   }
 ): CrateLabelContent {
   const track = getPrimaryTrack(record);
   const { code, estimated: keyEstimated } = resolveTrackCamelot(track);
+  const display = resolveLabelDisplayPrefs(
+    record,
+    opts?.useDisplayDraft ? opts.display : undefined
+  );
 
   const description = opts?.useDescriptionDraft
     ? clampLabelDescription(opts.description ?? '')
@@ -76,6 +103,10 @@ export function buildCrateLabelContent(
   return {
     artist: record.artist.trim() || 'Unknown artist',
     album: record.title.trim() || 'Untitled',
+    titleLayout: display.titleLayout,
+    showBpm: display.showBpm,
+    showKey: display.showKey,
+    showVibes: display.showVibes,
     bpm: track?.bpm,
     bpmEstimated: track?.bpmEstimated,
     camelot: code,

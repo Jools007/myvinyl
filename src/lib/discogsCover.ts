@@ -65,11 +65,19 @@ function normalizeProtocol(value: string): string {
 
 function isDiscogsImageCdnUrl(value: string): boolean {
   try {
-    const { hostname, protocol } = new URL(value);
-    return protocol === 'https:' && DISCOGS_IMAGE_HOSTS.has(hostname.toLowerCase());
+    const { hostname, pathname, protocol } = new URL(value);
+    if (protocol !== 'https:') return false;
+    const host = hostname.toLowerCase();
+    if (DISCOGS_IMAGE_HOSTS.has(host)) return true;
+    // Signed image paths served from Discogs subdomains
+    return host.endsWith('.discogs.com') && /\/RKF-[A-Za-z0-9_-]+/i.test(pathname);
   } catch {
     return false;
   }
+}
+
+function looksLikeDirectImageUrl(value: string): boolean {
+  return /\.(jpe?g|png|gif|webp|avif)(\?|$)/i.test(value) || /\/image\.(jpe?g|png|gif|webp)/i.test(value);
 }
 
 /** Normalize Discogs CDN cover URLs for direct use in <img src> on static hosting. */
@@ -79,8 +87,13 @@ export function resolveDiscogsCoverUrl(url?: string | null): string | undefined 
   const value = normalizeProtocol(unwrapNestedImageUrl(url.trim()));
   if (!value.startsWith('https://')) return undefined;
 
-  // Drop non-image Discogs pages; covers must be CDN URLs (i.discogs.com).
-  if (/discogs\.com/i.test(value) && !isDiscogsImageCdnUrl(value)) return undefined;
+  if (isDiscogsImageCdnUrl(value)) return value;
 
-  return isDiscogsImageCdnUrl(value) ? value : undefined;
+  // Drop Discogs website pages — not image assets.
+  if (/discogs\.com/i.test(value)) return undefined;
+
+  // Other absolute https image URLs (legacy imports, rare mirrors).
+  if (looksLikeDirectImageUrl(value)) return value;
+
+  return undefined;
 }

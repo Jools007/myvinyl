@@ -1,4 +1,4 @@
-import { resolveDiscogsCoverUrl } from '../src/lib/discogsCover';
+import { resolveDiscogsCoverUrl } from './discogs-cover';
 
 const DISCOGS_API = 'https://api.discogs.com';
 

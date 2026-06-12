@@ -1,14 +1,14 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Disc3, Loader2, Pencil, Plus, Sparkles, X } from 'lucide-react';
+import { Disc3, Loader2, Plus, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ENRICHMENT_ESTIMATE_HINT,
   enrichRecord,
-  fetchAlbumDescription,
-  fetchDiscogsRelease,
+  enrichReleaseContextFromDiscogs,
   resolveDiscogsReleaseDetail,
 } from '../lib/api';
+import { AboutReleaseSection } from './AboutReleaseSection';
 import { resolveDiscogsCoverUrl } from '../lib/discogsCover';
 import { CAMELOT_KEYS } from '../lib/camelot';
 import { VIBE_TAG_SUGGESTIONS } from '../lib/vibes';
@@ -18,7 +18,7 @@ import {
   sanitizeVinylFormat,
   VINYL_FORMATS,
 } from '../lib/formats';
-import { getPrimaryTrack, patchPrimaryTrack, releaseFromDiscogsImport } from '../lib/tracks';
+import { releaseFromDiscogsImport } from '../lib/tracks';
 import type { DiscogsReleaseDetail } from '../lib/api';
 import type { DiscogsSearchHit, RecordCondition, VinylRecord } from '../lib/types';
 
@@ -28,12 +28,9 @@ interface DiscoverAddPanelProps {
   hit: DiscogsSearchHit | null;
   /** Full Discogs release from barcode scan (tracklist pre-loaded) */
   prefetchedRelease?: DiscogsReleaseDetail | null;
-  /** When set, modal opens in edit mode with this record pre-filled */
-  editingRecord?: VinylRecord | null;
   open: boolean;
   onClose: () => void;
   onSave?: (record: Omit<VinylRecord, 'id' | 'addedAt'>) => void;
-  onUpdate?: (id: string, patch: Partial<VinylRecord>) => void;
 }
 
 function SectionLabel({ children }: { children: ReactNode }) {
@@ -65,13 +62,10 @@ function Chip({
 export function DiscoverAddPanel({
   hit,
   prefetchedRelease = null,
-  editingRecord = null,
   open,
   onClose,
   onSave,
-  onUpdate,
 }: DiscoverAddPanelProps) {
-  const isEditMode = Boolean(editingRecord);
   const [enriching, setEnriching] = useState(false);
   const [error, setError] = useState('');
   const [enrichHint, setEnrichHint] = useState('');
@@ -84,7 +78,6 @@ export function DiscoverAddPanel({
   const [bpm, setBpm] = useState('');
   const [camelotKey, setCamelotKey] = useState('');
   const [condition, setCondition] = useState<RecordCondition>('NM');
-  const [albumBlurb, setAlbumBlurb] = useState('');
   const [personalNotes, setPersonalNotes] = useState('');
   const [vibeTags, setVibeTags] = useState<string[]>([]);
   const [customVibe, setCustomVibe] = useState('');
@@ -103,7 +96,6 @@ export function DiscoverAddPanel({
     setBpm('');
     setCamelotKey('');
     setCondition('NM');
-    setAlbumBlurb('');
     setPersonalNotes('');
     setVibeTags([]);
     setCustomVibe('');
@@ -115,59 +107,6 @@ export function DiscoverAddPanel({
     if (!open) {
       reset();
       return;
-    }
-
-    if (editingRecord) {
-      const primary = getPrimaryTrack(editingRecord);
-      setEnriching(false);
-      setError('');
-      setArtist(editingRecord.artist);
-      setTitle(editingRecord.title);
-      setYear(editingRecord.year ?? '');
-      setCoverUrl(resolveDiscogsCoverUrl(editingRecord.coverUrl));
-      setGenres([...editingRecord.genres]);
-      setFormat(editingRecord.format ?? '');
-      setBpm(primary?.bpm != null ? String(primary.bpm) : '');
-      setCamelotKey(primary?.camelotKey ?? '');
-      setCondition(editingRecord.condition);
-      setPersonalNotes(editingRecord.notes ?? '');
-      setVibeTags([...(primary?.vibeTags ?? [])]);
-      setCustomVibe('');
-      setDiscogsDetail(null);
-      setSaving(false);
-
-      let cancelled = false;
-      const discogsId = editingRecord.discogsId;
-
-      if (!discogsId) {
-        setAlbumBlurb('');
-        return () => {
-          cancelled = true;
-        };
-      }
-
-      (async () => {
-        setEnriching(true);
-        try {
-          const release = await fetchDiscogsRelease(discogsId);
-          if (cancelled) return;
-          setDiscogsDetail(release);
-          const blurb = await fetchAlbumDescription(
-            release.artist,
-            release.title,
-            release.notes
-          );
-          if (!cancelled) setAlbumBlurb(blurb);
-        } catch {
-          if (!cancelled) setAlbumBlurb('');
-        } finally {
-          if (!cancelled) setEnriching(false);
-        }
-      })();
-
-      return () => {
-        cancelled = true;
-      };
     }
 
     if (!hit) return;
@@ -213,7 +152,8 @@ export function DiscoverAddPanel({
           release.title,
           hit.id,
           release.title,
-          release.genres
+          release.genres,
+          { release: enrichReleaseContextFromDiscogs(release) }
         );
         if (cancelled) return;
 
@@ -227,12 +167,6 @@ export function DiscoverAddPanel({
           setEnrichHint(ENRICHMENT_ESTIMATE_HINT);
         }
 
-        const blurb = await fetchAlbumDescription(
-          release.artist,
-          release.title,
-          release.notes
-        );
-        if (!cancelled) setAlbumBlurb(blurb);
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : 'Could not load release from Discogs');
@@ -245,7 +179,7 @@ export function DiscoverAddPanel({
     return () => {
       cancelled = true;
     };
-  }, [open, hit, prefetchedRelease, editingRecord, reset]);
+  }, [open, hit, prefetchedRelease, reset]);
 
   const toggleVibe = (tag: string) => {
     setVibeTags((prev) =>
@@ -253,45 +187,10 @@ export function DiscoverAddPanel({
     );
   };
 
-  const canSave = Boolean(
-    (hit || editingRecord) &&
-      artist.trim() &&
-      title.trim() &&
-      !saving &&
-      (isEditMode ? onUpdate : onSave)
-  );
+  const canSave = Boolean(hit && artist.trim() && title.trim() && !saving && onSave);
 
   const handleSave = async () => {
     if (!canSave) return;
-
-    if (isEditMode && editingRecord && onUpdate) {
-      setSaving(true);
-      setError('');
-      try {
-        const musical = {
-          bpm: bpm ? parseInt(bpm, 10) : undefined,
-          camelotKey: camelotKey || undefined,
-          vibeTags,
-        };
-        const primaryPatch = patchPrimaryTrack(editingRecord, musical);
-        onUpdate(editingRecord.id, {
-          artist: artist.trim(),
-          title: title.trim(),
-          year: year || undefined,
-          format: sanitizeVinylFormat(format),
-          coverUrl,
-          genres,
-          condition,
-          notes: personalNotes.trim() || undefined,
-          tracks: primaryPatch.tracks ?? editingRecord.tracks,
-        });
-        onClose();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Could not save changes');
-        setSaving(false);
-      }
-      return;
-    }
 
     if (!hit) return;
     if (hit.format?.length && hit.format.every(isCdFormat)) {
@@ -338,12 +237,12 @@ export function DiscoverAddPanel({
     }
   };
 
-  const displayTitle = title || editingRecord?.title || hit?.title || '';
-  const displayArtist = artist || editingRecord?.artist || hit?.artist || '';
+  const displayTitle = title || hit?.title || '';
+  const displayArtist = artist || hit?.artist || '';
 
   const modal = (
     <AnimatePresence>
-      {open && (hit || editingRecord) && (
+      {open && hit && (
         <motion.div
           className="add-modal-backdrop fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-5"
           initial={{ opacity: 0 }}
@@ -365,11 +264,9 @@ export function DiscoverAddPanel({
           >
             <header className="add-modal__header">
               <div>
-                <p className="add-modal__eyebrow">
-                  {isEditMode ? 'Collection' : 'New record'}
-                </p>
+                <p className="add-modal__eyebrow">New record</p>
                 <h2 id="add-modal-title" className="add-modal__title">
-                  {isEditMode ? 'Edit record' : 'Add to collection'}
+                  Add to collection
                 </h2>
               </div>
               <button
@@ -385,9 +282,7 @@ export function DiscoverAddPanel({
             {enriching && (
               <p className="add-modal__status">
                 <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-                {isEditMode
-                  ? 'Refreshing release details…'
-                  : 'Loading release details, BPM, key & vibes…'}
+                Loading release details, BPM, key & vibes…
               </p>
             )}
 
@@ -439,20 +334,15 @@ export function DiscoverAddPanel({
                     </div>
                   </div>
 
-                  <div className="add-modal__about">
-                    <h4 className="add-modal__about-heading">About this release</h4>
-                    {albumBlurb ? (
-                      <p className="add-modal__about-text" title={albumBlurb}>
-                        {albumBlurb}
-                      </p>
-                    ) : enriching ? (
-                      <p className="add-modal__about-placeholder">Loading description…</p>
-                    ) : (
-                      <p className="add-modal__about-placeholder">
-                        No description available for this release.
-                      </p>
-                    )}
-                  </div>
+                  <AboutReleaseSection
+                    source={{
+                      id: String(hit?.id ?? 'draft'),
+                      artist: displayArtist,
+                      title: displayTitle,
+                      discogsId: hit?.id ?? discogsDetail?.id,
+                      notes: personalNotes,
+                    }}
+                  />
                 </div>
               </aside>
 
@@ -599,12 +489,7 @@ export function DiscoverAddPanel({
                 {saving ? (
                   <>
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    {isEditMode ? 'Saving…' : 'Adding…'}
-                  </>
-                ) : isEditMode ? (
-                  <>
-                    <Pencil className="h-3.5 w-3.5" strokeWidth={2.25} />
-                    Save changes
+                    Adding…
                   </>
                 ) : (
                   <>
