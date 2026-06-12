@@ -11,6 +11,7 @@ import {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { searchDiscogs } from '../lib/api';
 import { resolveDiscogsCoverUrl } from '../lib/discogsCover';
 import { pickVinylFormatFromDiscogs } from '../lib/formats';
@@ -56,6 +57,7 @@ export const DiscogsSearchBar = forwardRef<DiscogsSearchBarHandle, DiscogsSearch
     const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
     const wrapRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+    const isMobile = useIsMobile();
 
     useImperativeHandle(ref, () => ({
       focus: () => inputRef.current?.focus(),
@@ -101,23 +103,37 @@ export const DiscogsSearchBar = forwardRef<DiscogsSearchBarHandle, DiscogsSearch
       const wrap = wrapRef.current;
       if (!wrap) return;
       const rect = wrap.getBoundingClientRect();
-      setDropdownPos({
-        top: rect.bottom - 1,
-        left: rect.left,
-        width: rect.width,
-      });
-    }, []);
+      const vv = window.visualViewport;
+      const gap = isMobile ? 10 : -1;
+      const top = rect.bottom + gap + (vv?.offsetTop ?? 0);
+      const left = rect.left + (vv?.offsetLeft ?? 0);
+      const width = Math.min(rect.width, vv?.width ?? rect.width);
+      setDropdownPos({ top, left, width });
+    }, [isMobile]);
 
     useLayoutEffect(() => {
       if (!showDropdown || !usePortal) return;
       updateDropdownPosition();
+      const vv = window.visualViewport;
       window.addEventListener('resize', updateDropdownPosition);
       window.addEventListener('scroll', updateDropdownPosition, true);
+      vv?.addEventListener('resize', updateDropdownPosition);
+      vv?.addEventListener('scroll', updateDropdownPosition);
       return () => {
         window.removeEventListener('resize', updateDropdownPosition);
         window.removeEventListener('scroll', updateDropdownPosition, true);
+        vv?.removeEventListener('resize', updateDropdownPosition);
+        vv?.removeEventListener('scroll', updateDropdownPosition);
       };
     }, [showDropdown, usePortal, updateDropdownPosition]);
+
+    const handleFocus = () => {
+      setFocused(true);
+      requestAnimationFrame(() => {
+        updateDropdownPosition();
+        inputRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      });
+    };
 
     const openPanel = (hit: DiscogsSearchHit) => {
       if (inCollection.has(hit.id)) return;
@@ -176,7 +192,11 @@ export const DiscogsSearchBar = forwardRef<DiscogsSearchBarHandle, DiscogsSearch
         )}
 
         {results.length > 0 && (
-          <ul className="max-h-[min(22rem,55vh)] overflow-y-auto p-1.5">
+          <ul
+            className={`overflow-y-auto p-1.5 ${
+              isMobile ? 'max-h-[min(14rem,38dvh)]' : 'max-h-[min(22rem,55vh)]'
+            }`}
+          >
             {results.map((hit) => {
               const cover =
                 resolveDiscogsCoverUrl(hit.cover) ?? resolveDiscogsCoverUrl(hit.thumb);
@@ -257,14 +277,18 @@ export const DiscogsSearchBar = forwardRef<DiscogsSearchBarHandle, DiscogsSearch
       <AnimatePresence>
         {showDropdown && (
           <motion.div
-            initial={{ opacity: 0, y: -6 }}
+            initial={{ opacity: 0, y: isMobile ? 6 : -6 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
+            exit={{ opacity: 0, y: isMobile ? 6 : -6 }}
             transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
             className={
               usePortal
-                ? 'discover-typeahead-portal'
-                : 'discover-typeahead absolute left-0 right-0 top-[calc(100%-1px)] z-50 overflow-hidden rounded-b-2xl border border-t-0 border-[var(--border-strong)] bg-[var(--bg-elevated)] shadow-[var(--shadow-overlay)]'
+                ? `discover-typeahead-portal${isMobile ? ' discover-typeahead-portal--mobile' : ''}`
+                : `discover-typeahead absolute left-0 right-0 z-50 overflow-hidden border border-[var(--border-strong)] bg-[var(--bg-elevated)] shadow-[var(--shadow-overlay)] ${
+                    isMobile
+                      ? 'top-[calc(100%+0.5rem)] rounded-2xl'
+                      : 'top-[calc(100%-1px)] rounded-b-2xl border-t-0'
+                  }`
             }
             style={
               usePortal
@@ -292,7 +316,7 @@ export const DiscogsSearchBar = forwardRef<DiscogsSearchBarHandle, DiscogsSearch
               : isFloating
                 ? 'collection-discogs-floating-search'
                 : 'mx-auto max-w-2xl'
-          }`}
+          }${showDropdown && isMobile ? ' discover-search-wrap--dropdown-open' : ''}`}
         >
           <Search
             className={`pointer-events-none absolute top-1/2 z-10 -translate-y-1/2 text-[var(--text-muted)] ${
@@ -310,7 +334,7 @@ export const DiscogsSearchBar = forwardRef<DiscogsSearchBarHandle, DiscogsSearch
               isHero ? 'discover-search-input--hero' : ''
             } ${isHero && onDiscogsImport ? 'discover-search-input--hero-import' : ''} ${
               isFloating ? 'discover-search-input--floating' : ''
-            } ${showDropdown ? 'rounded-b-xl' : ''}`}
+            } ${showDropdown && !isMobile ? 'rounded-b-xl' : ''}`}
             placeholder={
               isHero || isFloating
                 ? 'Search Discogs to grow your crate…'
@@ -318,7 +342,7 @@ export const DiscogsSearchBar = forwardRef<DiscogsSearchBarHandle, DiscogsSearch
             }
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onFocus={() => setFocused(true)}
+            onFocus={handleFocus}
             onBlur={() => setTimeout(() => setFocused(false), 180)}
             autoComplete="off"
             spellCheck={false}

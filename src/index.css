@@ -1945,6 +1945,23 @@ body::before {
   box-shadow: var(--shadow-overlay);
 }
 
+.discover-typeahead-portal--mobile {
+  z-index: 99;
+  border-radius: 1rem;
+  border-top: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-lg);
+}
+
+.discover-search-wrap--dropdown-open {
+  z-index: 101;
+  position: relative;
+}
+
+.discover-search-wrap--dropdown-open .discover-search-input {
+  position: relative;
+  z-index: 2;
+}
+
 .collection-discogs-floating__backdrop {
   position: absolute;
   inset: 0;
