@@ -139,8 +139,18 @@ function sendYtCommand(iframe: HTMLIFrameElement, func: string, args: unknown[] 
   );
 }
 
+/** YouTube base.js probes compute-pressure; include it to avoid Chrome policy violations. */
 const YT_IFRAME_ALLOW =
-  'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+  'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; compute-pressure';
+
+function applyIframeAllow(iframe: HTMLIFrameElement): void {
+  const current = iframe.allow.trim();
+  if (current.includes('compute-pressure')) {
+    iframe.allow = current || YT_IFRAME_ALLOW;
+    return;
+  }
+  iframe.allow = current ? `${current}; compute-pressure` : YT_IFRAME_ALLOW;
+}
 
 export type YouTubePlayerHandlers = {
   onReady?: () => void;
@@ -216,7 +226,7 @@ export class YouTubePreviewPlayer {
     const iframe = document.createElement('iframe');
     iframe.className = 'play-dj__yt-frame';
     iframe.title = 'Track audio preview';
-    iframe.allow = YT_IFRAME_ALLOW;
+    applyIframeAllow(iframe);
     iframe.allowFullscreen = true;
     const muted = !this.soundEnabled;
     iframe.src = buildEmbedSrc(this.videoId, false, muted);
@@ -310,6 +320,10 @@ export class YouTubePreviewPlayer {
           onReady: (e) => {
             if (this.abandoned) return;
             this.player = e.target;
+            const frame = this.hostEl?.querySelector('iframe');
+            if (frame instanceof HTMLIFrameElement) {
+              applyIframeAllow(frame);
+            }
             if (!this.soundEnabled) {
               try {
                 e.target.mute();
