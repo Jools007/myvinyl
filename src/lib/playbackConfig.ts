@@ -15,8 +15,8 @@ export const PLAYBACK_BASELINE = {
     soundOnAutoplay: false,
   },
   youtube: {
-    /** Localhost: enablejsapi embed + postMessage (no YT.Player / widgetapi). Prod: IFrame API. */
-    localhostMode: 'enablejsapi-embed',
+    /** Localhost: src-reload embed (no YT.Player / widgetapi). Prod: IFrame API. */
+    localhostMode: 'src-reload-embed',
     iosMode: 'enablejsapi-embed',
     productionMode: 'iframe-api',
     desktopHostMount: 'play-yt-root' as const,
