@@ -12,10 +12,8 @@ export function isMobilePlaybackDevice(): boolean {
   return isIOSDevice() || /Android/i.test(navigator.userAgent);
 }
 
-/** iOS + local dev: simple embed, started from our play button inside a user gesture. */
+/** iOS only — desktop (including localhost) uses the IFrame API for stable play/pause. */
 export function shouldUseSimpleYouTubeEmbed(): boolean {
-  const host = typeof window !== 'undefined' ? window.location.hostname : '';
-  if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') return true;
   return isIOSDevice();
 }
 

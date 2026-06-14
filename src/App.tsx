@@ -141,6 +141,8 @@ function App() {
   const [playQueue, setPlayQueue] = useState<PlaySelection[]>([]);
   const preview = useTrackPreview();
   const playHydratedRef = useRef<string | null>(null);
+  /** PlayNextPanel consumes this to autoplay once after route/hydrate or explicit play. */
+  const pendingAutoplayKeyRef = useRef<string | null>(null);
   const queueHydratedRef = useRef(false);
   const releaseRouteRef = useRef<string | null>(null);
 
@@ -425,8 +427,9 @@ function App() {
     playHydratedRef.current = key;
     setNowPlaying(routePlay);
     saveNowPlaying(routePlay);
-    const autoStart = !isIOSDevice();
-    void preview.load(resolved.record, resolved.track, autoStart, autoStart);
+    if (!isIOSDevice()) {
+      pendingAutoplayKeyRef.current = key;
+    }
   }, [
     authLoading,
     collectionHydrated,
@@ -435,7 +438,6 @@ function App() {
     router.location.page,
     router.location.playSelection,
     router.goToPlay,
-    preview.load,
   ]);
 
   useEffect(() => {
@@ -503,35 +505,23 @@ function App() {
       markPlayed(record.id);
       setPlayQueue((q) => q.filter((item) => !isSamePlaySelection(item, ref)));
       router.goToPlay(ref);
-      const autoStart = !isIOSDevice();
-      void preview.load(record, track, autoStart, autoStart);
+      if (!isIOSDevice()) {
+        pendingAutoplayKeyRef.current = key;
+      }
       const idx = record.tracks.findIndex((t) => t.id === track.id);
       toast.success(`Now playing: ${track.title}`, {
         description: `${trackPositionLabel(track, idx >= 0 ? idx : 0)} · ${record.artist}`,
       });
     },
-    [markPlayed, preview, router]
+    [markPlayed, router]
   );
 
   useEffect(() => {
-    if (nowPlaying) return;
-
-    // Play hydration sets playHydratedRef before nowPlaying state flushes — never
-    // reset while a play route or in-flight hydrate is active.
-    if (router.location.page === 'play') {
-      const pendingRoute = router.location.playSelection ?? loadNowPlaying();
-      if (pendingRoute) return;
-    }
-    if (playHydratedRef.current) return;
-
-    playHydratedRef.current = null;
+    if (router.location.page === 'play') return;
     preview.reset();
-  }, [
-    nowPlaying,
-    preview.reset,
-    router.location.page,
-    router.location.playSelection,
-  ]);
+    playHydratedRef.current = null;
+    pendingAutoplayKeyRef.current = null;
+  }, [router.location.page, preview.reset]);
 
   const handleApplyInsightFilter = useCallback((patch: InsightFilterAction) => {
     setCollectionFilters((prev) => ({ ...prev, ...patch }));
@@ -892,6 +882,7 @@ function App() {
                 collection={records}
                 nowPlaying={playAnchor}
                 preview={preview}
+                pendingAutoplayKeyRef={pendingAutoplayKeyRef}
                 queue={resolvedQueue}
                 onPlayNow={handlePlayNow}
                 onSaveTapBpm={(recordId, trackId, bpm) => {

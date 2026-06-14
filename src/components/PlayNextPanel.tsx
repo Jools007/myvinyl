@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { ChevronRight, Disc3, Loader2, Sparkles } from 'lucide-react';
 import { useTapBpm } from '../hooks/useTapBpm';
 import type { TrackPreview } from '../hooks/useTrackPreview';
 import type { CompatibilityOptions } from '../lib/compatibility';
 
 import {
+  playSelectionKey,
   trackPositionLabel,
   type PlaySelection,
   type ResolvedPlaySelection,
@@ -21,6 +22,7 @@ interface PlayNextPanelProps {
   collection: VinylRecord[];
   nowPlaying: ResolvedPlaySelection | null;
   preview: TrackPreview;
+  pendingAutoplayKeyRef?: RefObject<string | null>;
   queue: ResolvedPlaySelection[];
   onPlayNow: (record: VinylRecord, track: Track) => void;
   onSaveTapBpm?: (recordId: string, trackId: string, bpm: number) => void;
@@ -78,6 +80,7 @@ export function PlayNextPanel({
   collection,
   nowPlaying,
   preview,
+  pendingAutoplayKeyRef,
   queue,
   onPlayNow,
   onSaveTapBpm,
@@ -88,10 +91,27 @@ export function PlayNextPanel({
 }: PlayNextPanelProps) {
   const tapBpm = useTapBpm();
   const [releasePickerOpen, setReleasePickerOpen] = useState(false);
+  const localAutoplayKeyRef = useRef<string | null>(null);
+  const autoplayKeyRef = pendingAutoplayKeyRef ?? localAutoplayKeyRef;
+
+  const nowKey = nowPlaying
+    ? playSelectionKey({ recordId: nowPlaying.record.id, trackId: nowPlaying.track.id })
+    : null;
 
   useEffect(() => {
     setReleasePickerOpen(false);
   }, [nowPlaying?.record.id, nowPlaying?.track.id]);
+
+  useEffect(() => {
+    if (!nowPlaying || !nowKey) {
+      preview.reset();
+      return;
+    }
+
+    const autoplay = autoplayKeyRef.current === nowKey;
+    if (autoplay) autoplayKeyRef.current = null;
+    void preview.load(nowPlaying.record, nowPlaying.track, autoplay, autoplay);
+  }, [nowKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const exclude = useMemo((): PlaySelection[] => {
     const refs: PlaySelection[] = queue.map((q) => ({
@@ -107,9 +127,10 @@ export function PlayNextPanel({
   const handlePlay = useCallback(
     (record: VinylRecord, track: Track) => {
       tapBpm.reset();
+      autoplayKeyRef.current = playSelectionKey({ recordId: record.id, trackId: track.id });
       onPlayNow(record, track);
     },
-    [onPlayNow, tapBpm]
+    [autoplayKeyRef, onPlayNow, tapBpm]
   );
 
   const matchOptions = useMemo((): CompatibilityOptions | undefined => {

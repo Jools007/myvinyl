@@ -307,7 +307,7 @@ export function useTrackPreview() {
           stopRaf();
           setStatus('ended');
           setProgress(1);
-          setElapsed(youtubeRef.current?.getDuration() || duration);
+          setElapsed(youtubeRef.current?.getDuration() || DEFAULT_YOUTUBE_SECONDS);
         },
         onError: (code) => {
           console.warn('[play-audio] YouTube player error', code, videoId);
@@ -317,7 +317,7 @@ export function useTrackPreview() {
         { autoplay, enableSound }
       );
     },
-    [detachAudio, detachYouTube, duration, playCurrent, startProgress, stopRaf]
+    [detachAudio, detachYouTube, playCurrent, startProgress, stopRaf]
   );
 
   const applyPlayback = useCallback(
