@@ -4599,7 +4599,7 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 }
 
 /* ─── Play mode (compact DJ) ─── */
-/* Breakpoints: phone ≤639 · tablet 640–899 · desktop ≥900 */
+/* Breakpoints: stacked deck ≤899 · three-column desktop ≥900 */
 .play-dj {
   --play-sticky-top: 4rem;
   --play-cover-size: 6.5rem;
@@ -4628,15 +4628,7 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
     --play-deck-gap: 0.65rem;
     --play-deck-pad-block: 0.8rem;
     --play-deck-pad-inline: 0.9rem;
-    --play-now-top-gap: 1rem;
-  }
-
-  .play-dj__now-body {
-    gap: 0.45rem;
-  }
-
-  .play-dj__now-mix {
-    padding-top: 0.55rem;
+    --play-now-top-gap: 0.875rem;
   }
 }
 
@@ -4721,7 +4713,7 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 
 .play-dj__now-top {
   display: grid;
-  grid-template-columns: var(--play-art-col) minmax(0, 1fr);
+  grid-template-columns: 1fr;
   gap: var(--play-now-top-gap);
   align-items: start;
 }
@@ -4748,9 +4740,10 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   padding: 0.15rem 0;
 }
 
-@media (min-width: 480px) {
+/* Stacked deck (phone + tablet/iPad portrait) */
+@media (max-width: 899px) {
   .play-dj__now-stage {
-    justify-content: flex-start;
+    justify-content: center;
   }
 }
 
@@ -6894,6 +6887,7 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
     grid-area: disc;
     padding: 0;
     align-self: center;
+    justify-content: center;
   }
 
   .play-dj__disc {
@@ -12303,14 +12297,6 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 
   .play-dj__now:not(.play-dj__now--hint) {
     border-radius: 1rem;
-  }
-
-  .play-dj__now-top {
-    grid-template-columns: 1fr;
-  }
-
-  .play-dj__now-stage {
-    justify-content: center;
   }
 
   .play-dj__page-head-row {
