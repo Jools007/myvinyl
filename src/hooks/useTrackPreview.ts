@@ -4,8 +4,6 @@ import {
   type PlaybackSource,
   type TrackPlayback,
 } from '../lib/api';
-import { canAutoplayFromLoad, isMobilePlaybackDevice } from '../lib/playbackDevice';
-import { mountAudioElement, unmountAudioElement } from '../lib/playMediaHost';
 import { playSelectionKey, type PlaySelection } from '../lib/playSession';
 import { YouTubePreviewPlayer } from '../lib/youtubePlayer';
 import type { Track, VinylRecord } from '../lib/types';
@@ -16,51 +14,6 @@ const DEFAULT_YOUTUBE_SECONDS = 240;
 const PLAYBACK_CACHE_MAX = 64;
 
 const playbackCache = new Map<string, TrackPlayback>();
-
-function createPrimedAudio(): HTMLAudioElement {
-  const audio = document.createElement('audio');
-  audio.preload = 'auto';
-  mountAudioElement(audio);
-  return audio;
-}
-
-function playAudioElement(audio: HTMLAudioElement, onFail: () => void): void {
-  const start = () => {
-    const playPromise = audio.play();
-    if (playPromise) {
-      playPromise.catch(onFail);
-    }
-  };
-  // Fire play immediately while still inside the tap handler (critical on iOS).
-  start();
-  if (audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
-    audio.addEventListener('canplay', start, { once: true });
-    if (audio.networkState === HTMLMediaElement.NETWORK_EMPTY) {
-      audio.load();
-    }
-  }
-}
-
-/** Prime autoplay permission while still inside a user-gesture handler. */
-function unlockAudioPlayback(): void {
-  try {
-    const audio = new Audio();
-    audio.setAttribute('playsinline', '');
-    audio.muted = true;
-    const playPromise = audio.play();
-    if (playPromise) {
-      playPromise
-        .then(() => {
-          audio.pause();
-          audio.removeAttribute('src');
-          audio.load();
-        })
-        .catch(() => {});
-    }
-  } catch {
-    /* ignore */
-  }
-}
 
 function rememberPlayback(key: string, data: TrackPlayback): void {
   playbackCache.set(key, data);
@@ -81,12 +34,8 @@ export type PreviewStatus =
   | 'rate_limited'
   | 'error';
 
-export type TrackPreview = ReturnType<typeof useTrackPreview>;
-
 export function useTrackPreview() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const gestureAudioRef = useRef<HTMLAudioElement | null>(null);
-  const playWhenReadyRef = useRef(false);
   const youtubeRef = useRef<YouTubePreviewPlayer | null>(null);
   const activeKeyRef = useRef<string | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -99,7 +48,6 @@ export function useTrackPreview() {
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [source, setSource] = useState<PlaybackSource | null>(null);
   const [youtubeMuted, setYoutubeMuted] = useState(false);
-
 
   const stopRaf = useCallback(() => {
     if (rafRef.current != null) {
@@ -115,10 +63,13 @@ export function useTrackPreview() {
 
   const detachAudio = useCallback(() => {
     stopRaf();
-    unmountAudioElement(audioRef.current);
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+    }
     audioRef.current = null;
-    unmountAudioElement(gestureAudioRef.current);
-    gestureAudioRef.current = null;
   }, [stopRaf]);
 
   const reset = useCallback(() => {
@@ -174,10 +125,12 @@ export function useTrackPreview() {
     if (sourceRef.current === 'spotify') {
       const audio = audioRef.current;
       if (!audio) return;
-      playAudioElement(audio, () => {
-        if (audioRef.current !== audio) return;
-        setStatus('ready');
-      });
+      const playPromise = audio.play();
+      if (playPromise) {
+        playPromise.catch(() => {
+          if (audioRef.current === audio) setStatus('error');
+        });
+      }
       return;
     }
 
@@ -187,18 +140,9 @@ export function useTrackPreview() {
         youtubeRef.current?.play(enableSound);
         if (enableSound) setYoutubeMuted(false);
       } catch {
-        setStatus('ready');
+        setStatus('error');
       }
     }
-  }, []);
-
-  const armPlay = useCallback(() => {
-    unlockAudioPlayback();
-    playWhenReadyRef.current = true;
-    if (!gestureAudioRef.current && sourceRef.current !== 'youtube') {
-      gestureAudioRef.current = createPrimedAudio();
-    }
-    youtubeRef.current?.armPlay(true);
   }, []);
 
   const attachSpotify = useCallback(
@@ -215,11 +159,7 @@ export function useTrackPreview() {
       setSource('spotify');
       setDuration(SPOTIFY_PREVIEW_SECONDS);
 
-      const primed = gestureAudioRef.current;
-      gestureAudioRef.current = null;
-      const audio = primed ?? createPrimedAudio();
-      mountAudioElement(audio);
-      audio.src = previewUrl;
+      const audio = new Audio(previewUrl);
       audioRef.current = audio;
 
       audio.addEventListener('play', () => {
@@ -247,10 +187,8 @@ export function useTrackPreview() {
       });
 
       setStatus('ready');
-      const shouldPlay = opts?.autoplay || playWhenReadyRef.current;
-      if (shouldPlay) {
-        playWhenReadyRef.current = false;
-        playCurrent({ enableSound: opts?.enableSound === true || shouldPlay });
+      if (opts?.autoplay) {
+        playCurrent({ enableSound: opts.enableSound === true });
       }
     },
     [detachAudio, detachYouTube, playCurrent, startProgress, stopRaf]
@@ -282,10 +220,8 @@ export function useTrackPreview() {
           const d = youtubeRef.current?.getDuration();
           if (d && d > 0) setDuration(d);
           setStatus('ready');
-          const shouldPlay = autoplay || playWhenReadyRef.current;
-          if (shouldPlay) {
-            playWhenReadyRef.current = false;
-            playCurrent({ enableSound: enableSound || shouldPlay });
+          if (autoplay) {
+            playCurrent({ enableSound: enableSound });
           }
         },
         onMutedChange: (muted) => {
@@ -307,7 +243,7 @@ export function useTrackPreview() {
           stopRaf();
           setStatus('ended');
           setProgress(1);
-          setElapsed(youtubeRef.current?.getDuration() || DEFAULT_YOUTUBE_SECONDS);
+          setElapsed(youtubeRef.current?.getDuration() || duration);
         },
         onError: (code) => {
           console.warn('[play-audio] YouTube player error', code, videoId);
@@ -317,7 +253,7 @@ export function useTrackPreview() {
         { autoplay, enableSound }
       );
     },
-    [detachAudio, detachYouTube, playCurrent, startProgress, stopRaf]
+    [detachAudio, detachYouTube, duration, playCurrent, startProgress, stopRaf]
   );
 
   const applyPlayback = useCallback(
@@ -340,8 +276,8 @@ export function useTrackPreview() {
         return;
       }
       attachYouTube(data.videoId, key, {
-        autoplay: autoplay || playWhenReadyRef.current,
-        enableSound: (autoplay && enableSoundOnAutoplay) || playWhenReadyRef.current,
+        autoplay,
+        enableSound: autoplay && enableSoundOnAutoplay,
       });
     },
     [attachSpotify, attachYouTube]
@@ -354,30 +290,7 @@ export function useTrackPreview() {
       autoplay = false,
       enableSoundOnAutoplay = false
     ) => {
-      if (autoplay) {
-        unlockAudioPlayback();
-        if (isMobilePlaybackDevice()) {
-          gestureAudioRef.current = createPrimedAudio();
-          playWhenReadyRef.current = true;
-        }
-      }
-
       const key = playSelectionKey({ recordId: record.id, trackId: track.id });
-
-      const cached = playbackCache.get(key);
-      const cachedPreview = track.spotifyPreviewUrl?.trim();
-      const immediatePlayback: { source: string; previewUrl?: string } | null = cached
-        ? cached
-        : cachedPreview
-          ? { source: 'spotify', previewUrl: cachedPreview }
-          : null;
-      const mobilePrimed = isMobilePlaybackDevice() && playWhenReadyRef.current;
-      const effectiveAutoplay =
-        autoplay &&
-        (canAutoplayFromLoad(immediatePlayback) ||
-          (mobilePrimed && immediatePlayback?.source === 'spotify') ||
-          mobilePrimed);
-      const effectiveSound = enableSoundOnAutoplay && effectiveAutoplay;
 
       const alreadyAttached =
         activeKeyRef.current === key &&
@@ -387,7 +300,7 @@ export function useTrackPreview() {
       if (alreadyAttached) {
         setActiveKey(key);
         if (autoplay) {
-          playCurrent({ enableSound: effectiveSound || enableSoundOnAutoplay });
+          playCurrent({ enableSound: enableSoundOnAutoplay });
         }
         return;
       }
@@ -407,12 +320,14 @@ export function useTrackPreview() {
       const albumTitle = record.title.trim();
       const albumIndex = record.tracks?.findIndex((t) => t.id === track.id);
 
+      const cached = playbackCache.get(key);
       if (cached) {
         window.clearTimeout(loadTimeout);
-        applyPlayback(cached, key, effectiveAutoplay, effectiveSound);
+        applyPlayback(cached, key, autoplay, enableSoundOnAutoplay);
         return;
       }
 
+      const cachedPreview = track.spotifyPreviewUrl?.trim();
       if (cachedPreview) {
         window.clearTimeout(loadTimeout);
         const data: TrackPlayback = {
@@ -422,7 +337,7 @@ export function useTrackPreview() {
           durationSec: SPOTIFY_PREVIEW_SECONDS,
         };
         rememberPlayback(key, data);
-        applyPlayback(data, key, effectiveAutoplay, effectiveSound);
+        applyPlayback(data, key, autoplay, enableSoundOnAutoplay);
         return;
       }
 
@@ -440,13 +355,7 @@ export function useTrackPreview() {
         }
 
         rememberPlayback(key, result.data);
-        const fetchedAutoplay =
-          autoplay &&
-          (canAutoplayFromLoad(result.data) ||
-            (playWhenReadyRef.current && result.data.source === 'spotify') ||
-            playWhenReadyRef.current);
-        const fetchedSound = enableSoundOnAutoplay && fetchedAutoplay;
-        applyPlayback(result.data, key, fetchedAutoplay, fetchedSound);
+        applyPlayback(result.data, key, autoplay, enableSoundOnAutoplay);
       } catch {
         window.clearTimeout(loadTimeout);
         if (activeKeyRef.current === key) setStatus('error');
@@ -503,8 +412,6 @@ export function useTrackPreview() {
   );
 
   const toggle = useCallback(() => {
-    armPlay();
-
     if (
       status === 'playing' &&
       sourceRef.current === 'youtube' &&
@@ -545,7 +452,7 @@ export function useTrackPreview() {
     const enableSound =
       sourceRef.current === 'spotify' || sourceRef.current === 'youtube';
     playCurrent({ enableSound });
-  }, [armPlay, playCurrent, status, stopRaf]);
+  }, [playCurrent, status, stopRaf]);
 
   const matchesSelection = useCallback(
     (ref: PlaySelection | null) => {
@@ -554,11 +461,6 @@ export function useTrackPreview() {
     },
     [activeKey]
   );
-
-  const getAudioElement = useCallback(() => {
-    if (sourceRef.current !== 'spotify') return null;
-    return audioRef.current;
-  }, []);
 
   useEffect(() => () => reset(), [reset]);
 
@@ -571,13 +473,11 @@ export function useTrackPreview() {
     source,
     youtubeMuted,
     load,
-    armPlay,
     toggle,
     seekTo,
     skipBy,
     reset,
     matchesSelection,
-    getAudioElement,
     /** @deprecated use duration */
     previewDuration: duration,
   };
