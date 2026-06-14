@@ -5081,7 +5081,7 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   inset: 0;
   width: 100%;
   height: 100%;
-  opacity: 0.01;
+  opacity: 0.02;
   overflow: hidden;
   border: 0;
   pointer-events: none;
@@ -5199,6 +5199,21 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 .play-dj__playback-debug-btn:hover {
   color: var(--text);
   border-color: var(--text-muted);
+}
+
+.play-dj__playback-debug-detail {
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.play-dj__playback-debug-detail code {
+  font-size: 0.68rem;
+}
+
+.play-dj__playback-debug-warn {
+  color: var(--warning, #c2410c);
+  font-weight: 600;
 }
 
 .play-dj__playback-debug-help {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, Disc3, Loader2, Sparkles } from 'lucide-react';
+import { usePlaybackPrefetch } from '../hooks/usePlaybackPrefetch';
 import { useTapBpm } from '../hooks/useTapBpm';
 import { useTrackPreview } from '../hooks/useTrackPreview';
 import type { CompatibilityOptions } from '../lib/compatibility';
@@ -11,6 +12,7 @@ import {
   type ResolvedPlaySelection,
 } from '../lib/playSession';
 import { openRecordDetail } from '../lib/recordDetail';
+import { listRecentlyAdded } from '../lib/recentlyAdded';
 import type { CutRating, Track, VinylRecord } from '../lib/types';
 import { PlayBrowsePanel } from './play/PlayBrowsePanel';
 import { EditableBpm } from './play/EditableBpm';
@@ -90,6 +92,7 @@ export function PlayNextPanel({
   const tapBpm = useTapBpm();
   const [releasePickerOpen, setReleasePickerOpen] = useState(false);
   const autoplayPendingRef = useRef<string | null>(null);
+  const effectLoadedKeyRef = useRef<string | null>(null);
 
   const nowKey = nowPlaying
     ? playSelectionKey({ recordId: nowPlaying.record.id, trackId: nowPlaying.track.id })
@@ -102,12 +105,19 @@ export function PlayNextPanel({
   useEffect(() => {
     if (!nowPlaying) {
       preview.reset();
+      effectLoadedKeyRef.current = null;
       return;
     }
 
     const autoplay = autoplayPendingRef.current === nowKey;
     if (autoplay) autoplayPendingRef.current = null;
-    void preview.load(nowPlaying.record, nowPlaying.track, autoplay, false);
+
+    if (!autoplay && effectLoadedKeyRef.current === nowKey) {
+      return;
+    }
+    effectLoadedKeyRef.current = nowKey;
+    // Browse ▶ is a user gesture — unmuted iframe reload is allowed on localhost/desktop.
+    void preview.load(nowPlaying.record, nowPlaying.track, autoplay, autoplay);
   }, [nowKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const exclude = useMemo((): PlaySelection[] => {
@@ -120,6 +130,22 @@ export function PlayNextPanel({
     }
     return refs;
   }, [queue, nowPlaying]);
+
+  const prefetchTargets = useMemo(() => {
+    const items: Array<{ record: VinylRecord; track: Track }> = [];
+    if (nowPlaying) {
+      items.push({ record: nowPlaying.record, track: nowPlaying.track });
+    }
+    for (const q of queue) {
+      items.push({ record: q.record, track: q.track });
+    }
+    for (const pick of listRecentlyAdded(collection, exclude)) {
+      items.push({ record: pick.record, track: pick.track });
+    }
+    return items;
+  }, [collection, exclude, nowPlaying, queue]);
+
+  usePlaybackPrefetch(prefetchTargets, preview.activeKey);
 
   const handlePlay = useCallback(
     (record: VinylRecord, track: Track) => {
@@ -351,12 +377,20 @@ export function PlayNextPanel({
                       onSeek={preview.seekTo}
                       onSkip={preview.skipBy}
                     />
-                    <PlaybackDebugBar
-                      status={preview.status}
-                      source={preview.source}
-                      youtubeMode={preview.getYoutubeMode()}
-                      onTryAlternate={preview.tryAlternateVideo}
-                    />
+                    {import.meta.env.DEV ? (
+                      <PlaybackDebugBar
+                        status={preview.status}
+                        source={preview.source}
+                        youtubeMode={preview.getYoutubeMode()}
+                        attachedVideoId={preview.attachedVideoId}
+                        lastApiVideoId={preview.lastApiVideoId}
+                        lastApiTitle={preview.lastApiTitle}
+                        playerState={preview.playerState}
+                        activelyPlaying={preview.activelyPlaying}
+                        diagHint={preview.diagHint}
+                        onTryAlternate={preview.tryAlternateVideo}
+                      />
+                    ) : null}
                   </div>
                 </div>
 

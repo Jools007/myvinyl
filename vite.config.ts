@@ -17,6 +17,7 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5174,
       host: true,
+      open: 'http://localhost:5174/',
     },
     preview: {
       port: 5174,

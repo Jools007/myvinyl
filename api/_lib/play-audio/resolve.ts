@@ -1,5 +1,10 @@
 import { withTimeout } from './timeout';
-import { isCompilationAlbum, knownStudioAlbumsForArtist } from './studio';
+import {
+  isCompilationAlbum,
+  isSoundtrackAlbum,
+  isVariousArtist,
+  knownStudioAlbumsForArtist,
+} from './studio';
 import { playAudioLog } from './log';
 import {
   pickSpotifyPreviewLoose,
@@ -198,6 +203,15 @@ export async function resolvePlayableAudio(
     if (yt) {
       playAudioLog('done', { source: 'youtube', phase: 'track-id-youtube' });
       return toYouTubeResult(yt);
+    }
+  }
+
+  // Phase 0: VA / soundtrack — YouTube album+title before racing with misleading artist strings
+  if ((isVariousArtist(artist) || isSoundtrackAlbum(ctx.album)) && ctx.album?.trim()) {
+    const ost = await tryYouTube(ctx, artist, title);
+    if (ost) {
+      playAudioLog('done', { source: 'youtube', phase: 'soundtrack-priority' });
+      return toYouTubeResult(ost);
     }
   }
 

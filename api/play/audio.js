@@ -12,9 +12,20 @@ function withTimeout(promise, ms, fallback) {
 
 // api/_lib/play-audio/studio.ts
 var COMPILATION_MARKERS = /\b(best of|greatest hits|gold|anthology|collection|essentials|very best|platinum|ultimate|classics)\b/i;
+var SOUNDTRACK_MARKERS = /\b(soundtrack|motion picture|original cast|ost|score|music from|from the film|from the film|from the movie)\b/i;
+var VARIOUS_ARTIST_MARKERS = /^(various|various artists|v\/a|va|multi[- ]artist|diverse|assorted)\b/i;
 function isCompilationAlbum(albumName) {
   if (!albumName?.trim()) return false;
   return COMPILATION_MARKERS.test(albumName);
+}
+function isSoundtrackAlbum(albumName) {
+  if (!albumName?.trim()) return false;
+  return SOUNDTRACK_MARKERS.test(albumName);
+}
+function isVariousArtist(artist) {
+  const a = artist.trim().toLowerCase();
+  if (!a) return false;
+  return VARIOUS_ARTIST_MARKERS.test(a);
 }
 var STUDIO_ALBUMS_BY_ARTIST = {
   sade: ["Diamond Life", "Promise", "Love Deluxe", "Stronger Than Pride"],
@@ -524,9 +535,11 @@ var INNERTUBE_CLIENT_VERSION = "2.20240601.00.00";
 var HARD_SKIP_TITLE = /\b(karaoke|instrumental\s+only|how\s+to\s+play|guitar\s+lesson|drum\s+cover|reaction|podcast|unboxing|teaser|trailer|vlog)\b/i;
 var SOFT_SKIP_TITLE = /\b(live\s+at|live\s+from|festival)\b/i;
 var PREFER_OFFICIAL_AUDIO = /\b(official\s+audio|audio\s+only|provided\s+to\s+youtube|topic\s*-\s*)/i;
-var PREFER_TITLE = /\b(lyric\s+video|lyrics\s+video|album\s+version)\b/i;
+var DISLIKE_LYRIC_VIDEO = /\b(lyric\s*video|lyrics\s*video)\b/i;
+var DISLIKE_LYRICS_IN_TITLE = /\blyrics?\b/i;
 var DISLIKE_OFFICIAL_VIDEO = /\bofficial\s+video\b/i;
 var DISLIKE_TITLE = /\b(cover|tribute|mashup|8d\s+audio|nightcore|sped\s+up|slowed|reverb)\b/i;
+var GENERIC_TRACK_TITLE = /^(music|intro|outro|interlude|theme|untitled|opening|closing)\b/i;
 function normalize(s) {
   return s.toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -537,22 +550,74 @@ function tokenOverlap(want, got) {
   const hit = wantTokens.filter((t) => gotSet.has(t)).length;
   return hit / wantTokens.length;
 }
-function scoreYouTubeResult(artist, title, album, candidateTitle) {
+function hasSoundtrackContext(album, candidateTitle) {
+  if (tokenOverlap(album, candidateTitle) >= 0.12) return true;
+  if (/\bsoundtrack\b/i.test(candidateTitle)) return true;
+  for (const al of albumSearchVariants(album)) {
+    if (al.length > 4 && tokenOverlap(al, candidateTitle) >= 0.18) return true;
+  }
+  return false;
+}
+function isTopicStyleChannel(artist, channel) {
+  if (!channel) return false;
+  const a = normalize(artist.split(",")[0]);
+  const c = normalize(channel);
+  return c === a || c === `${a} topic` || c.endsWith(" topic");
+}
+function scoreYouTubeResult(artist, title, album, candidateTitle, channel) {
   const t = candidateTitle.trim();
   if (!t || HARD_SKIP_TITLE.test(t)) return 0;
   if (SOFT_SKIP_TITLE.test(t)) return 0.08;
+  const various = isVariousArtist(artist);
+  const soundtrack = isSoundtrackAlbum(album);
   const titleScore = tokenOverlap(title, t);
-  const artistScore = tokenOverlap(artist.split(",")[0], t);
-  const albumScore = album ? tokenOverlap(album, t) * 0.28 : 0;
+  const artistScore = various ? 0 : tokenOverlap(artist.split(",")[0], t);
+  const albumScore = album ? tokenOverlap(album, t) * (various || soundtrack ? 0.55 : 0.28) : 0;
   let score = titleScore * 0.5 + artistScore * 0.38 + albumScore;
-  if (PREFER_OFFICIAL_AUDIO.test(t)) score += 0.38;
-  else if (PREFER_TITLE.test(t)) score += 0.12;
+  if (various || soundtrack) {
+    if (albumScore >= 0.2) score += 0.25;
+    if (/\bsoundtrack\b/i.test(t) && soundtrack) score += 0.15;
+  }
+  const coreTitle = cleanTitleForSearch(title);
+  if (GENERIC_TRACK_TITLE.test(coreTitle) && artistScore < 0.45) score -= 0.6;
+  if (PREFER_OFFICIAL_AUDIO.test(t)) {
+    score += 0.38;
+  } else if (!various && !soundtrack && isTopicStyleChannel(artist, channel) && titleScore >= 0.5) {
+    score += 0.9;
+  } else if (!various && !soundtrack && titleScore >= 0.55 && artistScore < 0.3 && !DISLIKE_LYRIC_VIDEO.test(t)) {
+    score += 0.65;
+  }
+  if ((various || soundtrack) && album && titleScore >= 0.65 && !hasSoundtrackContext(album, t)) {
+    score -= 0.6;
+  }
+  const vevoChannel = (channel ?? "").toLowerCase();
+  if (/\bvevo\b/i.test(t) || vevoChannel.includes("vevo")) score -= 0.8;
+  if (isVevoStyleMusicVideo(artist, title, t)) score -= 0.55;
+  if (DISLIKE_LYRIC_VIDEO.test(t)) score -= 0.45;
+  else if (DISLIKE_LYRICS_IN_TITLE.test(t) && !/\bofficial\b/i.test(t)) score -= 0.18;
   if (DISLIKE_OFFICIAL_VIDEO.test(t)) score -= 0.22;
-  if (/\bvevo\b/i.test(t)) score -= 0.12;
   if (DISLIKE_TITLE.test(t)) score -= 0.22;
   if (titleScore >= 0.7 && artistScore >= 0.4) score += 0.15;
   if (titleScore >= 0.95 && artistScore >= 0.3) score += 0.1;
   return Math.max(0, score);
+}
+function isVevoStyleMusicVideo(artist, trackTitle, candidateTitle) {
+  const a = normalize(artist.split(",")[0]);
+  const t = normalize(candidateTitle);
+  const leadDash = normalize(`${artist.split(",")[0]} - ${trackTitle}`);
+  const leadSpace = `${a} ${normalize(trackTitle)}`;
+  if (PREFER_OFFICIAL_AUDIO.test(candidateTitle)) return false;
+  return t.startsWith(leadDash) || t.startsWith(leadSpace) && !/\b(remix|mix|live|version)\b/i.test(candidateTitle);
+}
+function audioEmbedPriority(title, channel, artist, trackTitle) {
+  let p = 0;
+  if (PREFER_OFFICIAL_AUDIO.test(title)) p += 3;
+  if (isTopicStyleChannel(artist, channel)) p += 3;
+  if (isVevoStyleMusicVideo(artist, trackTitle, title)) p -= 8;
+  if (DISLIKE_LYRIC_VIDEO.test(title)) p -= 4;
+  if (DISLIKE_OFFICIAL_VIDEO.test(title)) p -= 2;
+  if ((channel ?? "").toLowerCase().includes("vevo")) p -= 5;
+  return p;
 }
 function parseInnerTubeVideos(body) {
   const out = [];
@@ -567,9 +632,15 @@ function parseInnerTubeVideos(body) {
       const t = titleObj;
       title = (t.simpleText ?? t.runs?.[0]?.text ?? "").trim();
     }
+    let channel = "";
+    const channelObj = obj.ownerText ?? obj.shortBylineText ?? obj.longBylineText;
+    if (channelObj && typeof channelObj === "object") {
+      const c = channelObj;
+      channel = (c.simpleText ?? c.runs?.[0]?.text ?? "").trim();
+    }
     if (videoId.length === 11 && title && !seen.has(videoId)) {
       seen.add(videoId);
-      out.push({ videoId, title, score: 0 });
+      out.push({ videoId, title, channel: channel || void 0, score: 0 });
     }
     for (const value of Object.values(obj)) {
       if (value && typeof value === "object") walk(value, depth + 1);
@@ -653,27 +724,47 @@ async function fetchYouTubeBatch(query, apiKey) {
   return [];
 }
 function buildYouTubeQueries(artist, title, album) {
-  const queries = /* @__PURE__ */ new Set();
+  const queries = [];
+  const seen = /* @__PURE__ */ new Set();
   const add = (q) => {
     const t = q.replace(/\s+/g, " ").trim();
-    if (t.length > 3) queries.add(t);
+    if (t.length > 3 && !seen.has(t)) {
+      seen.add(t);
+      queries.push(t);
+    }
   };
-  for (const a of artistSearchVariants(artist)) {
+  const various = isVariousArtist(artist);
+  const soundtrack = isSoundtrackAlbum(album);
+  if ((various || soundtrack) && album) {
     for (const t of titleSearchVariants(title)) {
-      add(`${a} ${t} official audio`);
-      add(`${a} ${t} lyrics`);
-      add(`${a} - ${t}`);
-      add(`${a} ${t} audio`);
-      add(`${a} ${t}`);
-      if (album) {
-        for (const al of albumSearchVariants(album)) {
-          add(`${a} ${t} ${al}`);
-          add(`${a} ${al} ${t}`);
+      for (const al of albumSearchVariants(album)) {
+        add(`${t} ${al} soundtrack`);
+        add(`${al} ${t} soundtrack`);
+        add(`${t} from ${al}`);
+        add(`${al} ${t} official audio`);
+        add(`${t} ${al}`);
+      }
+    }
+  }
+  if (!various) {
+    for (const a of artistSearchVariants(artist)) {
+      for (const t of titleSearchVariants(title)) {
+        add(`${a} ${t} topic`);
+        add(`${a} ${t} official audio`);
+        add(`${a} ${t} lyrics`);
+        add(`${a} - ${t}`);
+        add(`${a} ${t} audio`);
+        add(`${a} ${t}`);
+        if (album) {
+          for (const al of albumSearchVariants(album)) {
+            add(`${a} ${t} ${al}`);
+            add(`${a} ${al} ${t}`);
+          }
         }
       }
     }
   }
-  return [...queries];
+  return queries;
 }
 function rankCandidates(artist, title, album, candidates, minScore) {
   const seen = /* @__PURE__ */ new Set();
@@ -681,7 +772,7 @@ function rankCandidates(artist, title, album, candidates, minScore) {
   for (const row of candidates) {
     if (seen.has(row.videoId)) continue;
     seen.add(row.videoId);
-    const score = scoreYouTubeResult(artist, title, album, row.title);
+    const score = scoreYouTubeResult(artist, title, album, row.title, row.channel);
     if (score < minScore) continue;
     ranked.push({ ...row, score });
   }
@@ -723,8 +814,15 @@ async function isYouTubeEmbeddable(videoId, apiKey) {
     return false;
   }
 }
-async function pickEmbeddable(ranked, apiKey, excludeVideoIds = /* @__PURE__ */ new Set(), maxTry = 10) {
-  const slice = ranked.filter((row) => !excludeVideoIds.has(row.videoId)).slice(0, maxTry);
+async function pickEmbeddable(ranked, apiKey, excludeVideoIds = /* @__PURE__ */ new Set(), maxTry = 10, artist = "", trackTitle = "") {
+  const eligible = ranked.filter((row) => !excludeVideoIds.has(row.videoId));
+  const nonVevo = eligible.filter(
+    (row) => !isVevoStyleMusicVideo(artist, trackTitle, row.title)
+  );
+  const pool = nonVevo.length ? nonVevo : eligible;
+  const slice = pool.slice(0, maxTry * 2).sort(
+    (a, b) => audioEmbedPriority(b.title, b.channel, artist, trackTitle) + b.score - (audioEmbedPriority(a.title, a.channel, artist, trackTitle) + a.score)
+  ).slice(0, maxTry);
   let fallback = null;
   for (const row of slice) {
     const ok = await isYouTubeEmbeddable(row.videoId, apiKey);
@@ -762,7 +860,20 @@ async function searchYouTubeForTrack(artist, title, album, apiKey, excludeVideoI
   const tryReturnHit = async (minScore, phase, query) => {
     const picks = rankCandidates(a, t, al, all, minScore);
     if (!picks.length || picks[0].score < 0.45) return null;
-    const pick = await pickEmbeddable(picks, apiKey, excluded);
+    const nonVevoPicks = picks.filter((row) => !isVevoStyleMusicVideo(a, t, row.title));
+    let ranked = nonVevoPicks.length ? nonVevoPicks : picks;
+    if ((isVariousArtist(a) || isSoundtrackAlbum(al)) && al) {
+      const contextual = ranked.filter((row) => hasSoundtrackContext(al, row.title));
+      if (contextual.length) ranked = contextual;
+    }
+    const coreTitle = cleanTitleForSearch(t);
+    if (GENERIC_TRACK_TITLE.test(coreTitle) && !isVariousArtist(a)) {
+      const withArtist = ranked.filter(
+        (row) => tokenOverlap(a.split(",")[0], row.title) >= 0.35
+      );
+      if (withArtist.length) ranked = withArtist;
+    }
+    const pick = await pickEmbeddable(ranked, apiKey, excluded, carefulPick ? 8 : 4, a, t);
     if (!pick) return null;
     playAudioLog("youtube-hit", {
       videoId: pick.videoId,
@@ -775,15 +886,22 @@ async function searchYouTubeForTrack(artist, title, album, apiKey, excludeVideoI
     return pick;
   };
   const maxQueries = 10;
+  const carefulPick = isVariousArtist(a) || isSoundtrackAlbum(al);
+  if (carefulPick) {
+    const priorityQueries = queries.filter((q) => /\b(topic|official audio|soundtrack)\b/i.test(q)).slice(0, 2);
+    for (const q of priorityQueries) {
+      ingestBatch(await fetchYouTubeBatch(q, apiKey));
+      const hit = await tryReturnHit(0.28, "topic-first", q);
+      if (hit && !isVevoStyleMusicVideo(a, t, hit.title)) return hit;
+    }
+  }
   const parallelCount = Math.min(3, queries.length);
   const initialBatches = await Promise.all(
     queries.slice(0, parallelCount).map((q) => fetchYouTubeBatch(q, apiKey))
   );
-  for (let i = 0; i < initialBatches.length; i++) {
-    ingestBatch(initialBatches[i]);
-    const hit = await tryReturnHit(0.32, "parallel", queries[i]);
-    if (hit) return hit;
-  }
+  for (const batch of initialBatches) ingestBatch(batch);
+  const parallelHit = await tryReturnHit(0.32, "parallel");
+  if (parallelHit && !isVevoStyleMusicVideo(a, t, parallelHit.title)) return parallelHit;
   for (let i = parallelCount; i < Math.min(queries.length, maxQueries); i++) {
     const q = queries[i];
     ingestBatch(await fetchYouTubeBatch(q, apiKey));
@@ -792,7 +910,7 @@ async function searchYouTubeForTrack(artist, title, album, apiKey, excludeVideoI
   }
   const relaxedList = rankCandidates(a, t, al, all, 0.22);
   if (relaxedList.length) {
-    const pick = await pickEmbeddable(relaxedList, apiKey, excluded, 12);
+    const pick = await pickEmbeddable(relaxedList, apiKey, excluded, 12, a, t);
     if (pick) {
       playAudioLog("youtube-hit-relaxed", {
         videoId: pick.videoId,
@@ -927,6 +1045,13 @@ async function resolvePlayableAudio(ctx) {
     if (yt) {
       playAudioLog("done", { source: "youtube", phase: "track-id-youtube" });
       return toYouTubeResult(yt);
+    }
+  }
+  if ((isVariousArtist(artist) || isSoundtrackAlbum(ctx.album)) && ctx.album?.trim()) {
+    const ost = await tryYouTube(ctx, artist, title);
+    if (ost) {
+      playAudioLog("done", { source: "youtube", phase: "soundtrack-priority" });
+      return toYouTubeResult(ost);
     }
   }
   const primary = await raceAudioResults([

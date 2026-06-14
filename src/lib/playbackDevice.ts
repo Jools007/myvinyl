@@ -18,7 +18,22 @@ export function isLocalDevHost(): boolean {
   return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
 }
 
-/** Localhost + iOS — avoid YT.Player (postMessage origin break on http://localhost). */
+/** YouTube IFrame API rejects 127.0.0.1 / [::1] origins — use localhost in dev. */
+export function isLoopbackIpHost(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  return host === '127.0.0.1' || host === '[::1]';
+}
+
+export function redirectLoopbackToLocalhost(): void {
+  if (!import.meta.env.DEV || typeof window === 'undefined') return;
+  if (!isLoopbackIpHost()) return;
+  const url = new URL(window.location.href);
+  url.hostname = 'localhost';
+  window.location.replace(url.toString());
+}
+
+/** iOS: enablejsapi embed; localhost desktop: plain iframe (see playbackConfig). */
 export function shouldUseSimpleYouTubeEmbed(): boolean {
   return isIOSDevice() || isLocalDevHost();
 }
