@@ -27,7 +27,7 @@ Reference when preview audio stutters, stops after ~2s, or regresses after Play 
 |------|------|
 | `src/components/PlayNextPanel.tsx` | Owns preview hook + load effect |
 | `src/hooks/useTrackPreview.ts` | Spotify + YouTube attach (match `adfecc2` sound logic) |
-| `src/lib/youtubePlayer.ts` | `preferSimpleIframe()` on localhost |
+| `src/lib/youtubePlayer.ts` | IFrame API on desktop/localhost; iOS uses `enablejsapi` embed |
 | `src/index.css` | `.play-dj__yt-host` desktop positioning (see below) |
 | `src/lib/playbackConfig.ts` | Frozen rules (this doc's source of truth) |
 
