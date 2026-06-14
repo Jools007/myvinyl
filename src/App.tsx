@@ -73,10 +73,7 @@ import type { BackgroundSyncState } from './lib/recordMigration';
 import { getPrimaryTrack, isReleaseFullyEnriched, patchPrimaryTrack, patchTrack } from './lib/tracks';
 import type { CutRating } from './lib/types';
 import type { DiscogsReleaseDetail } from './lib/api';
-import {
-  buildCollectionFilterNote,
-  exportCollectionToPdf,
-} from './lib/collectionPdfExport';
+
 import { closeRecordDetail, setRecordDetailController } from './lib/recordDetail';
 import type { DiscoverAddPayload } from './lib/discoverAdd';
 import type { DiscogsSearchHit, Track, VinylRecord } from './lib/types';
@@ -326,6 +323,9 @@ function App() {
       description: 'Loading artwork and layout',
     });
     try {
+      const { buildCollectionFilterNote, exportCollectionToPdf } = await import(
+        './lib/collectionPdfExport'
+      );
       await exportCollectionToPdf({
         records: filtered,
         totalInCollection: records.length,
@@ -352,6 +352,13 @@ function App() {
     } catch (err) {
       toast.dismiss(preparing);
       const message = err instanceof Error ? err.message : 'Something went wrong';
+      if (/dynamically imported module|loading chunk|failed to fetch/i.test(message)) {
+        toast.error('App updated — reloading…', {
+          description: 'Then try Export PDF again.',
+        });
+        window.setTimeout(() => window.location.reload(), 1200);
+        return;
+      }
       toast.error('PDF export failed', { description: message });
     } finally {
       setExportingPdf(false);

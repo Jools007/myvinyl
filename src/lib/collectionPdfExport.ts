@@ -1,3 +1,4 @@
+import { jsPDF } from 'jspdf';
 import {
   computeCollectionInsights,
   groupRecordsByGenre,
@@ -347,22 +348,22 @@ function formatLastPlayed(iso?: string): string | null {
 }
 
 type PdfContext = {
-  doc: import('jspdf').jsPDF;
+  doc: jsPDF;
   y: number;
   page: number;
   collectionName: string;
   imageCache: ImageCache;
 };
 
-function setFill(doc: import('jspdf').jsPDF, rgb: readonly [number, number, number]): void {
+function setFill(doc: jsPDF, rgb: readonly [number, number, number]): void {
   doc.setFillColor(rgb[0], rgb[1], rgb[2]);
 }
 
-function setText(doc: import('jspdf').jsPDF, rgb: readonly [number, number, number]): void {
+function setText(doc: jsPDF, rgb: readonly [number, number, number]): void {
   doc.setTextColor(rgb[0], rgb[1], rgb[2]);
 }
 
-function setDraw(doc: import('jspdf').jsPDF, rgb: readonly [number, number, number]): void {
+function setDraw(doc: jsPDF, rgb: readonly [number, number, number]): void {
   doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
 }
 
@@ -604,12 +605,7 @@ function drawDonutWithLegend(
   ctx.y += blockH + 2;
 }
 
-function drawSleevePlaceholder(
-  doc: import('jspdf').jsPDF,
-  x: number,
-  y: number,
-  size: number
-): void {
+function drawSleevePlaceholder(doc: jsPDF, x: number, y: number, size: number): void {
   setFill(doc, COLORS.navySoft);
   doc.roundedRect(x, y, size, size, 0.8, 0.8, 'F');
   const cx = x + size / 2;
@@ -1186,7 +1182,6 @@ export async function exportCollectionToPdf(options: CollectionPdfExportOptions)
 
   options.onProgress?.('Rendering PDF…');
 
-  const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
 
   const ctx: PdfContext = {
