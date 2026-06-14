@@ -337,6 +337,10 @@ export class YouTubePreviewPlayer {
     return this.mode;
   }
 
+  getEmbedSrc(): string {
+    return this.iframe?.src ?? '';
+  }
+
   private isApiPlaying(): boolean {
     try {
       const YT = window.YT;

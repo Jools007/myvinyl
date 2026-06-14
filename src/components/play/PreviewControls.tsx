@@ -79,16 +79,16 @@ export function PreviewControls({
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragging || !canSeek) return;
-    const ratio = ratioFromClientX(e.clientX);
-    setDragRatio(ratio);
-    seekFromRatio(ratio);
+    setDragRatio(ratioFromClientX(e.clientX));
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragging) return;
     e.currentTarget.releasePointerCapture(e.pointerId);
+    const ratio = ratioFromClientX(e.clientX);
     setDragging(false);
     setDragRatio(null);
+    seekFromRatio(ratio);
   };
 
   let hint = 'Press play';

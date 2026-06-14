@@ -7,9 +7,15 @@ type PlaybackDebugBarProps = {
   status: PreviewStatus;
   source: PlaybackSource | null;
   youtubeMode: string | null;
+  onTryAlternate?: () => void;
 };
 
-export function PlaybackDebugBar({ status, source, youtubeMode }: PlaybackDebugBarProps) {
+export function PlaybackDebugBar({
+  status,
+  source,
+  youtubeMode,
+  onTryAlternate,
+}: PlaybackDebugBarProps) {
   const [copied, setCopied] = useState(false);
 
   const copyDebug = useCallback(async () => {
@@ -36,9 +42,16 @@ export function PlaybackDebugBar({ status, source, youtubeMode }: PlaybackDebugB
           {youtubeMode ? ` · ${youtubeMode}` : ''}
         </span>
       </p>
-      <button type="button" className="play-dj__playback-debug-btn" onClick={() => void copyDebug()}>
-        {copied ? 'Copied!' : 'Copy debug info'}
-      </button>
+      <div className="play-dj__playback-debug-actions">
+        <button type="button" className="play-dj__playback-debug-btn" onClick={() => void copyDebug()}>
+          {copied ? 'Copied!' : 'Copy debug info'}
+        </button>
+        {source === 'youtube' && onTryAlternate ? (
+          <button type="button" className="play-dj__playback-debug-btn" onClick={onTryAlternate}>
+            Try alternate video
+          </button>
+        ) : null}
+      </div>
       <p className="play-dj__playback-debug-help">
         On Play tab: hit ▶ on a row, then press the preview play button. YouTube starts muted — press
         play again for sound.

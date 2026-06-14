@@ -355,6 +355,7 @@ export function PlayNextPanel({
                       status={preview.status}
                       source={preview.source}
                       youtubeMode={preview.getYoutubeMode()}
+                      onTryAlternate={preview.tryAlternateVideo}
                     />
                   </div>
                 </div>

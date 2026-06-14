@@ -5179,8 +5179,14 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   font-size: 0.62rem;
 }
 
-.play-dj__playback-debug-btn {
+.play-dj__playback-debug-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
   margin-top: 0.35rem;
+}
+
+.play-dj__playback-debug-btn {
   padding: 0.2rem 0.5rem;
   border-radius: 0.35rem;
   border: 1px solid var(--border);
