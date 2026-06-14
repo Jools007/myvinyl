@@ -5065,20 +5065,26 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 
 .play-dj__yt-root {
   position: fixed;
-  left: 0;
+  right: 0;
   bottom: 0;
-  z-index: 1;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  z-index: 0;
   pointer-events: none;
 }
 
+/* Desktop: stay in viewport — left:-9999px makes Chrome pause embed audio ~2s (see docs/PLAYBACK_BASELINE.md) */
 .play-dj__yt-host {
   position: fixed;
   width: 320px;
   height: 180px;
-  left: -9999px;
+  right: 0;
   bottom: 0;
   overflow: hidden;
-  opacity: 0.02;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
   border: 0;
   pointer-events: none;
 }

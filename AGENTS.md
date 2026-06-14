@@ -112,10 +112,19 @@ Bundled routes log `[route] env configured: { SPOTIFY_CLIENT_ID: true, ... }` in
 - Hero + filters: `src/components/CollectionHero.tsx`, `CollectionFilters.tsx`, `src/index.css` (`.collection-*`)
 - Hero height: `--hero-height` in `.collection-page`
 
+## Playback (read before touching Play preview)
+
+**If preview stops ~2s or stutters:** read `docs/PLAYBACK_BASELINE.md` and `src/lib/playbackConfig.ts` first.
+
+- Known-good: commit `adfecc2` · Broken by: `9d1e21c` (routing + `left:-9999px` YouTube CSS)
+- `useTrackPreview()` **only** in `PlayNextPanel` — never `App.tsx`
+- Desktop `.play-dj__yt-host` must use `right:0; bottom:0; clip` — **never** `left:-9999px`
+
 ## Docs map
 
 | File | Use when |
 |------|----------|
+| `docs/PLAYBACK_BASELINE.md` | Preview stutter/stop regressions |
 | `CONTEXT.md` | Product + code orientation |
 | `PROJECT_SNAPSHOT.md` | Architecture deep-dive (may lag `api/`) |
 | `SERVERLESS_MIGRATION_PLAN.md` | API migration history |
