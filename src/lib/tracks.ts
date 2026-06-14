@@ -8,6 +8,82 @@ import type { Track, VinylRecord } from './types';
 
 export { getPrimaryTrack } from './types';
 
+export type BpmAuthority = 'manual' | 'tapped' | 'enriched' | 'none';
+
+/** Saved tap tempo — wins over enrichment, below manual entry. */
+export function isBpmTapped(track: Pick<Track, 'bpmTapped'>): boolean {
+  return track.bpmTapped === true;
+}
+
+export function isBpmManual(track: Pick<Track, 'bpmManual'>): boolean {
+  return track.bpmManual === true;
+}
+
+/** User-confirmed BPM (tap or manual) — enrichment must not replace. */
+export function isBpmUserSet(track: Pick<Track, 'bpmManual' | 'bpmTapped'>): boolean {
+  return isBpmManual(track) || isBpmTapped(track);
+}
+
+export function getBpmAuthority(track: Pick<Track, 'bpm' | 'bpmManual' | 'bpmTapped' | 'bpmEstimated'>): BpmAuthority {
+  if (isBpmManual(track)) return 'manual';
+  if (isBpmTapped(track)) return 'tapped';
+  if (track.bpm != null) return 'enriched';
+  return 'none';
+}
+
+/** Show ~ prefix in UI for genre-estimated BPM only. */
+export function shouldShowBpmEstimatePrefix(
+  track: Pick<Track, 'bpmEstimated' | 'bpmManual' | 'bpmTapped'>
+): boolean {
+  return (track.bpmEstimated ?? false) && !isBpmUserSet(track);
+}
+
+/** Whether BPM should be treated as uncertain in mix scoring. */
+export function isBpmEstimatedForMatch(track: Track): boolean {
+  if (isBpmUserSet(track)) return false;
+  return track.bpmEstimated ?? false;
+}
+
+/** BPM authority fields — user tap/manual always wins over enrichment merges. */
+function mergeBpmAfterEnrich(
+  existing: Track,
+  enriched: Track
+): Pick<Track, 'bpm' | 'bpmEstimated' | 'bpmManual' | 'bpmTapped'> {
+  if (isBpmUserSet(existing)) {
+    return {
+      bpm: existing.bpm,
+      bpmEstimated: existing.bpmEstimated,
+      bpmManual: existing.bpmManual,
+      bpmTapped: existing.bpmTapped,
+    };
+  }
+  if (isBpmUserSet(enriched)) {
+    return {
+      bpm: enriched.bpm,
+      bpmEstimated: enriched.bpmEstimated,
+      bpmManual: enriched.bpmManual,
+      bpmTapped: enriched.bpmTapped,
+    };
+  }
+  return {
+    bpm: enriched.bpm ?? existing.bpm,
+    bpmEstimated: enriched.bpmEstimated ?? existing.bpmEstimated,
+    bpmManual: enriched.bpmManual ?? existing.bpmManual,
+    bpmTapped: enriched.bpmTapped ?? existing.bpmTapped,
+  };
+}
+
+function withPreservedUserBpm(source: Track, result: Track): Track {
+  if (!isBpmUserSet(source)) return result;
+  return {
+    ...result,
+    bpm: source.bpm,
+    bpmEstimated: source.bpmEstimated,
+    bpmManual: source.bpmManual,
+    bpmTapped: source.bpmTapped,
+  };
+}
+
 /** Legacy flat shape stored before track-centric migration */
 type LegacyVinylRecord = VinylRecord & {
   bpm?: number;
@@ -42,6 +118,14 @@ export function normalizeTrackTitleForSearch(title: string): string {
 }
 
 function clearTrackMusicalData(track: Track): Track {
+  if (isBpmUserSet(track)) {
+    return {
+      ...track,
+      camelotKey: undefined,
+      musicalKey: undefined,
+      keyEstimated: undefined,
+    };
+  }
   return {
     ...track,
     bpm: undefined,
@@ -49,6 +133,8 @@ function clearTrackMusicalData(track: Track): Track {
     musicalKey: undefined,
     bpmEstimated: undefined,
     keyEstimated: undefined,
+    bpmTapped: undefined,
+    bpmManual: undefined,
   };
 }
 
@@ -64,7 +150,7 @@ function mergeEnrichOntoTrackRow(
   // Force re-enrich: always apply fresh API fields (never keep stale ~124 / 11A)
   if (replace) {
     const next: Track = { ...track, vibeTags: mergedVibes };
-    if (!keyOnly && data.bpm != null) {
+    if (!keyOnly && data.bpm != null && !isBpmUserSet(track)) {
       next.bpm = data.bpm;
       next.bpmEstimated = data.trackSpecific ? false : !!data.bpmEstimated;
     }
@@ -78,14 +164,17 @@ function mergeEnrichOntoTrackRow(
     return next;
   }
 
+  const bpmLocked = isBpmUserSet(track) || track.bpmEstimated === false;
   const preferBpm =
     !keyOnly &&
     data.bpm != null &&
-    (track.bpm == null || data.trackSpecific || !data.bpmEstimated || !track.bpmEstimated);
+    !isBpmUserSet(track) &&
+    (track.bpm == null || data.trackSpecific || !bpmLocked);
 
+  const keyConfirmed = track.keyEstimated === false;
   const preferKey =
     data.camelotKey &&
-    (!track.camelotKey || data.trackSpecific || !data.keyEstimated || !track.keyEstimated);
+    (!track.camelotKey || data.trackSpecific || !keyConfirmed);
 
   return {
     ...track,
@@ -143,6 +232,7 @@ export function replaceTrackOnRelease(record: VinylRecord, enrichedTrack: Track)
       return { ...existing, vibeTags: existing.vibeTags ?? [] };
     }
     matched = true;
+    const bpmFields = mergeBpmAfterEnrich(existing, enrichedTrack);
     return {
       ...existing,
       id: existing.id,
@@ -150,12 +240,12 @@ export function replaceTrackOnRelease(record: VinylRecord, enrichedTrack: Track)
       position: existing.position,
       duration: existing.duration ?? enrichedTrack.duration,
       artist: existing.artist ?? enrichedTrack.artist,
-      bpm: enrichedTrack.bpm,
+      ...bpmFields,
       camelotKey: enrichedTrack.camelotKey,
       musicalKey: enrichedTrack.musicalKey,
-      bpmEstimated: enrichedTrack.bpmEstimated,
       keyEstimated: enrichedTrack.keyEstimated,
       vibeTags: enrichedTrack.vibeTags ?? existing.vibeTags ?? [],
+      cutRating: existing.cutRating,
       isPrimary: existing.isPrimary,
     };
   });
@@ -185,6 +275,7 @@ export function mergeEnrichedTracksIntoRelease(
       if (!enriched) {
         return { ...existing, vibeTags: existing.vibeTags ?? [] };
       }
+      const bpmFields = mergeBpmAfterEnrich(existing, enriched);
       return {
         ...existing,
         id: existing.id,
@@ -192,12 +283,12 @@ export function mergeEnrichedTracksIntoRelease(
         position: existing.position,
         duration: existing.duration ?? enriched.duration,
         artist: existing.artist ?? enriched.artist,
-        bpm: enriched.bpm ?? existing.bpm,
+        ...bpmFields,
         camelotKey: enriched.camelotKey ?? existing.camelotKey,
         musicalKey: enriched.musicalKey ?? existing.musicalKey,
-        bpmEstimated: enriched.bpmEstimated ?? existing.bpmEstimated,
         keyEstimated: enriched.keyEstimated ?? existing.keyEstimated,
         vibeTags: [...new Set([...(existing.vibeTags ?? []), ...(enriched.vibeTags ?? [])])].slice(0, 6),
+        cutRating: existing.cutRating,
         isPrimary: existing.isPrimary,
       };
     }),
@@ -275,7 +366,7 @@ export async function fetchEnrichedTracksForRelease(record: VinylRecord): Promis
   return enriched;
 }
 
-function trackNeedsEnrichment(track: Track): boolean {
+export function trackNeedsEnrichment(track: Track): boolean {
   return track.bpm == null || !resolveTrackCamelot(track).code;
 }
 
@@ -332,15 +423,22 @@ export async function enrichOneTrack(
           usedKeys: opts.usedKeys,
         }
       );
-      best = mergeEnrichOntoTrackRow(best, data, { replace: opts.replace });
-      if (best.bpm != null && resolveTrackCamelot(best).code) return best;
-      if (!opts.replace && (best.bpm != null || resolveTrackCamelot(best).code)) return best;
+      best = mergeEnrichOntoTrackRow(best, data, {
+        replace: opts.replace,
+        keyOnly: isBpmUserSet(track) && opts.replace === true,
+      });
+      if (best.bpm != null && resolveTrackCamelot(best).code) {
+        return withPreservedUserBpm(track, best);
+      }
+      if (!opts.replace && (best.bpm != null || resolveTrackCamelot(best).code)) {
+        return withPreservedUserBpm(track, best);
+      }
     } catch {
       /* try next artist variant */
     }
   }
 
-  return best;
+  return withPreservedUserBpm(track, best);
 }
 
 /** Enrich one track on a release (manual refresh or detail actions). */
@@ -463,7 +561,10 @@ export function patchTrack(
       | 'position'
       | 'duration'
       | 'bpmEstimated'
+      | 'bpmTapped'
+      | 'bpmManual'
       | 'keyEstimated'
+      | 'cutRating'
     >
   >
 ): VinylRecord {
@@ -604,26 +705,42 @@ export function releaseFromDiscogsImport(
     bpm?: number;
     camelotKey?: string;
     vibeTags?: string[];
+    /** Apply mix overrides to this track index (defaults to primary / first cut). */
+    trackIndex?: number;
   }
 ): Omit<VinylRecord, 'id' | 'addedAt'> {
   let tracks = tracksFromDiscogsTracklist(discogs.tracklist, release.title);
 
-  const primaryPatch = {
+  const musicalPatch = {
     bpm: overrides?.bpm ?? discogs.bpm,
     camelotKey: overrides?.camelotKey ?? discogs.camelotKey,
     musicalKey: discogs.musicalKey,
     vibeTags: overrides?.vibeTags ?? [],
   };
 
-  if (
-    tracks.length > 0 &&
-    (primaryPatch.bpm != null ||
-      primaryPatch.camelotKey ||
-      primaryPatch.musicalKey ||
-      primaryPatch.vibeTags.length > 0)
-  ) {
-    const [primary, ...rest] = tracks;
-    tracks = [{ ...primary, ...primaryPatch, vibeTags: primaryPatch.vibeTags }, ...rest];
+  const hasMusical =
+    musicalPatch.bpm != null ||
+    musicalPatch.camelotKey ||
+    musicalPatch.musicalKey ||
+    musicalPatch.vibeTags.length > 0;
+
+  if (tracks.length > 0 && hasMusical) {
+    const idx = Math.min(
+      Math.max(overrides?.trackIndex ?? 0, 0),
+      tracks.length - 1
+    );
+    tracks = tracks.map((track, index) =>
+      index === idx
+        ? {
+            ...track,
+            ...musicalPatch,
+            vibeTags: musicalPatch.vibeTags,
+            ...(overrides?.bpm != null
+              ? { bpmEstimated: false, bpmManual: true, bpmTapped: false }
+              : {}),
+          }
+        : track
+    );
   }
 
   return { ...release, tracks };
@@ -667,9 +784,18 @@ export function mergeEnrichmentOntoTrack(
 
   const mergedVibes = [...new Set([...(track.vibeTags ?? []), ...(data.vibeTags ?? [])])].slice(0, 6);
 
+  const bpmPatch = isBpmUserSet(track)
+    ? {
+        bpm: track.bpm,
+        bpmEstimated: track.bpmEstimated,
+        bpmManual: track.bpmManual,
+        bpmTapped: track.bpmTapped,
+      }
+    : { bpm: data.bpm ?? track.bpm };
+
   return {
     tracks: patchTrack(record, trackId, {
-      bpm: data.bpm ?? track.bpm,
+      ...bpmPatch,
       camelotKey: data.camelotKey ?? track.camelotKey,
       vibeTags: mergedVibes,
     }).tracks,

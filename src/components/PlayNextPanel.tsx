@@ -1,56 +1,55 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Shuffle } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChevronRight, Disc3 } from 'lucide-react';
 import { useTapBpm } from '../hooks/useTapBpm';
-import { useTrackPreview } from '../hooks/useTrackPreview';
+import type { TrackPreview } from '../hooks/useTrackPreview';
 import type { CompatibilityOptions } from '../lib/compatibility';
-import { pickRandomPracticeAnchor } from '../lib/practiceAnchor';
+
 import {
-  playSelectionKey,
   trackPositionLabel,
   type PlaySelection,
   type ResolvedPlaySelection,
 } from '../lib/playSession';
 import { openRecordDetail } from '../lib/recordDetail';
-import type { KeyPathStep } from '../lib/sessionCrate';
-import type { Track, VinylRecord } from '../lib/types';
-import { CompatibilityList } from './play/CompatibilityList';
+import type { CutRating, Track, VinylRecord } from '../lib/types';
+import { PlayBrowsePanel } from './play/PlayBrowsePanel';
+import { EditableBpm } from './play/EditableBpm';
 import { MixStrip } from './play/MixStrip';
+import { ReleaseTrackPickerSheet } from './play/ReleaseTrackPickerSheet';
 import { PreviewControls } from './play/PreviewControls';
-import { SessionCratePanel } from './play/SessionCratePanel';
 import { RecordArtwork } from './RecordArtwork';
-
 interface PlayNextPanelProps {
   collection: VinylRecord[];
   nowPlaying: ResolvedPlaySelection | null;
+  preview: TrackPreview;
   queue: ResolvedPlaySelection[];
-  crateItems: ResolvedPlaySelection[];
-  crateKeyPath: KeyPathStep[];
-  isInCrate: (recordId: string, trackId: string) => boolean;
   onPlayNow: (record: VinylRecord, track: Track) => void;
-  onAddToCrate: (record: VinylRecord, track: Track) => void;
   onSaveTapBpm?: (recordId: string, trackId: string, bpm: number) => void;
-  onRemoveFromCrate: (index: number) => void;
-  onMoveCrateUp: (index: number) => void;
-  onMoveCrateDown: (index: number) => void;
-  onClearCrate: () => void;
-  onLoadCrateToQueue: () => void;
+  onSaveManualBpm?: (recordId: string, trackId: string, bpm: number) => void;
+  onSaveCutRating?: (recordId: string, trackId: string, rating: CutRating | undefined) => void;
+  onEnrichRelease?: () => void | Promise<void>;
+  enrichingRelease?: boolean;
 }
 
 function NowPlayingArtwork({
   record,
   spinning,
   spinDurationSec,
+  onOpenRelease,
 }: {
   record: VinylRecord;
   spinning: boolean;
   spinDurationSec?: number;
+  onOpenRelease?: () => void;
 }) {
+  const openRelease = onOpenRelease ?? (() => openRecordDetail(record));
+
   return (
+    <div className="play-dj__disc-wrap">
     <button
       type="button"
       className={`play-dj__disc play-dj__disc-btn${spinning ? ' play-dj__disc--active' : ''}`}
-      onClick={() => openRecordDetail(record)}
-      aria-label={`View ${record.title} by ${record.artist}`}
+      onClick={openRelease}
+      aria-label={`Browse tracks on ${record.title}`}
     >
       <div
         className={`play-dj__disc-rotor${spinning ? ' play-dj__disc-rotor--spinning' : ''}`}
@@ -71,62 +70,43 @@ function NowPlayingArtwork({
       </div>
       <span className="play-dj__disc-spindle" aria-hidden />
     </button>
+    </div>
   );
 }
 
 export function PlayNextPanel({
   collection,
   nowPlaying,
+  preview,
   queue,
-  crateItems,
-  crateKeyPath,
-  isInCrate,
   onPlayNow,
-  onAddToCrate,
   onSaveTapBpm,
-  onRemoveFromCrate,
-  onMoveCrateUp,
-  onMoveCrateDown,
-  onClearCrate,
-  onLoadCrateToQueue,
+  onSaveManualBpm,
+  onSaveCutRating,
+  onEnrichRelease,
+  enrichingRelease = false,
 }: PlayNextPanelProps) {
-  const preview = useTrackPreview();
   const tapBpm = useTapBpm();
-  const autoplayPendingRef = useRef<string | null>(null);
+  const [releasePickerOpen, setReleasePickerOpen] = useState(false);
+
+  useEffect(() => {
+    setReleasePickerOpen(false);
+  }, [nowPlaying?.record.id, nowPlaying?.track.id]);
 
   const exclude = useMemo((): PlaySelection[] => {
-    const refs: PlaySelection[] = [
-      ...queue.map((q) => ({ recordId: q.record.id, trackId: q.track.id })),
-      ...crateItems.map((c) => ({ recordId: c.record.id, trackId: c.track.id })),
-    ];
+    const refs: PlaySelection[] = queue.map((q) => ({
+      recordId: q.record.id,
+      trackId: q.track.id,
+    }));
     if (nowPlaying) {
       refs.push({ recordId: nowPlaying.record.id, trackId: nowPlaying.track.id });
     }
     return refs;
-  }, [queue, crateItems, nowPlaying]);
-
-  const nowKey = nowPlaying
-    ? playSelectionKey({ recordId: nowPlaying.record.id, trackId: nowPlaying.track.id })
-    : null;
-
-  useEffect(() => {
-    if (!nowPlaying) {
-      preview.reset();
-      return;
-    }
-
-    const autoplay = autoplayPendingRef.current === nowKey;
-    if (autoplay) autoplayPendingRef.current = null;
-    void preview.load(nowPlaying.record, nowPlaying.track, autoplay, false);
-  }, [nowKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [queue, nowPlaying]);
 
   const handlePlay = useCallback(
     (record: VinylRecord, track: Track) => {
       tapBpm.reset();
-      autoplayPendingRef.current = playSelectionKey({
-        recordId: record.id,
-        trackId: track.id,
-      });
       onPlayNow(record, track);
     },
     [onPlayNow, tapBpm]
@@ -137,15 +117,13 @@ export function PlayNextPanel({
     return { anchorBpmOverride: tapBpm.bpm, bpmUncertainty: 3 };
   }, [tapBpm.bpm]);
 
-  const handleShufflePractice = useCallback(() => {
-    const pick = pickRandomPracticeAnchor(collection, exclude);
-    if (pick) handlePlay(pick.record, pick.track);
-  }, [collection, exclude, handlePlay]);
-
   const handlePreviewToggle = () => {
     if (!nowPlaying) return;
     const ref = { recordId: nowPlaying.record.id, trackId: nowPlaying.track.id };
-    if (preview.status === 'loading') return;
+    if (preview.status === 'loading') {
+      preview.armPlay();
+      return;
+    }
 
     const needsLoad =
       !preview.matchesSelection(ref) ||
@@ -154,6 +132,7 @@ export function PlayNextPanel({
       preview.status === 'error' ||
       preview.status === 'rate_limited';
     if (needsLoad) {
+      preview.armPlay();
       void preview.load(nowPlaying.record, nowPlaying.track, true, true);
       return;
     }
@@ -182,36 +161,64 @@ export function PlayNextPanel({
     nowPlaying?.record.tracks.findIndex((t) => t.id === nowPlaying.track.id) ?? 0;
 
   const catalogBpm = nowPlaying?.track.bpm;
-  const tapDiffers =
-    tapBpm.bpm != null &&
-    (catalogBpm == null ||
-      nowPlaying?.track.bpmEstimated ||
-      Math.abs(tapBpm.bpm - catalogBpm) >= 2);
+  const catalogIsEstimated = nowPlaying?.track.bpmEstimated !== false;
+  const catalogIsTapped = nowPlaying?.track.bpmTapped === true;
+  const catalogIsManual = nowPlaying?.track.bpmManual === true;
   const showSaveTap =
-    tapBpm.bpm != null && tapDiffers && Boolean(onSaveTapBpm);
+    tapBpm.bpm != null &&
+    Boolean(onSaveTapBpm) &&
+    !catalogIsManual &&
+    (!catalogIsTapped || tapBpm.bpm !== catalogBpm);
+
+  const handleSaveManualBpm = useCallback(
+    (bpm: number) => {
+      if (!nowPlaying || !onSaveManualBpm) return;
+      onSaveManualBpm(nowPlaying.record.id, nowPlaying.track.id, bpm);
+    },
+    [nowPlaying, onSaveManualBpm]
+  );
+
+  const handleSaveCutRating = useCallback(
+    (rating: CutRating | undefined) => {
+      if (!nowPlaying || !onSaveCutRating) return;
+      onSaveCutRating(nowPlaying.record.id, nowPlaying.track.id, rating);
+    },
+    [nowPlaying, onSaveCutRating]
+  );
+
+  const handleSaveTrackCutRating = useCallback(
+    (trackId: string, rating: CutRating | undefined) => {
+      if (!nowPlaying || !onSaveCutRating) return;
+      onSaveCutRating(nowPlaying.record.id, trackId, rating);
+    },
+    [nowPlaying, onSaveCutRating]
+  );
+
+  const openReleasePicker = useCallback(() => {
+    setReleasePickerOpen(true);
+  }, []);
+
+  const handleSelectReleaseTrack = useCallback(
+    (track: Track) => {
+      if (!nowPlaying) return;
+      handlePlay(nowPlaying.record, track);
+      setReleasePickerOpen(false);
+    },
+    [handlePlay, nowPlaying]
+  );
+
+  const releaseTrackCount = nowPlaying?.record.tracks.length ?? 0;
+  const showReleasePicker = releaseTrackCount > 1;
 
   return (
     <div className="play-dj">
       <header className="play-dj__page-head">
-        <div className="play-dj__page-head-row">
-          <div>
-            <h1 className="play-dj__page-title" style={{ fontFamily: 'var(--font-display)' }}>
-              Play
-            </h1>
-            <p className="play-dj__page-sub">
-              Compatible picks for tonight&apos;s crate — tap BPM on vinyl to sharpen matches.
-            </p>
-          </div>
-          <button
-            type="button"
-            className="play-dj__head-shuffle"
-            onClick={handleShufflePractice}
-            title="Random enriched track from your collection"
-          >
-            <Shuffle className="h-3.5 w-3.5" strokeWidth={2} />
-            <span>Shuffle</span>
-          </button>
-        </div>
+        <h1 className="play-dj__page-title" style={{ fontFamily: 'var(--font-display)' }}>
+          Play
+        </h1>
+        <p className="play-dj__page-sub">
+          Compatible picks from your crate — tap BPM on the deck to sharpen matches.
+        </p>
       </header>
 
       <div className="play-dj__deck-wrap">
@@ -219,38 +226,80 @@ export function PlayNextPanel({
           <div className="play-dj__now" role="status" aria-label="Now playing">
                 <div className="play-dj__now-top">
                   <div className="play-dj__now-stage">
-                    <NowPlayingArtwork record={nowPlaying.record} spinning={artworkSpinning} />
+                    <NowPlayingArtwork
+                      record={nowPlaying.record}
+                      spinning={artworkSpinning}
+                      onOpenRelease={
+                        showReleasePicker
+                          ? openReleasePicker
+                          : () => openRecordDetail(nowPlaying.record)
+                      }
+                    />
                   </div>
                   <div className="play-dj__now-body">
                     <p className="play-dj__now-label">
                       <span className="play-dj__now-live" aria-hidden />
                       Now playing
                     </p>
-                    <button
-                      type="button"
-                      className="play-dj__now-meta play-dj__now-meta-btn"
-                      onClick={() => openRecordDetail(nowPlaying.record)}
-                      aria-label={`View ${nowPlaying.record.title} by ${nowPlaying.record.artist}`}
-                    >
+                    <div className="play-dj__now-meta">
                       <p className="play-dj__now-title">{nowPlaying.track.title}</p>
-                      <p className="play-dj__now-artist">
+                      {showReleasePicker ? (
+                        <button
+                          type="button"
+                          className="play-dj__release-gate"
+                          onClick={openReleasePicker}
+                          aria-label={`Choose another track from ${nowPlaying.record.title}`}
+                        >
+                          <span className="play-dj__release-gate-icon" aria-hidden>
+                            <Disc3 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                          </span>
+                          <span className="play-dj__release-gate-copy min-w-0">
+                            <span className="play-dj__release-gate-label">
+                              {releaseTrackCount} tracks on this release
+                            </span>
+                            <span className="play-dj__release-gate-meta">
+                              {nowPlaying.record.artist}
+                              <span className="text-[var(--text-muted)]"> — </span>
+                              {nowPlaying.record.title}
+                              {nowPlaying.record.year ? (
+                                <span className="text-[var(--text-muted)]">
+                                  {' '}
+                                  · {nowPlaying.record.year}
+                                </span>
+                              ) : null}
+                            </span>
+                          </span>
+                          <ChevronRight
+                            className="play-dj__release-gate-chevron h-4 w-4 shrink-0"
+                            strokeWidth={2}
+                          />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="play-dj__release-gate play-dj__release-gate--solo"
+                          onClick={() => openRecordDetail(nowPlaying.record)}
+                          aria-label={`View ${nowPlaying.record.title}`}
+                        >
+                          <span className="play-dj__release-gate-copy min-w-0">
+                            <span className="play-dj__release-gate-meta">
+                              {nowPlaying.record.artist}
+                              <span className="text-[var(--text-muted)]"> — </span>
+                              {nowPlaying.record.title}
+                            </span>
+                          </span>
+                          <ChevronRight
+                            className="play-dj__release-gate-chevron h-4 w-4 shrink-0 opacity-60"
+                            strokeWidth={2}
+                          />
+                        </button>
+                      )}
+                      <p className="play-dj__now-side tabular-nums">
                         <span className="text-[var(--text-muted)]">
                           {trackPositionLabel(nowPlaying.track, trackIndex)}
                         </span>
-                        <span className="text-[var(--text-muted)]"> · </span>
-                        {nowPlaying.record.artist}
-                        <span className="text-[var(--text-muted)]">
-                          {' '}
-                          — {nowPlaying.record.title}
-                        </span>
-                        {nowPlaying.record.year ? (
-                          <span className="text-[var(--text-muted)]">
-                            {' '}
-                            · {nowPlaying.record.year}
-                          </span>
-                        ) : null}
                       </p>
-                    </button>
+                    </div>
                     <PreviewControls
                       status={preview.status}
                       source={preview.source}
@@ -269,7 +318,8 @@ export function PlayNextPanel({
                   <MixStrip
                     track={nowPlaying.track}
                     variant="now"
-                    tapBpm={!tapBpm.isActive ? tapBpm.bpm : null}
+                    onSaveManualBpm={onSaveManualBpm ? handleSaveManualBpm : undefined}
+                    onSaveCutRating={onSaveCutRating ? handleSaveCutRating : undefined}
                   />
                   <div className="play-dj__tap-block" role="group" aria-label="Live BPM tap">
                     <div className="play-dj__tap-row">
@@ -280,32 +330,43 @@ export function PlayNextPanel({
                         aria-label="Tap tempo on beat"
                       >
                         <span>Tap BPM</span>
-                        <span className="play-dj__tap-count tabular-nums" aria-hidden={tapBpm.tapCount === 0}>
-                          {tapBpm.tapCount > 0 ? `${Math.min(tapBpm.tapCount, 4)}/4` : '·'}
+                        <span className="play-dj__tap-count tabular-nums">
+                          {tapBpm.tapCount > 0 ? tapBpm.tapCount : '·'}
                         </span>
                       </button>
-                      <p className="play-dj__tap-readout tabular-nums">
+                      <div className="play-dj__tap-readout">
                         {tapBpm.bpm != null ? (
-                          <span className="play-dj__tap-result">{tapBpm.bpm} BPM</span>
+                          <EditableBpm
+                            value={tapBpm.bpm}
+                            onAdjust={tapBpm.setBpm}
+                            size="md"
+                            suffix
+                            className="play-dj__tap-result"
+                            ariaLabel="Tapped BPM"
+                          />
                         ) : (
-                          <span className="play-dj__tap-hint">Tap on the beat while spinning</span>
+                          <span className="play-dj__tap-hint">
+                            {tapBpm.tapCount === 1 ? 'Once more on beat' : 'Tap on the beat'}
+                          </span>
                         )}
-                      </p>
+                      </div>
                     </div>
                     <div
-                      className={`play-dj__tap-actions${showSaveTap && !tapBpm.isActive ? '' : ' play-dj__tap-actions--idle'}`}
+                      className={`play-dj__tap-actions${tapBpm.bpm != null ? '' : ' play-dj__tap-actions--idle'}`}
                     >
-                      {showSaveTap && !tapBpm.isActive && tapBpm.bpm != null ? (
+                      {tapBpm.bpm != null ? (
                         <>
-                          <button
-                            type="button"
-                            className="play-dj__tap-save"
-                            onClick={handleSaveTapBpm}
-                          >
-                            {nowPlaying.track.bpmEstimated || catalogBpm == null
-                              ? `Save ${tapBpm.bpm} BPM`
-                              : `Replace ~${catalogBpm}`}
-                          </button>
+                          {showSaveTap ? (
+                            <button
+                              type="button"
+                              className="play-dj__tap-save"
+                              onClick={handleSaveTapBpm}
+                            >
+                              {catalogBpm == null || catalogIsEstimated || !catalogIsTapped
+                                ? `Save ${tapBpm.bpmLabel ?? tapBpm.bpm}`
+                                : `Replace ${catalogBpm}`}
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             className="play-dj__tap-clear"
@@ -320,17 +381,23 @@ export function PlayNextPanel({
                     <p className="play-dj__tap-note">
                       {tapBpm.bpm != null ? (
                         <>
-                          Matching at {tapBpm.bpm} BPM
+                          Matching at {tapBpm.bpmLabel ?? tapBpm.bpm} BPM
                           <span className="text-[var(--text-muted)]"> ±3</span>
-                          {showSaveTap && !tapBpm.isActive ? (
+                          {showSaveTap ? (
                             <span className="text-[var(--text-muted)]">
                               {' '}
-                              · save to replace catalog estimate
+                              · save to lock as catalog BPM
                             </span>
+                          ) : catalogIsManual ? (
+                            <span className="text-[var(--text-muted)]"> · your BPM locked</span>
+                          ) : catalogIsTapped ? (
+                            <span className="text-[var(--text-muted)]"> · tapped BPM saved</span>
                           ) : null}
                         </>
                       ) : (
-                        <span className="text-[var(--text-muted)]">Live tempo refines mix partners</span>
+                        <span className="text-[var(--text-muted)]">
+                          Live tempo refines mix partners · tap the BPM to fine-tune
+                        </span>
                       )}
                     </p>
                   </div>
@@ -342,36 +409,40 @@ export function PlayNextPanel({
               Pick a track to start mixing
             </p>
             <p className="mt-1 text-sm leading-relaxed text-[var(--text-secondary)]">
-              Hit Shuffle above, or tap play on a compatible pick below.
+              Tap play on a compatible pick below to start.
             </p>
           </div>
         )}
       </div>
 
       <div className="play-dj__workspace">
-        <CompatibilityList
+        <PlayBrowsePanel
           collection={collection}
           anchor={nowPlaying}
           exclude={exclude}
           matchOptions={matchOptions}
-          isInCrate={isInCrate}
           onPlayNow={handlePlay}
-          onAddToCrate={onAddToCrate}
-        />
-        <SessionCratePanel
-          items={crateItems}
-          keyPath={crateKeyPath}
-          onRemove={onRemoveFromCrate}
-          onMoveUp={onMoveCrateUp}
-          onMoveDown={onMoveCrateDown}
-          onClear={onClearCrate}
-          onLoadQueue={onLoadCrateToQueue}
-          onPlayNow={(index) => {
-            const item = crateItems[index];
-            if (item) handlePlay(item.record, item.track);
-          }}
         />
       </div>
+
+      <ReleaseTrackPickerSheet
+        open={releasePickerOpen && Boolean(nowPlaying)}
+        record={nowPlaying?.record ?? null}
+        activeTrackId={nowPlaying?.track.id ?? null}
+        enrichingRelease={enrichingRelease}
+        onClose={() => setReleasePickerOpen(false)}
+        onSelectTrack={handleSelectReleaseTrack}
+        onEnrichRelease={onEnrichRelease}
+        onSaveCutRating={onSaveCutRating ? handleSaveTrackCutRating : undefined}
+        onOpenReleaseDetail={
+          nowPlaying
+            ? () => {
+                setReleasePickerOpen(false);
+                openRecordDetail(nowPlaying.record);
+              }
+            : undefined
+        }
+      />
     </div>
   );
 }

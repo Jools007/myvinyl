@@ -1,4 +1,5 @@
-import { ListPlus, Play } from 'lucide-react';
+import { useMemo } from 'react';
+import { Play } from 'lucide-react';
 import {
   recommendTieredCompatibility,
   TIER_HINTS,
@@ -22,27 +23,23 @@ type CompatibilityListProps = {
   anchor: ResolvedPlaySelection | null;
   exclude: PlaySelection[];
   matchOptions?: CompatibilityOptions;
-  isInCrate: (recordId: string, trackId: string) => boolean;
   onPlayNow: (record: VinylRecord, track: Track) => void;
-  onAddToCrate: (record: VinylRecord, track: Track) => void;
+  /** When true, omit outer browse chrome (used inside PlayBrowsePanel). */
+  embedded?: boolean;
 };
 
 function CompatibilityRow({
   pick,
-  inCrate,
   onPlayNow,
-  onAddToCrate,
 }: {
   pick: CompatibilityPick;
-  inCrate: boolean;
   onPlayNow: () => void;
-  onAddToCrate: () => void;
 }) {
   const { record, track, reason, probability, tier } = pick;
   const trackIndex = Math.max(0, record.tracks.findIndex((t) => t.id === track.id));
 
   return (
-    <li className={`play-compat__row${inCrate ? ' play-compat__row--in-crate' : ''}`}>
+    <li className="play-compat__row">
       <button
         type="button"
         className="play-compat__main"
@@ -79,16 +76,6 @@ function CompatibilityRow({
       <div className="play-compat__actions">
         <button
           type="button"
-          className="play-compat__icon-btn"
-          onClick={onAddToCrate}
-          disabled={inCrate}
-          aria-label={inCrate ? 'Already in crate' : 'Add to tonight\'s crate'}
-          title={inCrate ? 'In crate' : 'Add to crate'}
-        >
-          <ListPlus className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
           className="play-dj__spin"
           onClick={onPlayNow}
           aria-label={`Play now — ${track.title}`}
@@ -103,16 +90,12 @@ function CompatibilityRow({
 function TierSection({
   tier,
   picks,
-  isInCrate,
   onPlayNow,
-  onAddToCrate,
   showHint,
 }: {
   tier: CompatibilityTier;
   picks: CompatibilityPick[];
-  isInCrate: (recordId: string, trackId: string) => boolean;
   onPlayNow: (record: VinylRecord, track: Track) => void;
-  onAddToCrate: (record: VinylRecord, track: Track) => void;
   showHint?: boolean;
 }) {
   if (picks.length === 0) return null;
@@ -133,9 +116,7 @@ function TierSection({
           <CompatibilityRow
             key={`${pick.record.id}-${pick.track.id}`}
             pick={pick}
-            inCrate={isInCrate(pick.record.id, pick.track.id)}
             onPlayNow={() => onPlayNow(pick.record, pick.track)}
-            onAddToCrate={() => onAddToCrate(pick.record, pick.track)}
           />
         ))}
       </ul>
@@ -148,24 +129,20 @@ export function CompatibilityList({
   anchor,
   exclude,
   matchOptions,
-  isInCrate,
   onPlayNow,
-  onAddToCrate,
+  embedded = false,
 }: CompatibilityListProps) {
-  const tiered: TieredCompatibility = recommendTieredCompatibility(
-    collection,
-    anchor,
-    exclude,
-    5,
-    matchOptions
+  const tiered: TieredCompatibility = useMemo(
+    () => recommendTieredCompatibility(collection, anchor, exclude, 5, matchOptions),
+    [collection, anchor, exclude, matchOptions]
   );
 
   const total =
     tiered.perfect.length + tiered.smooth.length + tiered.stretch.length;
 
   return (
-    <div className="play-compat">
-      <div className="play-compat__head">
+    <div className={`play-compat${embedded ? ' play-compat--embedded' : ''}`}>
+      <div className={`play-compat__head${embedded ? ' play-compat__head--embedded' : ''}`}>
         <div className="play-compat__head-copy">
           <div className="play-compat__head-row">
             <h2 className="play-compat__section-title" id="play-compatible">
@@ -187,7 +164,7 @@ export function CompatibilityList({
         <p className="play-compat__empty text-sm text-[var(--text-muted)]">
           {anchor
             ? 'No viable blends in range — tap BPM on the deck or enrich more tracks.'
-            : 'Play a track or shuffle a random pick to start practicing blends.'}
+            : 'Play a track from your collection to start practicing blends.'}
         </p>
       ) : (
         TIER_ORDER.map((tier, index) => (
@@ -196,9 +173,7 @@ export function CompatibilityList({
             tier={tier}
             picks={tiered[tier]}
             showHint={index === 0 && tiered[tier].length > 0}
-            isInCrate={isInCrate}
             onPlayNow={onPlayNow}
-            onAddToCrate={onAddToCrate}
           />
         ))
       )}

@@ -13,6 +13,7 @@ import {
   MoreHorizontal,
   Rows3,
   Search,
+  SlidersHorizontal,
   X,
 } from 'lucide-react';
 import {
@@ -23,6 +24,11 @@ import {
   parseFilterList,
 } from '../lib/filterLabels';
 import { buildFormatFilterOptions, isCdFormat } from '../lib/formats';
+import {
+  CUT_RATINGS,
+  cutRatingFilterLabel,
+  type CutRatingFilter,
+} from '../lib/cutRating';
 import type { RecordCondition, ViewMode } from '../lib/types';
 import { VIBE_TAG_SUGGESTIONS } from '../lib/vibes';
 
@@ -44,6 +50,7 @@ export interface CollectionFilterState {
   vibe: string | null;
   bpmRangeId: string;
   camelotKey: string | null;
+  cutRating: CutRatingFilter | null;
 }
 
 export const DEFAULT_COLLECTION_FILTERS: CollectionFilterState = {
@@ -54,6 +61,7 @@ export const DEFAULT_COLLECTION_FILTERS: CollectionFilterState = {
   vibe: null,
   bpmRangeId: 'all',
   camelotKey: null,
+  cutRating: null,
 };
 
 interface CollectionFiltersProps {
@@ -173,6 +181,10 @@ function FilterDropdown({
     };
   }, [open, onOpenChange]);
 
+  const isUnset =
+    !value || value === '' || (id === 'bpm' && value === 'all');
+  const mobileValue = isUnset ? 'Any' : formatLabel(selected.label);
+
   const menu = open ? (
     <ul
       ref={menuRef}
@@ -216,23 +228,30 @@ function FilterDropdown({
   ) : null;
 
   return (
-    <div ref={rootRef} className="relative sm:min-w-0 sm:flex-1 sm:basis-0 sm:max-w-[8.5rem]">
+    <div
+      ref={rootRef}
+      className="collection-filter-field relative min-w-0 sm:min-w-0 sm:flex-1 sm:basis-0 sm:max-w-[8.5rem]"
+    >
+      <span className="collection-filter-field__label sm:hidden">{label}</span>
       <button
         ref={triggerRef}
         type="button"
         onClick={() => onOpenChange(open ? null : id)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={label}
-        className={`collection-filter-trigger flex w-full min-w-0 cursor-pointer items-center justify-between gap-0.5 rounded-md border py-1.5 pl-2 pr-1.5 text-left text-[10px] font-medium leading-none transition-colors outline-none focus-visible:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)] sm:gap-1 sm:rounded-lg sm:py-1.5 sm:pl-2.5 sm:pr-2 sm:text-[11px] ${
+        aria-label={`${label}: ${mobileValue}`}
+        className={`collection-filter-trigger flex w-full min-w-0 cursor-pointer items-center justify-between gap-1 rounded-lg border py-2 pl-2.5 pr-2 text-left transition-colors outline-none focus-visible:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent-soft)] sm:gap-1 sm:py-1.5 sm:pl-2.5 sm:pr-2 sm:text-[11px] ${
           active
             ? 'border-[color-mix(in_srgb,var(--accent)_35%,var(--border))] bg-[var(--accent-soft)] text-[var(--text)]'
-            : 'border-[var(--border)] bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)]'
+            : 'border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)]'
         }`}
       >
-        <span className="min-w-0 flex-1 truncate">{formatLabel(selected.label)}</span>
+        <span className="collection-filter-trigger__value min-w-0 flex-1 truncate text-[0.8125rem] font-medium leading-tight sm:text-[11px] sm:font-medium">
+          <span className="sm:hidden">{mobileValue}</span>
+          <span className="hidden truncate sm:inline">{formatLabel(selected.label)}</span>
+        </span>
         <ChevronDown
-          className={`h-3 w-3 shrink-0 text-[var(--text-muted)] transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          className={`h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] transition-transform duration-200 sm:h-3 sm:w-3 ${open ? 'rotate-180' : ''}`}
           aria-hidden
         />
       </button>
@@ -265,7 +284,11 @@ export function CollectionFilters({
 }: CollectionFiltersProps) {
   const [openFilterId, setOpenFilterId] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [moreMenuPos, setMoreMenuPos] = useState({ top: 0, left: 0, width: 0 });
   const moreRef = useRef<HTMLDivElement>(null);
+  const moreTriggerRef = useRef<HTMLButtonElement>(null);
+  const moreMenuRef = useRef<HTMLUListElement>(null);
 
   const hasActiveFilters =
     filters.query.trim() !== '' ||
@@ -274,7 +297,8 @@ export function CollectionFilters({
     filters.condition != null ||
     filters.vibe != null ||
     filters.bpmRangeId !== 'all' ||
-    filters.camelotKey != null;
+    filters.camelotKey != null ||
+    filters.cutRating != null;
 
   const activeFilterCount =
     (filters.query.trim() ? 1 : 0) +
@@ -283,12 +307,50 @@ export function CollectionFilters({
     (filters.condition ? 1 : 0) +
     (filters.vibe ? 1 : 0) +
     (filters.bpmRangeId !== 'all' ? 1 : 0) +
-    (filters.camelotKey ? 1 : 0);
+    (filters.camelotKey ? 1 : 0) +
+    (filters.cutRating ? 1 : 0);
+
+  const updateMoreMenuPosition = useCallback(() => {
+    const trigger = moreTriggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const menuWidth = 11.5 * 16;
+    const left = Math.min(
+      Math.max(8, rect.right - menuWidth),
+      window.innerWidth - menuWidth - 8
+    );
+    setMoreMenuPos({
+      top: rect.bottom + 4,
+      left,
+      width: menuWidth,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!moreOpen) return;
+    updateMoreMenuPosition();
+  }, [moreOpen, updateMoreMenuPosition]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    window.addEventListener('resize', updateMoreMenuPosition);
+    window.addEventListener('scroll', updateMoreMenuPosition, true);
+    return () => {
+      window.removeEventListener('resize', updateMoreMenuPosition);
+      window.removeEventListener('scroll', updateMoreMenuPosition, true);
+    };
+  }, [moreOpen, updateMoreMenuPosition]);
 
   useEffect(() => {
     if (!moreOpen) return;
     const onPointerDown = (e: PointerEvent) => {
-      if (moreRef.current?.contains(e.target as Node)) return;
+      const target = e.target as Node;
+      if (
+        moreRef.current?.contains(target) ||
+        moreMenuRef.current?.contains(target)
+      ) {
+        return;
+      }
       setMoreOpen(false);
     };
     const onKeyDown = (e: KeyboardEvent) => {
@@ -316,11 +378,94 @@ export function CollectionFilters({
     value: r.id,
     label: r.id === 'all' ? 'BPM' : r.label,
   }));
+  const cutRatingSelectOptions: FilterOption[] = [
+    { value: '', label: 'Rating' },
+    ...CUT_RATINGS.map((rating) => ({ value: rating, label: rating })),
+    { value: 'rated', label: 'Any rated' },
+    { value: 'unrated', label: 'Unrated' },
+  ];
+
+  const filterFields = (
+    <>
+      <FilterDropdown
+        id="format"
+        label="Format"
+        value={filters.format ?? ''}
+        options={formatSelectOptions}
+        active={filters.format != null}
+        openId={openFilterId}
+        onOpenChange={setOpenFilterId}
+        formatLabel={normalizeFormat}
+        onChange={(v) => onChange({ format: v || null })}
+      />
+      <FilterDropdown
+        id="genre"
+        label="Genre"
+        value={filters.genre ?? ''}
+        options={genreSelectOptions}
+        active={filters.genre != null}
+        openId={openFilterId}
+        onOpenChange={setOpenFilterId}
+        formatLabel={normalizeGenre}
+        onChange={(v) => onChange({ genre: v || null })}
+      />
+      <FilterDropdown
+        id="condition"
+        label="Condition"
+        value={filters.condition ?? ''}
+        options={conditionSelectOptions}
+        active={filters.condition != null}
+        openId={openFilterId}
+        onOpenChange={setOpenFilterId}
+        formatLabel={normalizeCondition}
+        onChange={(v) => onChange({ condition: (v || null) as RecordCondition | null })}
+      />
+      <FilterDropdown
+        id="vibe"
+        label="Vibe"
+        value={filters.vibe ?? ''}
+        options={vibeSelectOptions}
+        active={filters.vibe != null}
+        openId={openFilterId}
+        onOpenChange={setOpenFilterId}
+        formatLabel={normalizeVibe}
+        onChange={(v) => onChange({ vibe: v || null })}
+      />
+      <FilterDropdown
+        id="bpm"
+        label="BPM"
+        value={filters.bpmRangeId}
+        options={bpmSelectOptions}
+        active={filters.bpmRangeId !== 'all'}
+        openId={openFilterId}
+        onOpenChange={setOpenFilterId}
+        formatLabel={(label) => label}
+        onChange={(v) => onChange({ bpmRangeId: v || 'all' })}
+      />
+      <FilterDropdown
+        id="cutRating"
+        label="Rating"
+        value={filters.cutRating ?? ''}
+        options={cutRatingSelectOptions}
+        active={filters.cutRating != null}
+        openId={openFilterId}
+        onOpenChange={setOpenFilterId}
+        formatLabel={(label) =>
+          label === 'Rating' ? label : cutRatingFilterLabel(label as CutRatingFilter)
+        }
+        onChange={(v) =>
+          onChange({
+            cutRating: (v || null) as CutRatingFilter | null,
+          })
+        }
+      />
+    </>
+  );
 
   return (
     <div className="collection-toolbar-sticky !pt-0 !pb-0">
-      <div className="collection-toolbar relative z-30 overflow-visible sm:rounded-xl sm:border sm:border-[var(--border)] bg-[var(--bg-elevated)] shadow-[var(--shadow)]">
-      <div className="collection-toolbar__search z-[60] w-full bg-[var(--bg-elevated)] px-0 pt-0 sm:static sm:z-auto sm:bg-transparent sm:px-3.5 sm:pt-2.5">
+      <div className="collection-toolbar relative overflow-visible sm:rounded-xl sm:border sm:border-[var(--border)] bg-[var(--bg-elevated)] shadow-[var(--shadow)]">
+      <div className="collection-toolbar__search w-full bg-[var(--bg-elevated)] px-0 pt-0 sm:static sm:bg-transparent sm:px-3.5 sm:pt-2.5">
         <div className="relative flex items-center">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 h-3 w-3 -translate-y-1/2 text-[var(--text-muted)] sm:left-3.5 sm:h-3.5 sm:w-3.5"
@@ -347,66 +492,57 @@ export function CollectionFilters({
         </div>
       </div>
 
-      <div className="collection-toolbar__filters-row relative flex flex-wrap items-center gap-0.5 overflow-visible px-1.5 py-0.5 sm:flex-nowrap sm:gap-2 sm:px-3.5 sm:py-2">
-        <div className="collection-toolbar__filters relative flex flex-wrap min-w-0 flex-1 basis-full gap-1 overflow-visible sm:flex-nowrap sm:gap-1.5 sm:basis-auto">
-          <FilterDropdown
-            id="format"
-            label="Format"
-            value={filters.format ?? ''}
-            options={formatSelectOptions}
-            active={filters.format != null}
-            openId={openFilterId}
-            onOpenChange={setOpenFilterId}
-            formatLabel={normalizeFormat}
-            onChange={(v) => onChange({ format: v || null })}
+      <div className="collection-toolbar__filters-row relative overflow-visible sm:flex sm:flex-nowrap sm:items-center sm:gap-2 sm:px-3.5 sm:py-2">
+        <button
+          type="button"
+          className={`collection-toolbar__filters-toggle sm:hidden ${
+            mobileFiltersOpen ? 'collection-toolbar__filters-toggle--open' : ''
+          } ${hasActiveFilters ? 'collection-toolbar__filters-toggle--active' : ''}`}
+          aria-expanded={mobileFiltersOpen}
+          aria-controls="collection-toolbar-filters"
+          onClick={() => {
+            setMobileFiltersOpen((open) => {
+              if (open) setOpenFilterId(null);
+              return !open;
+            });
+          }}
+        >
+          <span className="collection-toolbar__filters-toggle-main">
+            <SlidersHorizontal className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="collection-toolbar__filters-toggle-label">Filters</span>
+            {activeFilterCount > 0 ? (
+              <span className="collection-toolbar__filters-toggle-count" aria-hidden>
+                {activeFilterCount}
+              </span>
+            ) : null}
+          </span>
+          <ChevronDown
+            className={`collection-toolbar__filters-toggle-chevron h-4 w-4 shrink-0 ${mobileFiltersOpen ? 'rotate-180' : ''}`}
+            aria-hidden
           />
-          <FilterDropdown
-            id="genre"
-            label="Genre"
-            value={filters.genre ?? ''}
-            options={genreSelectOptions}
-            active={filters.genre != null}
-            openId={openFilterId}
-            onOpenChange={setOpenFilterId}
-            formatLabel={normalizeGenre}
-            onChange={(v) => onChange({ genre: v || null })}
-          />
-          <FilterDropdown
-            id="condition"
-            label="Condition"
-            value={filters.condition ?? ''}
-            options={conditionSelectOptions}
-            active={filters.condition != null}
-            openId={openFilterId}
-            onOpenChange={setOpenFilterId}
-            formatLabel={normalizeCondition}
-            onChange={(v) => onChange({ condition: (v || null) as RecordCondition | null })}
-          />
-          <FilterDropdown
-            id="vibe"
-            label="Vibe"
-            value={filters.vibe ?? ''}
-            options={vibeSelectOptions}
-            active={filters.vibe != null}
-            openId={openFilterId}
-            onOpenChange={setOpenFilterId}
-            formatLabel={normalizeVibe}
-            onChange={(v) => onChange({ vibe: v || null })}
-          />
-          <FilterDropdown
-            id="bpm"
-            label="BPM"
-            value={filters.bpmRangeId}
-            options={bpmSelectOptions}
-            active={filters.bpmRangeId !== 'all'}
-            openId={openFilterId}
-            onOpenChange={setOpenFilterId}
-            formatLabel={(label) => label}
-            onChange={(v) => onChange({ bpmRangeId: v || 'all' })}
-          />
+        </button>
+
+        <div
+          id="collection-toolbar-filters"
+          className={`collection-toolbar__filters relative min-w-0 overflow-visible sm:flex sm:flex-1 sm:flex-nowrap sm:gap-1.5 ${
+            mobileFiltersOpen ? 'collection-toolbar__filters--open' : 'collection-toolbar__filters--collapsed'
+          }`}
+        >
+          {filterFields}
+          {mobileFiltersOpen && hasActiveFilters ? (
+            <div className="collection-toolbar__filters-panel-foot sm:hidden">
+              <button
+                type="button"
+                onClick={onClear}
+                className="collection-toolbar__filters-clear-all"
+              >
+                Clear all filters
+              </button>
+            </div>
+          ) : null}
         </div>
 
-        <div className="collection-toolbar__actions ml-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
+        <div className="collection-toolbar__actions flex shrink-0 items-center gap-1 sm:ml-auto sm:gap-1.5">
           {filters.camelotKey ? (
             <button
               type="button"
@@ -420,20 +556,11 @@ export function CollectionFilters({
             </button>
           ) : null}
 
-          {activeFilterCount > 0 ? (
-            <span
-              className="collection-filter-count sm:hidden"
-              aria-label={`${activeFilterCount} active filter${activeFilterCount === 1 ? '' : 's'}`}
-            >
-              {activeFilterCount}
-            </span>
-          ) : null}
-
           {hasActiveFilters ? (
             <button
               type="button"
               onClick={onClear}
-              className="collection-toolbar__clear-btn text-[10px] font-medium tracking-wide text-[var(--text-muted)] transition-colors hover:text-[var(--accent)] sm:text-[10px]"
+              className="collection-toolbar__clear-btn hidden text-[10px] font-medium tracking-wide text-[var(--text-muted)] transition-colors hover:text-[var(--accent)] sm:inline-flex sm:text-[10px]"
             >
               Clear
             </button>
@@ -495,6 +622,7 @@ export function CollectionFilters({
 
           <div ref={moreRef} className="collection-toolbar__more relative">
             <button
+              ref={moreTriggerRef}
               type="button"
               onClick={() => setMoreOpen((v) => !v)}
               className="collection-toolbar__more-btn"
@@ -505,8 +633,20 @@ export function CollectionFilters({
             >
               <MoreHorizontal className="h-3.5 w-3.5" aria-hidden />
             </button>
-            {moreOpen ? (
-              <ul className="collection-toolbar__more-menu" role="menu">
+            {moreOpen
+              ? createPortal(
+                  <ul
+                    ref={moreMenuRef}
+                    className="collection-toolbar__more-menu collection-toolbar__more-menu--portal"
+                    role="menu"
+                    style={{
+                      position: 'fixed',
+                      top: moreMenuPos.top,
+                      left: moreMenuPos.left,
+                      width: moreMenuPos.width,
+                      zIndex: 120,
+                    }}
+                  >
                 {totalCount > 0 && onOpenInsights ? (
                   <li role="none">
                     <button
@@ -601,17 +741,25 @@ export function CollectionFilters({
                     </button>
                   </li>
                 ) : null}
-              </ul>
-            ) : null}
+                  </ul>,
+                  document.body
+                )
+              : null}
           </div>
         </div>
       </div>
 
-      <p className="border-t border-[var(--border)] px-2 py-1 text-center text-[11px] tabular-nums text-[var(--text-muted)] sm:hidden">
-        <span className="font-medium text-[var(--text-secondary)]">{resultCount}</span>
-        {' of '}
-        {totalCount} records
-      </p>
+      <div className="collection-toolbar__mobile-meta sm:hidden">
+        <p className="collection-toolbar__mobile-count tabular-nums">
+          <span className="font-medium text-[var(--text-secondary)]">{resultCount}</span>
+          <span className="text-[var(--text-muted)]"> of {totalCount} records</span>
+        </p>
+        {hasActiveFilters && !mobileFiltersOpen ? (
+          <button type="button" onClick={onClear} className="collection-toolbar__mobile-clear">
+            Clear
+          </button>
+        ) : null}
+      </div>
       </div>
     </div>
   );

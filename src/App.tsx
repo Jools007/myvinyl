@@ -6,9 +6,8 @@ import { AppToaster } from './components/AppToaster';
 import { Login } from './components/Auth/Login';
 import { CollectionLoadError } from './components/CollectionLoadError';
 import { CollectionLoading } from './components/CollectionLoading';
-import { AddRecordModal } from './components/AddRecordModal';
 import { BarcodeScannerModal } from './components/BarcodeScannerModal';
-import type { DiscogsSearchBarHandle } from './components/DiscogsSearchBar';
+import { DiscogsSearchBar, type DiscogsSearchBarHandle } from './components/DiscogsSearchBar';
 import {
   CollectionFilters,
   DEFAULT_COLLECTION_FILTERS,
@@ -18,7 +17,7 @@ import {
 import { CollectionListView } from './components/CollectionListView';
 import { GridView } from './components/GridView';
 import { LabelPrint } from './components/LabelPrint';
-import { Navigation, type NavPage } from './components/Navigation';
+import { Navigation } from './components/Navigation';
 import { PlayNextPanel } from './components/PlayNextPanel';
 import { RecordDetailModal } from './components/RecordDetailModal';
 import { ShelfView } from './components/ShelfView';
@@ -34,19 +33,38 @@ import { InsightsDashboard } from './components/InsightsDashboard';
 import type { InsightFilterAction } from './lib/collectionInsights';
 import {
   isSamePlaySelection,
+  playSelectionKey,
   resolvePlayQueue,
   resolvePlaySelection,
   trackPositionLabel,
   type PlaySelection,
 } from './lib/playSession';
+import {
+  buildAppHref,
+  currentAppHref,
+  locationForPage,
+  pageDocumentTitle,
+  playDocumentTitle,
+} from './lib/appRoute';
+import {
+  clearNowPlayingStorage,
+  clearPlayQueueStorage,
+  loadNowPlaying,
+  loadPlayQueue,
+  saveNowPlaying,
+  savePlayQueue,
+} from './lib/playQueueStorage';
+import { useAppRouter } from './hooks/useAppRouter';
 import { getLastPlayed } from './lib/recommendations';
 import { useAuth } from './contexts/AuthContext';
 import { useCollection } from './hooks/useCollection';
-import { useSessionCrate } from './hooks/useSessionCrate';
-import { SESSION_CRATE_MAX } from './lib/sessionCrate';
+import { useTrackPreview } from './hooks/useTrackPreview';
+import { isIOSDevice } from './lib/playbackDevice';
 import { normalizeGenre, normalizeVibe, parseFilterList } from './lib/filterLabels';
+import { collectGroupedGenreOptions, recordMatchesGroupedGenre } from './lib/genreGroups';
 import { isCdFormat } from './lib/formats';
 import { resolveTrackCamelot } from './lib/camelot';
+import { CUT_RATING_LABELS, recordMatchesCutRatingFilter } from './lib/cutRating';
 import { formatMetadataEnrichmentSummary } from './lib/fullMetadataEnrichment';
 import {
   countDiscogsLinkedRecords,
@@ -54,16 +72,22 @@ import {
 } from './lib/fullTracklistEnrichment';
 import type { BackgroundSyncState } from './lib/recordMigration';
 import { getPrimaryTrack, isReleaseFullyEnriched, patchPrimaryTrack, patchTrack } from './lib/tracks';
+import type { CutRating } from './lib/types';
 import type { DiscogsReleaseDetail } from './lib/api';
 import {
   buildCollectionFilterNote,
   exportCollectionToPdf,
 } from './lib/collectionPdfExport';
 import { closeRecordDetail, setRecordDetailController } from './lib/recordDetail';
+import type { DiscoverAddPayload } from './lib/discoverAdd';
 import type { DiscogsSearchHit, Track, VinylRecord } from './lib/types';
 
-function recordHasGenre(record: VinylRecord, genre: string): boolean {
-  return record.genres.some((g) => normalizeGenre(g) === genre);
+function collectionDisplayName(email?: string | null): string {
+  if (!email) return 'My Vinyl Collection';
+  const handle = email.split('@')[0]?.trim();
+  if (!handle) return 'My Vinyl Collection';
+  const titled = handle.charAt(0).toUpperCase() + handle.slice(1);
+  return `${titled}'s Collection`;
 }
 
 function App() {
@@ -90,12 +114,13 @@ function App() {
     updateSettings,
     collectionLoading,
     collectionError,
+    collectionHydrated,
     retryCollectionLoad,
   } = useCollection();
 
-  const [page, setPage] = useState<NavPage>('collection');
+  const router = useAppRouter();
+  const page = router.location.page;
   const discogsSearchRef = useRef<DiscogsSearchBarHandle>(null);
-  const [addOpen, setAddOpen] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanAddHit, setScanAddHit] = useState<DiscogsSearchHit | null>(null);
   const [scanAddRelease, setScanAddRelease] = useState<DiscogsReleaseDetail | null>(null);
@@ -114,7 +139,10 @@ function App() {
   );
   const [nowPlaying, setNowPlaying] = useState<PlaySelection | null>(null);
   const [playQueue, setPlayQueue] = useState<PlaySelection[]>([]);
-  const sessionCrate = useSessionCrate(records);
+  const preview = useTrackPreview();
+  const playHydratedRef = useRef<string | null>(null);
+  const queueHydratedRef = useRef(false);
+  const releaseRouteRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!detail) return;
@@ -125,12 +153,18 @@ function App() {
   const playAnchor = useMemo(() => {
     const explicit = resolvePlaySelection(records, nowPlaying);
     if (explicit) return explicit;
+
+    if (router.location.page === 'play') {
+      const routed = resolvePlaySelection(records, router.location.playSelection);
+      if (routed) return routed;
+    }
+
     const recent = getLastPlayed(records);
     if (!recent) return null;
     const track = getPrimaryTrack(recent);
     if (!track) return null;
     return { record: recent, track };
-  }, [records, nowPlaying]);
+  }, [records, nowPlaying, router.location.page, router.location.playSelection]);
 
   const resolvedQueue = useMemo(
     () => resolvePlayQueue(records, playQueue),
@@ -242,15 +276,7 @@ function App() {
     [records]
   );
 
-  const availableGenres = useMemo(() => {
-    const set = new Set<string>();
-    records.forEach((r) => {
-      r.genres.forEach((g) => {
-        parseFilterList(g).forEach((genre) => set.add(genre));
-      });
-    });
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [records]);
+  const availableGenres = useMemo(() => collectGroupedGenreOptions(records), [records]);
 
   const filtered = useMemo(() => {
     const q = collectionFilters.query.toLowerCase().trim();
@@ -259,7 +285,7 @@ function App() {
         return false;
       }
       if (collectionFilters.format && r.format !== collectionFilters.format) return false;
-      if (collectionFilters.genre && !recordHasGenre(r, collectionFilters.genre)) {
+      if (collectionFilters.genre && !recordMatchesGroupedGenre(r, collectionFilters.genre)) {
         return false;
       }
       if (collectionFilters.condition && r.condition !== collectionFilters.condition) {
@@ -280,6 +306,7 @@ function App() {
         const hasKey = r.tracks.some((t) => resolveTrackCamelot(t).code === key);
         if (!hasKey) return false;
       }
+      if (!recordMatchesCutRatingFilter(r, collectionFilters.cutRating)) return false;
       return true;
     });
   }, [records, collectionFilters]);
@@ -294,6 +321,8 @@ function App() {
       fast: '130+',
     };
 
+    const collectionName = collectionDisplayName(user?.email);
+
     setExportingPdf(true);
     const preparing = toast.loading('Preparing your catalog…', {
       description: 'Loading artwork and layout',
@@ -302,7 +331,7 @@ function App() {
       await exportCollectionToPdf({
         records: filtered,
         totalInCollection: records.length,
-        collectionName: 'Jools Collection',
+        collectionName,
         curatorName: user?.email?.split('@')[0],
         filterNote: buildCollectionFilterNote(
           collectionFilters,
@@ -319,7 +348,7 @@ function App() {
         filtered.length === records.length
           ? `${filtered.length} release${filtered.length === 1 ? '' : 's'}`
           : `${filtered.length} of ${records.length} releases`;
-      toast.success('Jools Collection PDF ready', {
+      toast.success(`${collectionName} PDF ready`, {
         description: `Your catalog with ${scope} is downloaded.`,
       });
     } catch (err) {
@@ -335,30 +364,174 @@ function App() {
   useEffect(() => {
     if (user && !hadUserRef.current) {
       hadUserRef.current = true;
-      setPage('collection');
       if (!settings.onboardingComplete) {
         updateSettings({ onboardingComplete: true });
       }
     }
     if (!user) {
       hadUserRef.current = false;
+      playHydratedRef.current = null;
+      queueHydratedRef.current = false;
     }
   }, [user, settings.onboardingComplete, updateSettings]);
 
+  useEffect(() => {
+    if (collectionLoading) return;
+    if (!queueHydratedRef.current) {
+      queueHydratedRef.current = true;
+      const restored = loadPlayQueue();
+      if (restored.length > 0) {
+        setPlayQueue(restored);
+      }
+    }
+  }, [collectionLoading]);
+
+  useEffect(() => {
+    if (!queueHydratedRef.current) return;
+    savePlayQueue(playQueue);
+  }, [playQueue]);
+
+  useEffect(() => {
+    if (authLoading || collectionLoading || !collectionHydrated) return;
+    if (router.location.page !== 'play') return;
+
+    let routePlay = router.location.playSelection;
+    if (!routePlay) {
+      const stored = loadNowPlaying();
+      if (!stored) return;
+      const targetHref = buildAppHref(locationForPage('play', { playSelection: stored }));
+      if (currentAppHref() !== targetHref) {
+        router.goToPlay(stored, { replace: true });
+        return;
+      }
+      routePlay = stored;
+    }
+
+    const key = playSelectionKey(routePlay);
+    if (playHydratedRef.current === key) return;
+
+    const resolved = resolvePlaySelection(records, routePlay);
+    if (!resolved) {
+      playHydratedRef.current = null;
+      saveNowPlaying(null);
+      setNowPlaying(null);
+      toast.error('Track not found in your collection', {
+        description: 'That link may be outdated or the release was removed.',
+      });
+      router.goToPlay(null, { replace: true });
+      return;
+    }
+
+    playHydratedRef.current = key;
+    setNowPlaying(routePlay);
+    saveNowPlaying(routePlay);
+    const autoStart = !isIOSDevice();
+    void preview.load(resolved.record, resolved.track, autoStart, autoStart);
+  }, [
+    authLoading,
+    collectionHydrated,
+    collectionLoading,
+    records,
+    router.location.page,
+    router.location.playSelection,
+    router.goToPlay,
+    preview.load,
+  ]);
+
+  useEffect(() => {
+    if (collectionLoading) return;
+
+    const releaseId = router.location.releaseId;
+    if (!releaseId) {
+      releaseRouteRef.current = null;
+      setDetail(null);
+      setDetailEditOnOpen(false);
+      return;
+    }
+
+    const record = records.find((r) => r.id === releaseId);
+    if (!record) {
+      router.closeRelease();
+      return;
+    }
+
+    if (releaseRouteRef.current !== releaseId) {
+      releaseRouteRef.current = releaseId;
+      setDetailSession((n) => n + 1);
+    }
+    setDetailEditOnOpen(router.location.releaseEdit);
+    setDetail(record);
+  }, [
+    collectionLoading,
+    records,
+    router.location.releaseId,
+    router.location.releaseEdit,
+    router.closeRelease,
+  ]);
+
+  useEffect(() => {
+    if (collectionLoading) return;
+
+    const resolved = router.location.playSelection
+      ? resolvePlaySelection(records, router.location.playSelection)
+      : null;
+
+    if (resolved) {
+      document.title = playDocumentTitle(
+        resolved.record.artist,
+        resolved.track.title,
+        resolved.record.title
+      );
+      return;
+    }
+
+    document.title = pageDocumentTitle(router.location.page);
+  }, [
+    collectionLoading,
+    records,
+    router.location.page,
+    router.location.playSelection,
+  ]);
+
   const handlePlayNow = useCallback(
     (record: VinylRecord, track: Track) => {
+      const autoStart = !isIOSDevice();
+      void preview.load(record, track, autoStart, autoStart);
       const ref: PlaySelection = { recordId: record.id, trackId: track.id };
+      playHydratedRef.current = playSelectionKey(ref);
       setNowPlaying(ref);
+      saveNowPlaying(ref);
       markPlayed(record.id);
       setPlayQueue((q) => q.filter((item) => !isSamePlaySelection(item, ref)));
-      setPage('play');
+      router.goToPlay(ref);
       const idx = record.tracks.findIndex((t) => t.id === track.id);
       toast.success(`Now playing: ${track.title}`, {
         description: `${trackPositionLabel(track, idx >= 0 ? idx : 0)} · ${record.artist}`,
       });
     },
-    [markPlayed]
+    [markPlayed, preview, router]
   );
+
+  useEffect(() => {
+    if (nowPlaying) return;
+
+    const pendingRoute =
+      router.location.page === 'play'
+        ? router.location.playSelection ?? loadNowPlaying()
+        : null;
+
+    if (pendingRoute) {
+      const key = playSelectionKey(pendingRoute);
+      if (playHydratedRef.current !== key) return;
+    }
+
+    preview.reset();
+  }, [
+    nowPlaying,
+    preview.reset,
+    router.location.page,
+    router.location.playSelection,
+  ]);
 
   const handleApplyInsightFilter = useCallback((patch: InsightFilterAction) => {
     setCollectionFilters((prev) => ({ ...prev, ...patch }));
@@ -402,82 +575,21 @@ function App() {
         return [...q, ref];
       });
       if (added) {
-        toast.success('Added to queue', {
+        toast.success('Added to set', {
           description: `${track.title} · ${record.artist}`,
         });
       } else {
-        toast.message('Already in queue', { description: track.title });
+        toast.message('Already in set', { description: track.title });
       }
     },
     [nowPlaying]
   );
 
-  const handleAddToCrate = useCallback(
-    (record: VinylRecord, track: Track) => {
-      if (sessionCrate.isInCrate(record.id, track.id)) {
-        toast.message('Already in crate', { description: track.title });
-        return;
-      }
-      if (sessionCrate.isFull) {
-        toast.error('Crate is full', {
-          description: `Tonight's crate holds up to ${SESSION_CRATE_MAX} tracks.`,
-        });
-        return;
-      }
-      if (sessionCrate.add(record, track)) {
-        toast.success('Added to tonight\'s crate', {
-          description: `${track.title} · ${record.artist}`,
-        });
-      }
-    },
-    [sessionCrate]
-  );
-
-  const handleAddManyToCrate = useCallback(
-    (items: { record: VinylRecord; track: Track }[], label?: string) => {
-      if (items.length === 0) return;
-      const added = sessionCrate.addMany(items);
-      if (added > 0) {
-        toast.success(label ?? `Added ${added} to tonight's crate`, {
-          description:
-            added < items.length
-              ? `Crate full — ${items.length - added} skipped`
-              : 'Open Play to review your set.',
-        });
-      } else if (sessionCrate.isFull) {
-        toast.error('Crate is full', {
-          description: `Tonight's crate holds up to ${SESSION_CRATE_MAX} tracks.`,
-        });
-      } else {
-        toast.message('Already in crate', {
-          description: 'Those tracks are already in tonight\'s crate.',
-        });
-      }
-    },
-    [sessionCrate]
-  );
-
-  const handleLoadCrateToQueue = useCallback(() => {
-    const items = sessionCrate.resolved;
-    if (items.length === 0) return;
-
-    const refs = items.map((item) => ({
-      recordId: item.record.id,
-      trackId: item.track.id,
-    }));
-    const [, ...rest] = refs;
-    setPlayQueue(rest);
-    const opener = items[0];
-    handlePlayNow(opener.record, opener.track);
-    toast.success('Crate loaded', {
-      description: `${items.length} track${items.length === 1 ? '' : 's'} ready to spin.`,
-    });
-  }, [sessionCrate.resolved, handlePlayNow]);
-
   const handleCloseRecordDetail = useCallback(() => {
+    router.closeRelease();
     setDetail(null);
     setDetailEditOnOpen(false);
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     setRecordDetailController({
@@ -485,14 +597,12 @@ function App() {
         setScanAddOpen(false);
         setScanAddHit(null);
         setScanAddRelease(null);
-        setDetailSession((n) => n + 1);
-        setDetailEditOnOpen(initialEditing);
-        setDetail(record);
+        router.openRelease(record.id, initialEditing);
       },
       close: handleCloseRecordDetail,
     });
     return () => setRecordDetailController(null);
-  }, [handleCloseRecordDetail]);
+  }, [handleCloseRecordDetail, router]);
 
   const handleEnrichRelease = async (recordId: string) => {
     const before = records.find((r) => r.id === recordId);
@@ -534,20 +644,44 @@ function App() {
     [enrichReleaseInCollection]
   );
 
-  const handleAddRecord = useCallback(() => {
-    setPage('collection');
+  const handleDiscoverAdd = useCallback(
+    (payload: DiscoverAddPayload) => {
+      const added = addRecord(payload.record);
+      if (!added) return null;
 
-    const activateHeroDiscogsSearch = () => {
-      document.getElementById('collection-hero')?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
+      enqueueReleaseEnrichment(added);
+
+      const track = added.tracks[payload.trackIndex] ?? getPrimaryTrack(added);
+      if (!track) return added;
+
+      if (payload.intent === 'spin') {
+        handlePlayNow(added, track);
+        return added;
+      }
+
+      toast.success('Added to your crate', {
+        description: `${added.artist} — ${added.title}`,
+        action: {
+          label: 'Load on deck',
+          onClick: () => handlePlayNow(added, track),
+        },
       });
-      window.setTimeout(() => discogsSearchRef.current?.focus(), 400);
-    };
+      return added;
+    },
+    [addRecord, enqueueReleaseEnrichment, handlePlayNow]
+  );
 
-    requestAnimationFrame(() => {
-      requestAnimationFrame(activateHeroDiscogsSearch);
-    });
+  const handleNavigate = useCallback(
+    (nextPage: typeof page) => {
+      const playSelection =
+        nextPage === 'play' && nowPlaying ? nowPlaying : router.location.playSelection;
+      router.goToPage(nextPage, playSelection);
+    },
+    [nowPlaying, router]
+  );
+
+  const handleAddRecord = useCallback(() => {
+    discogsSearchRef.current?.focus();
   }, []);
 
   const toggleLabel = (id: string) => {
@@ -611,10 +745,21 @@ function App() {
       />
       <Navigation
         page={page}
-        onNavigate={setPage}
+        onNavigate={handleNavigate}
         recordCount={records.length}
+        playSelection={nowPlaying ?? router.location.playSelection}
         onScan={() => setScanOpen(true)}
         onAddRecord={handleAddRecord}
+        searchSlot={
+          <DiscogsSearchBar
+            ref={discogsSearchRef}
+            variant="nav"
+            onAdd={handleDiscoverAdd}
+            onDiscogsImport={() => setDiscogsImportOpen(true)}
+            collectionDiscogsIds={discogsIds}
+            inputId="app-discogs-search-input"
+          />
+        }
       />
 
       <main
@@ -638,20 +783,7 @@ function App() {
               transition={{ duration: 0.15 }}
               className="collection-page"
             >
-              <CollectionHero
-                recordCount={records.length}
-                collectionDiscogsIds={discogsIds}
-                searchRef={discogsSearchRef}
-                onDiscogsImport={() => setDiscogsImportOpen(true)}
-                onAdd={(r) => {
-                  const added = addRecord(r);
-                  if (!added) return;
-                  toast.success('Added to your crate', {
-                    description: `${r.artist} — ${r.title}`,
-                  });
-                  enqueueReleaseEnrichment(added);
-                }}
-              />
+              <CollectionHero recordCount={records.length} />
 
               <section id="collection-main" className="collection-main">
                 <CollectionFilters
@@ -675,7 +807,7 @@ function App() {
                   discogsLinkedCount={discogsLinkedCount}
                   onExportPdf={() => void handleExportPdf()}
                   exportingPdf={exportingPdf}
-                  onOpenInsights={() => setPage('insights')}
+                  onOpenInsights={() => router.goToPage('insights')}
                 />
 
                 {records.length === 0 ? (
@@ -700,6 +832,15 @@ function App() {
                     onPlayNow={handlePlayNow}
                     onAddToQueue={handleAddToQueue}
                     onEnrichRelease={handleEnrichRelease}
+                    onSaveCutRating={(recordId, trackId, rating: CutRating | undefined) => {
+                      updateRecord(
+                        recordId,
+                        (record) => ({
+                          tracks: patchTrack(record, trackId, { cutRating: rating }).tracks,
+                        }),
+                        { persistImmediately: true }
+                      );
+                    }}
                     onDelete={(id) => {
                       removeRecord(id);
                       if (detail?.id === id) closeRecordDetail();
@@ -709,7 +850,10 @@ function App() {
                 ) : (
                   <GridView
                     records={filtered}
-                    onPlay={(record) => markPlayed(record.id)}
+                    onPlay={(record) => {
+                      const track = getPrimaryTrack(record);
+                      if (track) handlePlayNow(record, track);
+                    }}
                   />
                 )}
               </section>
@@ -726,14 +870,13 @@ function App() {
               <InsightsDashboard
                 records={records}
                 onApplyFilter={handleApplyInsightFilter}
-                onOpenCollection={() => setPage('collection')}
+                onOpenCollection={() => router.goToPage('collection')}
                 onEnrichTracklists={() => setEnrichTracklistsOpen(true)}
                 onEnrichMetadata={() => setEnrichMetadataOpen(true)}
                 onPlayNow={handlePlayNow}
                 onAddToQueue={handleAddToQueue}
                 onQueueMany={handleQueueMany}
-                onAddToCrate={handleAddToCrate}
-                onAddManyToCrate={handleAddManyToCrate}
+
               />
             </motion.div>
           )}
@@ -748,25 +891,63 @@ function App() {
               <PlayNextPanel
                 collection={records}
                 nowPlaying={playAnchor}
+                preview={preview}
                 queue={resolvedQueue}
-                crateItems={sessionCrate.resolved}
-                crateKeyPath={sessionCrate.keyPath}
-                isInCrate={sessionCrate.isInCrate}
                 onPlayNow={handlePlayNow}
-                onAddToCrate={handleAddToCrate}
                 onSaveTapBpm={(recordId, trackId, bpm) => {
-                  updateRecord(recordId, (record) =>
-                    patchTrack(record, trackId, { bpm, bpmEstimated: false })
+                  updateRecord(
+                    recordId,
+                    (record) => ({
+                      tracks: patchTrack(record, trackId, {
+                        bpm,
+                        bpmEstimated: false,
+                        bpmTapped: true,
+                        bpmManual: false,
+                      }).tracks,
+                    }),
+                    { persistImmediately: true }
                   );
                   toast.success('BPM saved', {
-                    description: `${bpm} BPM — replaces estimate for this track`,
+                    description: `${bpm} BPM — tap locked for this track`,
                   });
                 }}
-                onRemoveFromCrate={sessionCrate.remove}
-                onMoveCrateUp={sessionCrate.moveUp}
-                onMoveCrateDown={sessionCrate.moveDown}
-                onClearCrate={sessionCrate.clear}
-                onLoadCrateToQueue={handleLoadCrateToQueue}
+                onSaveManualBpm={(recordId, trackId, bpm) => {
+                  updateRecord(
+                    recordId,
+                    (record) => ({
+                      tracks: patchTrack(record, trackId, {
+                        bpm,
+                        bpmEstimated: false,
+                        bpmTapped: false,
+                        bpmManual: true,
+                      }).tracks,
+                    }),
+                    { persistImmediately: true }
+                  );
+                  toast.success('BPM set', {
+                    description: `${bpm} BPM — your entry is locked for this track`,
+                  });
+                }}
+                onSaveCutRating={(recordId, trackId, rating) => {
+                  updateRecord(
+                    recordId,
+                    (record) => ({
+                      tracks: patchTrack(record, trackId, { cutRating: rating }).tracks,
+                    }),
+                    { persistImmediately: true }
+                  );
+                  if (rating) {
+                    toast.success('Rating saved', {
+                      description: CUT_RATING_LABELS[rating],
+                    });
+                  }
+                }}
+                onEnrichRelease={
+                  playAnchor ? () => handleEnrichRelease(playAnchor.record.id) : undefined
+                }
+                enrichingRelease={
+                  Boolean(playAnchor) && liveEnrich?.recordId === playAnchor?.record.id
+                }
               />
             </motion.div>
           )}
@@ -821,25 +1002,11 @@ function App() {
           setScanAddHit(null);
           setScanAddRelease(null);
         }}
-        onSave={(r) => {
-          const added = addRecord(r);
+        onSave={(record, meta) => {
+          handleDiscoverAdd({ record, ...meta });
           setScanAddOpen(false);
           setScanAddHit(null);
           setScanAddRelease(null);
-          if (!added) return;
-          toast.success('Added to your crate', {
-            description: `${r.artist} — ${r.title}`,
-          });
-          enqueueReleaseEnrichment(added);
-        }}
-      />
-
-      <AddRecordModal
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        onSave={(r) => {
-          addRecord(r);
-          toast.success('Added to collection');
         }}
       />
 
@@ -853,7 +1020,7 @@ function App() {
         initialEditing={detailEditOnOpen}
         onClose={handleCloseRecordDetail}
         onUpdate={(id, patch) => {
-          updateRecord(id, patch);
+          updateRecord(id, patch, { persistImmediately: true });
           const label = detail;
           toast.success('Record updated', {
             description: label ? `${label.artist} — ${label.title}` : undefined,
@@ -893,7 +1060,11 @@ function App() {
           const removed = clearCollection(mode);
           closeRecordDetail();
           setPlayQueue([]);
+          clearPlayQueueStorage();
+          clearNowPlayingStorage();
           setNowPlaying(null);
+          playHydratedRef.current = null;
+          router.goToPage('collection');
           if (removed > 0) {
             toast.success(
               removed === 1 ? '1 record removed' : `${removed} records removed`,

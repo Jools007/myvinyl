@@ -6,7 +6,8 @@ import { resolveTrackCamelot } from '../lib/camelot';
 import { getPrimaryTrack, isReleaseFullyEnriched } from '../lib/tracks';
 import type { LiveEnrichState } from '../hooks/useCollection';
 import { openRecordDetail } from '../lib/recordDetail';
-import type { Track, VinylRecord } from '../lib/types';
+import type { CutRating, Track, VinylRecord } from '../lib/types';
+import { CutRatingControl } from './play/CutRatingControl';
 import { RecordArtworkButton } from './RecordArtworkButton';
 
 interface CollectionListViewProps {
@@ -16,6 +17,7 @@ interface CollectionListViewProps {
   onAddToQueue: (record: VinylRecord, track: Track) => void;
   onDelete: (id: string) => void;
   onEnrichRelease: (recordId: string) => Promise<void>;
+  onSaveCutRating?: (recordId: string, trackId: string, rating: CutRating | undefined) => void;
 }
 
 const headerLabelClass =
@@ -134,12 +136,21 @@ function BpmDisplay({ track }: { track: Track | null | undefined }) {
   if (track?.bpm == null) {
     return <span className="text-[var(--text-muted)]">—</span>;
   }
+  const estimated = track.bpmEstimated && !track.bpmTapped && !track.bpmManual;
   return (
     <span
-      className={`tabular-nums font-medium text-[var(--text)] ${track.bpmEstimated ? 'opacity-75' : ''}`}
-      title={track.bpmEstimated ? 'Estimated BPM' : undefined}
+      className={`tabular-nums font-medium text-[var(--text)] ${estimated ? 'opacity-75' : ''}`}
+      title={
+        track.bpmManual
+          ? 'Your BPM'
+          : track.bpmTapped
+            ? 'Tapped BPM'
+            : estimated
+              ? 'Estimated BPM'
+              : undefined
+      }
     >
-      {track.bpmEstimated ? '~' : ''}
+      {estimated ? '~' : ''}
       {track.bpm}
     </span>
   );
@@ -169,16 +180,17 @@ function MobileRecordMeta({ record }: { record: VinylRecord }) {
   const track = getPrimaryTrack(record);
   const hasBpm = track?.bpm != null;
   const hasKey = !!track?.camelotKey;
+  const hasCut = track?.cutRating != null;
   const vibes = (track?.vibeTags ?? []).slice(0, 2);
 
-  if (!hasBpm && !hasKey && vibes.length === 0) return null;
+  if (!hasBpm && !hasKey && !hasCut && vibes.length === 0) return null;
 
   return (
     <div className="collection-list-mobile-meta sm:hidden">
       <span className="collection-list-tag-slot collection-list-tag-slot--bpm">
         {hasBpm ? (
           <ListTag variant="default" compact>
-            {track?.bpmEstimated ? '~' : ''}
+            {track?.bpmEstimated && !track?.bpmTapped && !track?.bpmManual ? '~' : ''}
             {track?.bpm} BPM
           </ListTag>
         ) : null}
@@ -189,6 +201,9 @@ function MobileRecordMeta({ record }: { record: VinylRecord }) {
             {track?.camelotKey}
           </ListTag>
         ) : null}
+      </span>
+      <span className="collection-list-tag-slot collection-list-tag-slot--cut">
+        {hasCut ? <CutRatingControl rating={track?.cutRating} size="xs" readonly /> : null}
       </span>
       <span className="collection-list-tag-slot collection-list-tag-slot--vibe">
         {vibes.map((t) => (
@@ -213,6 +228,9 @@ function RecordMetaFields({ record }: { record: VinylRecord }) {
       </MetaCell>
       <MetaCell label="Key" mixCol>
         <CamelotBadge track={track} />
+      </MetaCell>
+      <MetaCell label="Rating" mixCol>
+        <CutRatingControl rating={track?.cutRating} size="xs" readonly />
       </MetaCell>
       <MetaCell label="Vibe" vibeCol>
         {(track?.vibeTags?.length ?? 0) > 0 ? (
@@ -302,6 +320,9 @@ function CollectionListHeader() {
       <span className={`${headerLabelClass} collection-list-cell collection-list-mix-col`}>
         Key
       </span>
+      <span className={`${headerLabelClass} collection-list-cell collection-list-mix-col`}>
+        Rating
+      </span>
       <span className={`${headerLabelClass} collection-list-cell collection-list-vibe-col`}>
         Vibe
       </span>
@@ -322,6 +343,9 @@ function TracklistSubheader() {
       </span>
       <span className={`${headerLabelClass} collection-list-cell collection-list-mix-col`}>
         Key
+      </span>
+      <span className={`${headerLabelClass} collection-list-cell collection-list-mix-col`}>
+        Rating
       </span>
       <span className={`${headerLabelClass} collection-list-cell collection-list-vibe-col`}>
         Vibe
@@ -386,6 +410,7 @@ function TrackListRow({
   enriching,
   onPlayNow,
   onAddToQueue,
+  onSaveCutRating,
   stopRow,
 }: {
   track: Track;
@@ -393,6 +418,7 @@ function TrackListRow({
   enriching?: boolean;
   onPlayNow: () => void;
   onAddToQueue: () => void;
+  onSaveCutRating?: (rating: CutRating | undefined) => void;
   stopRow: (e: MouseEvent | PointerEvent) => void;
 }) {
   const vibes = (track.vibeTags ?? []).slice(0, 3);
@@ -431,7 +457,7 @@ function TrackListRow({
             <span className="collection-list-tag-slot collection-list-tag-slot--bpm">
               {track.bpm != null ? (
                 <ListTag variant="default" compact>
-                  {track.bpmEstimated ? '~' : ''}
+                  {track.bpmEstimated && !track.bpmTapped ? '~' : ''}
                   {track.bpm}
                 </ListTag>
               ) : null}
@@ -442,6 +468,17 @@ function TrackListRow({
                   {resolveTrackCamelot(track).code}
                 </ListTag>
               ) : null}
+            </span>
+            <span className="collection-list-tag-slot collection-list-tag-slot--rating">
+              {onSaveCutRating ? (
+                <CutRatingControl
+                  rating={track.cutRating}
+                  size="xs"
+                  onChange={onSaveCutRating}
+                />
+              ) : (
+                <CutRatingControl rating={track.cutRating} size="xs" readonly />
+              )}
             </span>
             <span className="collection-list-tag-slot collection-list-tag-slot--vibe">
               {vibes.map((t) => (
@@ -475,6 +512,17 @@ function TrackListRow({
         </MetaCell>
         <MetaCell label="Key" mixCol>
           <CamelotBadge track={track} />
+        </MetaCell>
+        <MetaCell label="Rating" mixCol>
+          {onSaveCutRating ? (
+            <CutRatingControl
+              rating={track.cutRating}
+              size="xs"
+              onChange={onSaveCutRating}
+            />
+          ) : (
+            <CutRatingControl rating={track.cutRating} size="xs" readonly />
+          )}
         </MetaCell>
         <MetaCell label="Vibe" vibeCol>
           {vibes.length > 0 ? (
@@ -760,6 +808,7 @@ export function CollectionListView({
   onAddToQueue,
   onDelete,
   onEnrichRelease,
+  onSaveCutRating,
 }: CollectionListViewProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [enrichingId, setEnrichingId] = useState<string | null>(null);
@@ -849,6 +898,11 @@ export function CollectionListView({
                       stopRow={stopRow}
                       onPlayNow={() => onPlayNow(record, track)}
                       onAddToQueue={() => onAddToQueue(record, track)}
+                      onSaveCutRating={
+                        onSaveCutRating
+                          ? (rating) => onSaveCutRating(record.id, track.id, rating)
+                          : undefined
+                      }
                     />
                   ))}
                 </motion.div>

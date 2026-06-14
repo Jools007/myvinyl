@@ -1,5 +1,40 @@
 // Bundled for Vercel — edit scripts/api-entries/album-info.entry.ts and npm run build
 
+// api/_lib/discogs/barcode.ts
+function digitsOnly(raw) {
+  return raw.replace(/\D/g, "");
+}
+function formatUpcAForDiscogs(digits) {
+  if (digits.length !== 12) return null;
+  return `${digits[0]} ${digits.slice(1, 6)} ${digits.slice(6, 11)} ${digits[11]}`;
+}
+function barcodeLookupVariants(raw) {
+  const trimmed = raw.trim();
+  const digits = digitsOnly(trimmed);
+  const variants = [];
+  const push = (value) => {
+    const v = value.trim();
+    if (v && !variants.includes(v)) variants.push(v);
+  };
+  if (trimmed) push(trimmed);
+  if (digits) push(digits);
+  if (digits.length === 12) {
+    push(`0${digits}`);
+    const spaced = formatUpcAForDiscogs(digits);
+    if (spaced) push(spaced);
+  }
+  if (digits.length === 13 && digits.startsWith("0")) {
+    push(digits.slice(1));
+    const inner = digits.slice(1);
+    if (inner.length === 12) {
+      const spaced = formatUpcAForDiscogs(inner);
+      if (spaced) push(spaced);
+    }
+  }
+  if (digits.length === 8) push(digits);
+  return variants;
+}
+
 // api/_lib/discogs/cover.ts
 var DISCOGS_IMAGE_HOSTS = /* @__PURE__ */ new Set(["i.discogs.com", "img.discogs.com"]);
 var PROXY_IMAGE_PATH = /\/api\/image\b/i;
@@ -102,7 +137,7 @@ async function searchDiscogs(token, q, page = 1, perPage = 24) {
   }
   return res.json();
 }
-async function searchDiscogsByBarcode(token, barcode, perPage = 5) {
+async function searchDiscogsByBarcodeOnce(token, barcode, perPage) {
   const params = new URLSearchParams({
     barcode,
     type: "release",
@@ -116,6 +151,16 @@ async function searchDiscogsByBarcode(token, barcode, perPage = 5) {
     throw new Error(`Discogs barcode search failed: ${res.status} ${text}`);
   }
   return res.json();
+}
+async function searchDiscogsByBarcode(token, barcode, perPage = 5) {
+  const variants = barcodeLookupVariants(barcode);
+  let last = { results: [] };
+  for (const variant of variants) {
+    const data = await searchDiscogsByBarcodeOnce(token, variant, perPage);
+    last = data;
+    if ((data.results?.length ?? 0) > 0) return data;
+  }
+  return last;
 }
 function parseSearchResult(item) {
   const title = String(item.title || "");

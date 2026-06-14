@@ -2,6 +2,35 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const DISCOGS_API = 'https://api.discogs.com';
 
+function barcodeLookupVariants(raw: string): string[] {
+  const trimmed = raw.trim();
+  const digits = trimmed.replace(/\D/g, '');
+  const variants: string[] = [];
+  const push = (value: string) => {
+    const v = value.trim();
+    if (v && !variants.includes(v)) variants.push(v);
+  };
+
+  if (trimmed) push(trimmed);
+  if (digits) push(digits);
+
+  if (digits.length === 12) {
+    push(`0${digits}`);
+    push(`${digits[0]} ${digits.slice(1, 6)} ${digits.slice(6, 11)} ${digits[11]}`);
+  }
+
+  if (digits.length === 13 && digits.startsWith('0')) {
+    push(digits.slice(1));
+    const inner = digits.slice(1);
+    if (inner.length === 12) {
+      push(`${inner[0]} ${inner.slice(1, 6)} ${inner.slice(6, 11)} ${inner[11]}`);
+    }
+  }
+
+  if (digits.length === 8) push(digits);
+  return variants;
+}
+
 const WHEEL_NEIGHBORS: Record<string, string[]> = {
   '1A': ['12A', '2A', '1B'], '2A': ['1A', '3A', '2B'], '3A': ['2A', '4A', '3B'],
   '4A': ['3A', '5A', '4B'], '5A': ['4A', '6A', '5B'], '6A': ['5A', '7A', '6B'],
@@ -333,26 +362,39 @@ async function discogsSearch(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'q or barcode required' });
   }
 
-  const params = new URLSearchParams({
-    type: 'release',
-    per_page: String(perPage),
-    page: '1',
-  });
-  if (barcode?.trim()) params.set('barcode', barcode.trim());
-  else params.set('q', q!.trim());
+  const variants = barcode?.trim()
+    ? barcodeLookupVariants(barcode.trim())
+    : [q!.trim()];
 
-  const discogsRes = await fetch(`${DISCOGS_API}/database/search?${params}`, {
-    headers: discogsHeaders(token),
-  });
+  let lastResults: Record<string, unknown>[] = [];
 
-  if (!discogsRes.ok) {
-    const text = await discogsRes.text();
-    const status = discogsRes.status === 429 ? 429 : 502;
-    return res.status(status).json({ error: `Discogs search failed: ${discogsRes.status} ${text}` });
+  for (const variant of variants) {
+    const params = new URLSearchParams({
+      type: 'release',
+      per_page: String(perPage),
+      page: '1',
+    });
+    if (barcode?.trim()) params.set('barcode', variant);
+    else params.set('q', variant);
+
+    const discogsRes = await fetch(`${DISCOGS_API}/database/search?${params}`, {
+      headers: discogsHeaders(token),
+    });
+
+    if (!discogsRes.ok) {
+      const text = await discogsRes.text();
+      const status = discogsRes.status === 429 ? 429 : 502;
+      return res.status(status).json({ error: `Discogs search failed: ${discogsRes.status} ${text}` });
+    }
+
+    const data = (await discogsRes.json()) as { results?: Record<string, unknown>[] };
+    lastResults = data.results ?? [];
+    if (lastResults.length > 0) {
+      return res.status(200).json({ results: lastResults.map(parseSearchResult) });
+    }
   }
 
-  const data = (await discogsRes.json()) as { results?: Record<string, unknown>[] };
-  return res.status(200).json({ results: (data.results ?? []).map(parseSearchResult) });
+  return res.status(200).json({ results: lastResults.map(parseSearchResult) });
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

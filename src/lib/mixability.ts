@@ -80,7 +80,7 @@ export function classifyTrackMixability(
   let score = 55;
 
   if (track.isPrimary) score += 18;
-  if (track.bpm != null && !track.bpmEstimated) score += 12;
+  if (track.bpm != null && (track.bpmManual || track.bpmTapped || !track.bpmEstimated)) score += 12;
   if (resolveTrackCamelot(track).code && !track.keyEstimated) score += 8;
   if ((track.vibeTags?.length ?? 0) > 0) score += 4;
   if (secs != null && secs >= 240) score += 8;

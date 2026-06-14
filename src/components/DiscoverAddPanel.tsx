@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Disc3, Loader2, Plus, Sparkles, X } from 'lucide-react';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { Disc3, Loader2, Play, Plus, Sparkles, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ENRICHMENT_ESTIMATE_HINT,
@@ -11,14 +11,24 @@ import {
 import { AboutReleaseSection } from './AboutReleaseSection';
 import { resolveDiscogsCoverUrl } from '../lib/discogsCover';
 import { CAMELOT_KEYS } from '../lib/camelot';
-import { VIBE_TAG_SUGGESTIONS } from '../lib/vibes';
+import {
+  canonicalVibeTag,
+  MAX_VIBE_TAGS,
+  VIBE_TAG_SUGGESTIONS,
+  vibesFromEnrichment,
+} from '../lib/vibes';
 import {
   isCdFormat,
   pickVinylFormatFromDiscogs,
   sanitizeVinylFormat,
   VINYL_FORMATS,
 } from '../lib/formats';
-import { releaseFromDiscogsImport } from '../lib/tracks';
+import type { DiscoverAddIntent } from '../lib/discoverAdd';
+import {
+  isPlayableDiscogsTrack,
+  releaseFromDiscogsImport,
+  tracksFromDiscogsTracklist,
+} from '../lib/tracks';
 import type { DiscogsReleaseDetail } from '../lib/api';
 import type { DiscogsSearchHit, RecordCondition, VinylRecord } from '../lib/types';
 
@@ -30,7 +40,10 @@ interface DiscoverAddPanelProps {
   prefetchedRelease?: DiscogsReleaseDetail | null;
   open: boolean;
   onClose: () => void;
-  onSave?: (record: Omit<VinylRecord, 'id' | 'addedAt'>) => void;
+  onSave?: (
+    record: Omit<VinylRecord, 'id' | 'addedAt'>,
+    meta: { intent: DiscoverAddIntent; trackIndex: number }
+  ) => void;
 }
 
 function SectionLabel({ children }: { children: ReactNode }) {
@@ -43,15 +56,19 @@ function Chip({
   active,
   onClick,
   children,
+  disabled = false,
 }: {
   active: boolean;
   onClick: () => void;
   children: ReactNode;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
       className={`add-modal__chip ${active ? 'add-modal__chip--active' : ''}`}
     >
       {children}
@@ -82,7 +99,10 @@ export function DiscoverAddPanel({
   const [vibeTags, setVibeTags] = useState<string[]>([]);
   const [customVibe, setCustomVibe] = useState('');
   const [discogsDetail, setDiscogsDetail] = useState<DiscogsReleaseDetail | null>(null);
+  const [selectedTrackIndex, setSelectedTrackIndex] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [saveIntent, setSaveIntent] = useState<DiscoverAddIntent>('spin');
+  const vibesTouchedRef = useRef(false);
 
   const reset = useCallback(() => {
     setEnriching(false);
@@ -100,8 +120,22 @@ export function DiscoverAddPanel({
     setVibeTags([]);
     setCustomVibe('');
     setDiscogsDetail(null);
+    setSelectedTrackIndex(0);
     setSaving(false);
+    setSaveIntent('spin');
+    vibesTouchedRef.current = false;
   }, []);
+
+  const platterTracks = useMemo(() => {
+    const list = discogsDetail?.tracklist ?? prefetchedRelease?.tracklist ?? [];
+    return list.filter(isPlayableDiscogsTrack);
+  }, [discogsDetail, prefetchedRelease]);
+
+  useEffect(() => {
+    if (selectedTrackIndex >= platterTracks.length) {
+      setSelectedTrackIndex(0);
+    }
+  }, [platterTracks.length, selectedTrackIndex]);
 
   useEffect(() => {
     if (!open) {
@@ -121,6 +155,9 @@ export function DiscoverAddPanel({
     setGenres([...new Set([...(hit.genre ?? []), ...(hit.style ?? [])])].slice(0, 8));
 
     let cancelled = false;
+
+    setSelectedTrackIndex(0);
+    vibesTouchedRef.current = false;
 
     if (prefetchedRelease?.tracklist?.length) {
       setDiscogsDetail(prefetchedRelease);
@@ -162,7 +199,12 @@ export function DiscoverAddPanel({
         );
         setBpm(String(release.bpm ?? enriched.bpm ?? ''));
         setCamelotKey(release.camelotKey ?? enriched.camelotKey ?? '');
-        setVibeTags([...new Set(enriched.vibeTags)].slice(0, 6));
+        if (!vibesTouchedRef.current) {
+          const autoVibes = vibesFromEnrichment(enriched.vibeTags);
+          if (autoVibes.length > 0) {
+            setVibeTags(autoVibes);
+          }
+        }
         if (enriched.source === 'client' && (enriched.bpmEstimated || enriched.keyEstimated)) {
           setEnrichHint(ENRICHMENT_ESTIMATE_HINT);
         }
@@ -182,14 +224,19 @@ export function DiscoverAddPanel({
   }, [open, hit, prefetchedRelease, reset]);
 
   const toggleVibe = (tag: string) => {
+    const canonical = canonicalVibeTag(tag);
+    if (!canonical) return;
+    vibesTouchedRef.current = true;
     setVibeTags((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag].slice(0, 6)
+      prev.includes(canonical)
+        ? prev.filter((t) => t !== canonical)
+        : [...prev, canonical].slice(0, MAX_VIBE_TAGS)
     );
   };
 
   const canSave = Boolean(hit && artist.trim() && title.trim() && !saving && onSave);
 
-  const handleSave = async () => {
+  const handleSave = async (intent: DiscoverAddIntent) => {
     if (!canSave) return;
 
     if (!hit) return;
@@ -198,6 +245,7 @@ export function DiscoverAddPanel({
       return;
     }
 
+    setSaveIntent(intent);
     setSaving(true);
     setError('');
 
@@ -207,6 +255,15 @@ export function DiscoverAddPanel({
         discogsDetail ?? prefetchedRelease
       );
       setDiscogsDetail(releaseDetail);
+
+      const trackCount = tracksFromDiscogsTracklist(
+        releaseDetail.tracklist,
+        title.trim()
+      ).length;
+      const trackIndex = Math.min(
+        Math.max(selectedTrackIndex, 0),
+        Math.max(trackCount - 1, 0)
+      );
 
       const payload = releaseFromDiscogsImport(
         {
@@ -226,10 +283,11 @@ export function DiscoverAddPanel({
           vibeTags,
           bpm: bpm ? parseInt(bpm, 10) : undefined,
           camelotKey: camelotKey || undefined,
+          trackIndex,
         }
       );
 
-      onSave?.(payload);
+      onSave?.(payload, { intent, trackIndex });
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save record');
@@ -264,7 +322,7 @@ export function DiscoverAddPanel({
           >
             <header className="add-modal__header">
               <div>
-                <p className="add-modal__eyebrow">New record</p>
+                <p className="add-modal__eyebrow">Spin setup</p>
                 <h2 id="add-modal-title" className="add-modal__title">
                   Add to collection
                 </h2>
@@ -349,10 +407,7 @@ export function DiscoverAddPanel({
               <form
                 id="discover-add-form"
                 className="add-modal__form"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void handleSave();
-                }}
+                onSubmit={(e) => e.preventDefault()}
               >
                 <div className="add-modal__fields">
                   {error && (
@@ -364,7 +419,40 @@ export function DiscoverAddPanel({
                     <p className="text-xs text-amber-600 dark:text-amber-400">{enrichHint}</p>
                   ) : null}
 
-                  <p className="add-modal__form-intro">Crate details</p>
+                  <p className="add-modal__form-intro">
+                    Tag quickly — tap BPM on the deck while you spin.
+                  </p>
+
+                  {platterTracks.length > 1 ? (
+                    <fieldset className="add-modal__fieldset add-modal__fieldset--tracks">
+                      <SectionLabel>On the platter</SectionLabel>
+                      <p className="add-modal__track-hint">Which cut are you spinning?</p>
+                      <ul className="add-modal__track-list" role="listbox" aria-label="Track on platter">
+                        {platterTracks.map((item, index) => {
+                          const active = selectedTrackIndex === index;
+                          const position =
+                            item.position?.trim() || String(index + 1).padStart(2, '0');
+                          return (
+                            <li key={`${position}-${item.title}-${index}`}>
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={active}
+                                className={`add-modal__track-row${active ? ' add-modal__track-row--active' : ''}`}
+                                onClick={() => setSelectedTrackIndex(index)}
+                                disabled={saving}
+                              >
+                                <span className="add-modal__track-pos font-mono tabular-nums">
+                                  {position}
+                                </span>
+                                <span className="add-modal__track-title">{item.title}</span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </fieldset>
+                  ) : null}
 
                   <div className="add-modal__form-grid">
                     <fieldset className="add-modal__fieldset add-modal__fieldset--pair">
@@ -390,7 +478,7 @@ export function DiscoverAddPanel({
                     </fieldset>
 
                     <fieldset className="add-modal__fieldset add-modal__fieldset--mix">
-                      <SectionLabel>Mix data</SectionLabel>
+                      <SectionLabel>Mix data (optional)</SectionLabel>
                       <div className="add-modal__mix-row">
                         <div className="add-modal__field-narrow">
                           <label className="add-modal__field-label">BPM</label>
@@ -432,19 +520,24 @@ export function DiscoverAddPanel({
 
                     <fieldset className="add-modal__fieldset add-modal__fieldset--vibes">
                       <SectionLabel>Vibes</SectionLabel>
+                      <p className="add-modal__track-hint">
+                        Genre & mood — pick up to {MAX_VIBE_TAGS}.
+                      </p>
                       <div className="add-modal__chips add-modal__chips--vibes">
-                        {VIBE_TAG_SUGGESTIONS.map((t) => (
-                          <button
-                            key={t}
-                            type="button"
-                            onClick={() => toggleVibe(t)}
-                            className={`tag-pill cursor-pointer text-[10px] ${
-                              vibeTags.includes(t) ? 'tag-pill--accent' : ''
-                            }`}
-                          >
-                            {t}
-                          </button>
-                        ))}
+                        {VIBE_TAG_SUGGESTIONS.map((t) => {
+                          const active = vibeTags.includes(t);
+                          const atLimit = !active && vibeTags.length >= MAX_VIBE_TAGS;
+                          return (
+                            <Chip
+                              key={t}
+                              active={active}
+                              disabled={saving || atLimit}
+                              onClick={() => toggleVibe(t)}
+                            >
+                              {t}
+                            </Chip>
+                          );
+                        })}
                       </div>
                       <input
                         className="input-field add-modal__vibe-input"
@@ -480,24 +573,44 @@ export function DiscoverAddPanel({
               <button type="button" onClick={onClose} className="btn-ghost add-modal__cancel">
                 Cancel
               </button>
-              <button
-                type="submit"
-                form="discover-add-form"
-                disabled={!canSave}
-                className="btn-primary add-modal__submit"
-              >
-                {saving ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Adding…
-                  </>
-                ) : (
-                  <>
-                    <Plus className="h-3.5 w-3.5" strokeWidth={2.25} />
-                    Add to collection
-                  </>
-                )}
-              </button>
+              <div className="add-modal__footer-actions">
+                <button
+                  type="button"
+                  disabled={!canSave}
+                  className="btn-ghost add-modal__save-later"
+                  onClick={() => void handleSave('save')}
+                >
+                  {saving && saveIntent === 'save' ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Saving…
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="h-3.5 w-3.5" strokeWidth={2.25} />
+                      Save for later
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  disabled={!canSave}
+                  className="btn-primary add-modal__submit add-modal__submit--spin"
+                  onClick={() => void handleSave('spin')}
+                >
+                  {saving && saveIntent === 'spin' ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Loading deck…
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-3.5 w-3.5" strokeWidth={2.25} fill="currentColor" />
+                      Load on deck
+                    </>
+                  )}
+                </button>
+              </div>
             </footer>
           </motion.div>
         </motion.div>

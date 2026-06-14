@@ -15,7 +15,8 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import { searchDiscogs } from '../lib/api';
 import { resolveDiscogsCoverUrl } from '../lib/discogsCover';
 import { pickVinylFormatFromDiscogs } from '../lib/formats';
-import type { DiscogsSearchHit, VinylRecord } from '../lib/types';
+import type { DiscoverAddPayload } from '../lib/discoverAdd';
+import type { DiscogsSearchHit } from '../lib/types';
 import { DiscoverAddPanel } from './DiscoverAddPanel';
 
 const TYPEAHEAD_LIMIT = 10;
@@ -25,10 +26,10 @@ export type DiscogsSearchBarHandle = {
 };
 
 export interface DiscogsSearchBarProps {
-  onAdd: (record: Omit<VinylRecord, 'id' | 'addedAt'>) => void;
+  onAdd: (payload: DiscoverAddPayload) => void;
   collectionDiscogsIds?: number[];
-  /** hero = on hero image; floating = fixed add-record bar; default = standalone */
-  variant?: 'hero' | 'floating' | 'default';
+  /** hero = on hero image; nav = app header; floating = fixed add-record bar; default = standalone */
+  variant?: 'hero' | 'nav' | 'floating' | 'default';
   inputId?: string;
   onPanelOpenChange?: (open: boolean) => void;
   /** Hero only — opens bulk Discogs collection import */
@@ -96,8 +97,9 @@ export const DiscogsSearchBar = forwardRef<DiscogsSearchBarHandle, DiscogsSearch
     const hasQuery = query.trim().length >= 2;
     const showDropdown = focused && hasQuery;
     const isHero = variant === 'hero';
+    const isNav = variant === 'nav';
     const isFloating = variant === 'floating';
-    const usePortal = isHero || isFloating;
+    const usePortal = isHero || isNav || isFloating;
 
     const updateDropdownPosition = useCallback(() => {
       const wrap = wrapRef.current;
@@ -313,16 +315,20 @@ export const DiscogsSearchBar = forwardRef<DiscogsSearchBarHandle, DiscogsSearch
           className={`discover-search-wrap relative text-left ${
             isHero
               ? 'collection-hero-search'
-              : isFloating
-                ? 'collection-discogs-floating-search'
-                : 'mx-auto max-w-2xl'
+              : isNav
+                ? 'app-nav-discogs-search'
+                : isFloating
+                  ? 'collection-discogs-floating-search'
+                  : 'mx-auto max-w-2xl'
           }${showDropdown && isMobile ? ' discover-search-wrap--dropdown-open' : ''}`}
         >
           <Search
             className={`pointer-events-none absolute top-1/2 z-10 -translate-y-1/2 text-[var(--text-muted)] ${
-              isHero || isFloating
-                ? 'left-3.5 h-4 w-4 sm:left-4'
-                : 'left-4 h-5 w-5 sm:left-5'
+              isNav
+                ? 'left-3 h-3.5 w-3.5 sm:left-3.5 sm:h-4 sm:w-4'
+                : isHero || isFloating
+                  ? 'left-3.5 h-4 w-4 sm:left-4'
+                  : 'left-4 h-5 w-5 sm:left-5'
             }`}
             aria-hidden
           />
@@ -333,10 +339,12 @@ export const DiscogsSearchBar = forwardRef<DiscogsSearchBarHandle, DiscogsSearch
             className={`discover-search-input ${
               isHero ? 'discover-search-input--hero' : ''
             } ${isHero && onDiscogsImport ? 'discover-search-input--hero-import' : ''} ${
+              isNav ? 'discover-search-input--nav' : ''
+            } ${isNav && onDiscogsImport ? 'discover-search-input--nav-import' : ''} ${
               isFloating ? 'discover-search-input--floating' : ''
             } ${showDropdown && !isMobile ? 'rounded-b-xl' : ''}`}
             placeholder={
-              isHero || isFloating
+              isHero || isNav || isFloating
                 ? 'Search Discogs to grow your crate…'
                 : 'Search artist, album, or label…'
             }
@@ -348,7 +356,7 @@ export const DiscogsSearchBar = forwardRef<DiscogsSearchBarHandle, DiscogsSearch
             spellCheck={false}
             aria-label="Search Discogs to add records"
           />
-          {isHero && onDiscogsImport ? (
+          {(isHero || isNav) && onDiscogsImport ? (
             <span className="discogs-search-import">
               <button
                 type="button"
@@ -367,7 +375,9 @@ export const DiscogsSearchBar = forwardRef<DiscogsSearchBarHandle, DiscogsSearch
           {loading && (
             <Loader2
               className={`absolute top-1/2 z-10 h-5 w-5 -translate-y-1/2 animate-spin text-[var(--accent)] ${
-                isHero && onDiscogsImport ? 'right-12 sm:right-[3.25rem]' : 'right-4 sm:right-5'
+                (isHero || isNav) && onDiscogsImport
+                  ? 'right-12 sm:right-[3.25rem]'
+                  : 'right-4 sm:right-5'
               }`}
             />
           )}
@@ -383,8 +393,8 @@ export const DiscogsSearchBar = forwardRef<DiscogsSearchBarHandle, DiscogsSearch
           hit={panelHit}
           open={panelOpen}
           onClose={closePanel}
-          onSave={(record) => {
-            onAdd(record);
+          onSave={(record, meta) => {
+            onAdd({ record, ...meta });
             closePanel();
           }}
         />

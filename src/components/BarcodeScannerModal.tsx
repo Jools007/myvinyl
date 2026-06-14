@@ -1,26 +1,24 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Html5Qrcode } from 'html5-qrcode';
-import { VINYL_BARCODE_FORMATS, vinylBarcodeFormatNames } from '../lib/barcodeFormats';
+import { vinylBarcodeFormatNames } from '../lib/barcodeFormats';
+import { digitsOnly } from '../lib/barcodeLookup';
 import { AlertCircle, Check, Disc3, Loader2, Scan, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
 import { fetchDiscogsRelease, searchDiscogsByBarcode } from '../lib/api';
 import type { DiscogsReleaseDetail } from '../lib/api';
+import { canUseNativeBarcodeDetector, isScannerMobile } from '../lib/cameraAutofocus';
 import {
-  applyTapToFocus,
-  buildScannerVideoConstraints,
-  computeQrbox,
-  enableScannerEnhancements,
-} from '../lib/cameraAutofocus';
+  barcodeScannerEngine,
+  SCANNER_BUILD,
+  SCANNER_FPS_DESKTOP,
+  SCANNER_FPS_MOBILE,
+  type ScannerEngineCallbacks,
+} from '../lib/barcodeScannerEngine';
 import {
-  createScannerDebugState,
-  logQrboxConfigured,
-  logScannerStart,
-  logScannerStopped,
-  recordDecodeAttempt,
-  recordDecodeRejected,
-  recordDecodeSuccess,
-  type ScannerDebugSnapshot,
-} from '../lib/scannerDebug';
+  SCANNER_CONTAINER_ID,
+  SCANNER_DEBUG_FLUSH_EVERY_N_ATTEMPTS,
+  SCANNER_ENGINE_START_DELAY_MS,
+} from '../lib/scannerConfig';
+import { createScannerDebugState, type ScannerDebugSnapshot } from '../lib/scannerDebug';
 import { isPlayableDiscogsTrack } from '../lib/tracks';
 import type { DiscogsSearchHit } from '../lib/types';
 import { RecordArtwork } from './RecordArtwork';
@@ -33,15 +31,27 @@ interface BarcodeScannerModalProps {
   onAddToCollection: (hit: DiscogsSearchHit, release: DiscogsReleaseDetail) => void;
 }
 
-const SCANNER_ID = 'barcode-scanner-region';
-const SCANNER_FPS = 24;
+function shouldFlushDebug(prev: ScannerDebugSnapshot, next: ScannerDebugSnapshot): boolean {
+  if (next.attempts <= 1 || next.attempts % SCANNER_DEBUG_FLUSH_EVERY_N_ATTEMPTS === 0) return true;
+  if (next.lastError?.startsWith('Recovering')) return true;
+  if (!prev.viewfinder && next.viewfinder) return true;
+  if (next.videoResolution && !prev.videoResolution) return true;
+  if (
+    next.videoResolution &&
+    prev.videoResolution &&
+    (next.videoResolution.width !== prev.videoResolution.width ||
+      next.videoResolution.height !== prev.videoResolution.height)
+  ) {
+    return true;
+  }
+  return false;
+}
 
 export function BarcodeScannerModal({
   open,
   onClose,
   onAddToCollection,
 }: BarcodeScannerModalProps) {
-  const scannerRef = useRef<Html5Qrcode | null>(null);
   const processingRef = useRef(false);
   const [phase, setPhase] = useState<ScannerPhase>('scanning');
   const [barcode, setBarcode] = useState('');
@@ -51,21 +61,6 @@ export function BarcodeScannerModal({
   const [focusPulse, setFocusPulse] = useState<{ x: number; y: number } | null>(null);
   const [scanDebug, setScanDebug] = useState<ScannerDebugSnapshot>(createScannerDebugState);
   const scanDebugRef = useRef<ScannerDebugSnapshot>(createScannerDebugState());
-
-  const stopScanner = useCallback(async () => {
-    const scanner = scannerRef.current;
-    if (!scanner) return;
-    try {
-      logScannerStopped(scanDebugRef.current);
-      if (scanner.isScanning) {
-        await scanner.stop();
-      }
-      scanner.clear();
-    } catch {
-      /* scanner may already be stopped */
-    }
-    scannerRef.current = null;
-  }, []);
 
   const reset = useCallback(() => {
     processingRef.current = false;
@@ -80,157 +75,98 @@ export function BarcodeScannerModal({
     setScanDebug(freshDebug);
   }, []);
 
-  const handleClose = useCallback(async () => {
-    await stopScanner();
-    reset();
-    onClose();
-  }, [onClose, reset, stopScanner]);
-
-  const lookupBarcode = useCallback(
-    async (code: string) => {
-      if (processingRef.current) return;
-      processingRef.current = true;
-      setBarcode(code);
-      setPhase('looking-up');
-      await stopScanner();
-
-      try {
-        const results = await searchDiscogsByBarcode(code);
-        if (results.length === 0) {
-          setPhase('not-found');
-          return;
-        }
-        const hit = results[0];
-        const release = await fetchDiscogsRelease(hit.id);
-        setResult(hit);
-        setReleaseDetail(release);
-        setPhase('found');
-      } catch (e) {
-        setErrorMessage(e instanceof Error ? e.message : 'Lookup failed');
-        setPhase('error');
-      }
-    },
-    [stopScanner]
-  );
-
-  const startScanner = useCallback(async () => {
-    await stopScanner();
-    processingRef.current = false;
-    setPhase('scanning');
-    setResult(null);
-    setReleaseDetail(null);
-    setErrorMessage('');
+  const lookupBarcode = useCallback(async (code: string) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setBarcode(code);
+    setPhase('looking-up');
+    await barcodeScannerEngine.stop();
 
     try {
-      const formats = VINYL_BARCODE_FORMATS;
-      const formatNames = vinylBarcodeFormatNames();
-
-      const scanner = new Html5Qrcode(SCANNER_ID, {
-        // formatsToSupport is the html5-qrcode API for limiting decode formats.
-        formatsToSupport: formats,
-        // Native BarcodeDetector on mobile often fails 1D barcodes; use ZXing.
-        useBarCodeDetectorIfSupported: false,
-        verbose: true,
-      });
-      scannerRef.current = scanner;
-
-      const debugBase = {
-        ...createScannerDebugState(),
-        fps: SCANNER_FPS,
-      };
-      scanDebugRef.current = debugBase;
-      setScanDebug(debugBase);
-
-      console.info('[BarcodeScanner] formatsToSupport (1D only, no QR):', formatNames);
-
-      logScannerStart({
-        fps: SCANNER_FPS,
-        formats: formatNames,
-        useNativeDetector: false,
-      });
-
-      await scanner.start(
-        { facingMode: 'environment' },
-        {
-          fps: SCANNER_FPS,
-          videoConstraints: buildScannerVideoConstraints(),
-          qrbox: (viewfinderWidth, viewfinderHeight) => {
-            const box = computeQrbox(viewfinderWidth, viewfinderHeight);
-            logQrboxConfigured(viewfinderWidth, viewfinderHeight, box);
-            const next = {
-              ...scanDebugRef.current,
-              qrbox: box,
-              viewfinder: { width: viewfinderWidth, height: viewfinderHeight },
-            };
-            scanDebugRef.current = next;
-            setScanDebug(next);
-            return box;
-          },
-        },
-        (decoded, result) => {
-          const formatName = result.result.format?.formatName ?? 'unknown';
-          console.info('[BarcodeScanner] decoded', { raw: decoded, format: formatName });
-          const normalized = decoded.replace(/\D/g, '');
-          const next = recordDecodeSuccess(scanDebugRef.current, decoded, normalized);
-          scanDebugRef.current = { ...next, lastError: `Detected as ${formatName}` };
-          setScanDebug(scanDebugRef.current);
-
-          if (normalized.length >= 8) {
-            void lookupBarcode(normalized);
-            return;
-          }
-
-          const rejected = recordDecodeRejected(
-            scanDebugRef.current,
-            decoded,
-            `Only ${normalized.length} digits after normalization (need 8+)`
-          );
-          scanDebugRef.current = rejected;
-          setScanDebug(rejected);
-        },
-        (errorMessage) => {
-          const next = recordDecodeAttempt(scanDebugRef.current, errorMessage);
-          scanDebugRef.current = next;
-          if (next.attempts === 1 || next.attempts % 10 === 0) {
-            setScanDebug(next);
-          }
-        }
-      );
-
-      await enableScannerEnhancements(scanner, SCANNER_ID);
+      const results = await searchDiscogsByBarcode(code);
+      if (results.length === 0) {
+        setPhase('not-found');
+        return;
+      }
+      const hit = results[0];
+      const release = await fetchDiscogsRelease(hit.id);
+      setResult(hit);
+      setReleaseDetail(release);
+      setPhase('found');
     } catch (e) {
-      setErrorMessage(
-        e instanceof Error ? e.message : 'Could not access camera. Check permissions.'
-      );
+      setErrorMessage(e instanceof Error ? e.message : 'Lookup failed');
       setPhase('error');
+    } finally {
+      processingRef.current = false;
     }
-  }, [lookupBarcode, stopScanner]);
+  }, []);
+
+  const lookupBarcodeRef = useRef(lookupBarcode);
+  lookupBarcodeRef.current = lookupBarcode;
+
+  const engineCallbacksRef = useRef<ScannerEngineCallbacks>({
+    onPhase: () => undefined,
+    onDebug: () => undefined,
+    onDecode: () => undefined,
+    onError: () => undefined,
+  });
+
+  engineCallbacksRef.current = {
+    onPhase: (enginePhase) => {
+      if (enginePhase === 'starting' || enginePhase === 'scanning') {
+        setPhase('scanning');
+      }
+    },
+    onDebug: (snapshot) => {
+      const prev = scanDebugRef.current;
+      scanDebugRef.current = snapshot;
+      if (shouldFlushDebug(prev, snapshot)) {
+        setScanDebug(snapshot);
+      }
+    },
+    onDecode: (normalized, raw) => {
+      console.info('[BarcodeScanner] accepted decode', { raw, normalized: digitsOnly(raw) });
+      void lookupBarcodeRef.current(normalized);
+    },
+    onError: (message) => {
+      setErrorMessage(message);
+      setPhase('error');
+    },
+  };
+
+  const beginScan = useCallback(() => {
+    void barcodeScannerEngine.start(SCANNER_CONTAINER_ID, engineCallbacksRef.current);
+  }, []);
+
+  const handleClose = useCallback(async () => {
+    await barcodeScannerEngine.stop();
+    reset();
+    onClose();
+  }, [onClose, reset]);
 
   useEffect(() => {
     if (!open) {
-      void stopScanner();
+      void barcodeScannerEngine.stop();
       reset();
       return;
     }
 
-    const timer = window.setTimeout(() => {
-      void startScanner();
-    }, 280);
-
+    processingRef.current = false;
+    const timer = window.setTimeout(beginScan, SCANNER_ENGINE_START_DELAY_MS);
     return () => {
       window.clearTimeout(timer);
-      void stopScanner();
+      void barcodeScannerEngine.stop();
     };
-  }, [open, reset, startScanner, stopScanner]);
+  }, [open, beginScan, reset]);
 
   const handleRetry = () => {
-    void startScanner();
+    reset();
+    beginScan();
   };
 
   const handleTapToFocus = useCallback(
     (event: PointerEvent<HTMLButtonElement>) => {
-      const scanner = scannerRef.current;
-      if (!scanner?.isScanning || phase !== 'scanning') return;
+      if (phase !== 'scanning') return;
 
       const rect = event.currentTarget.getBoundingClientRect();
       setFocusPulse({
@@ -239,10 +175,13 @@ export function BarcodeScannerModal({
       });
       window.setTimeout(() => setFocusPulse(null), 700);
 
-      void applyTapToFocus(scanner, SCANNER_ID, event.clientX, event.clientY);
+      void barcodeScannerEngine.tapToFocus(SCANNER_CONTAINER_ID, event.clientX, event.clientY);
     },
     [phase]
   );
+
+  const mobile = isScannerMobile();
+  const scanFps = mobile ? SCANNER_FPS_MOBILE : SCANNER_FPS_DESKTOP;
 
   return (
     <AnimatePresence>
@@ -275,21 +214,27 @@ export function BarcodeScannerModal({
               {(phase === 'scanning' || phase === 'looking-up') && (
                 <motion.div
                   key="scanner"
+                  layout={false}
                   className="relative flex h-full w-full max-w-none flex-col sm:max-w-lg"
-                  initial={{ opacity: 0, scale: 0.98 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.98 }}
-                  transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2 }}
                 >
                   <div className="scanner-viewport relative min-h-0 flex-1 overflow-hidden bg-black sm:rounded-3xl sm:border sm:border-white/10 sm:shadow-[0_24px_80px_rgba(0,0,0,0.6)]">
-                    <div id={SCANNER_ID} className="scanner-region h-full min-h-[min(72dvh,640px)] w-full" />
-
-                    <button
-                      type="button"
-                      className="scanner-tap-focus absolute inset-0 z-10 cursor-crosshair touch-manipulation"
-                      onPointerDown={handleTapToFocus}
-                      aria-label="Tap anywhere to focus camera"
+                    <div
+                      id={SCANNER_CONTAINER_ID}
+                      className={`scanner-region h-full min-h-[min(72dvh,640px)] w-full${mobile ? ' scanner-region--mobile' : ''}`}
                     />
+
+                    {!mobile && (
+                      <button
+                        type="button"
+                        className="scanner-tap-focus absolute inset-0 z-10 cursor-crosshair touch-manipulation"
+                        onPointerDown={handleTapToFocus}
+                        aria-label="Tap anywhere to focus camera"
+                      />
+                    )}
 
                     {focusPulse && (
                       <span
@@ -333,10 +278,14 @@ export function BarcodeScannerModal({
                   </div>
 
                   <p className="mt-4 px-6 text-center text-sm text-white/60 sm:mt-6">
-                    Hold the record at a comfortable distance — align the barcode in the frame
+                    {mobile
+                      ? 'Hold the barcode 8–12 in (20–30 cm) away — move slowly closer until lines look sharp'
+                      : 'Hold the record at a comfortable distance — align the barcode in the frame'}
                   </p>
                   <p className="mt-1 px-6 text-center text-xs font-medium text-white/50">
-                    Tap anywhere to focus
+                    {mobile
+                      ? 'Align UPC/EAN in the guide · hold steady 8–12 in away'
+                      : 'Tap anywhere to focus'}
                   </p>
 
                   <div className="scanner-debug mt-3 px-4 font-mono text-[10px] leading-relaxed text-white/40 sm:px-6">
@@ -344,14 +293,21 @@ export function BarcodeScannerModal({
                       Scan attempts: {scanDebug.attempts}
                       {scanDebug.attempts > 0 ? ' (decoder active)' : ' (waiting for first frame…)'}
                     </p>
-                    {scanDebug.qrbox && scanDebug.viewfinder ? (
+                    {scanDebug.viewfinder ? (
                       <p>
-                        Scan box: {scanDebug.qrbox.width}×{scanDebug.qrbox.height}px · Viewfinder:{' '}
-                        {scanDebug.viewfinder.width}×{scanDebug.viewfinder.height}px · {SCANNER_FPS} fps ·
-                        ZXing 1D
+                        {mobile
+                          ? `Guide: ${scanDebug.qrbox?.width ?? '?'}×${scanDebug.qrbox?.height ?? '?'}px · View: ${scanDebug.viewfinder.width}×${scanDebug.viewfinder.height}px · Camera: ${scanDebug.videoResolution?.width ?? '?'}×${scanDebug.videoResolution?.height ?? '?'} · ${scanFps} fps`
+                          : `Scan box: ${scanDebug.qrbox?.width ?? '?'}×${scanDebug.qrbox?.height ?? '?'}px · Viewfinder: ${scanDebug.viewfinder.width}×${scanDebug.viewfinder.height}px · ${scanFps} fps`}
+                        {' · '}
+                        {scanDebug.decoder ||
+                          (mobile
+                            ? 'Video + ImageCapture + ZXing'
+                            : canUseNativeBarcodeDetector()
+                              ? 'BarcodeDetector + ZXing'
+                              : 'ZXing 1D')}
                       </p>
                     ) : null}
-                    <p>Formats: {vinylBarcodeFormatNames().join(', ')}</p>
+                    <p>Build: {SCANNER_BUILD} · Formats: {vinylBarcodeFormatNames().join(', ')}</p>
                     {scanDebug.lastError ? <p>Last decode: {scanDebug.lastError}</p> : null}
                     {scanDebug.lastRaw ? <p>Last raw: {scanDebug.lastRaw}</p> : null}
                   </div>

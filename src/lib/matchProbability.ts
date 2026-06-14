@@ -6,6 +6,8 @@ import {
   isGridRhythmSource,
   rhythmCompatibilityScore,
 } from './rhythmSource';
+import { formatBpmDelta, formatBpmGap, formatBpmValue } from './formatMix';
+import { isBpmEstimatedForMatch } from './tracks';
 import type { Track } from './types';
 
 export type MatchTier = 'strong' | 'good' | 'stretch';
@@ -82,21 +84,21 @@ function bpmScore(
 
   if (abs <= 2 || pct <= 2) {
     deltaScore = 14;
-    label = `BPM lock · ${candidateBpm}`;
+    label = `BPM lock (${formatBpmValue(candidateBpm)})`;
   } else if (abs <= 5 || pct <= 4) {
     deltaScore = 8;
-    label = delta > 0 ? `+${delta} BPM` : `${delta} BPM`;
+    label = `${formatBpmDelta(delta)} BPM`;
   } else if (abs <= 8) {
     deltaScore = 2;
-    label = `±${abs} BPM — pitch ride`;
+    label = `±${formatBpmGap(abs)} BPM — pitch ride`;
   } else {
     deltaScore = -12;
-    label = `${abs} BPM apart — risky`;
+    label = `${formatBpmGap(abs)} BPM apart — short blend`;
   }
 
   if (anchorEstimated || candidateEstimated) {
     deltaScore -= 4;
-    label = `${label} (estimated)`;
+    label = `~${label}`;
   }
 
   if (uncertainty > 0 && abs <= uncertainty + 2) {
@@ -123,26 +125,24 @@ function keyScore(anchor: Track, candidate: Track): { delta: number; factor?: Ma
   let delta = 0;
   let label = '';
 
+  const keyMark =
+    anchor.keyEstimated || candidate.keyEstimated ? '~' : '';
+
   if (dist === 0) {
     delta = 18;
-    label = `Same key · ${candKey}`;
+    label = `Same key (${keyMark}${candKey})`;
   } else if (dist === 1) {
     delta = 14;
-    label = `Relative key · ${candKey}`;
+    label = `Relative key (${keyMark}${candKey})`;
   } else if (dist === 2) {
     delta = 10;
-    label = `Adjacent wheel · ${candKey}`;
+    label = `Adjacent wheel (${keyMark}${candKey})`;
   } else if (dist === 4) {
     delta = 4;
-    label = `Energy lift · ${candKey}`;
+    label = `Energy lift (${keyMark}${candKey})`;
   } else {
     delta = -20;
-    label = `Key clash · ${candKey}`;
-  }
-
-  if (anchor.keyEstimated || candidate.keyEstimated) {
-    delta -= 5;
-    label = `${label} (estimated)`;
+    label = `Key clash (${keyMark}${candKey})`;
   }
 
   return { delta, factor: { label, delta } };
@@ -171,11 +171,14 @@ export function computeMatchProbability(
   raw += keyPart.delta;
   if (keyPart.factor) factors.push(keyPart.factor);
 
+  const anchorBpmEstimated =
+    anchorBpmOverride == null && isBpmEstimatedForMatch(anchor);
+
   const bpmPart = bpmScore(
     anchorBpm,
     candidate.bpm,
-    anchor.bpmEstimated ?? false,
-    candidate.bpmEstimated ?? false,
+    anchorBpmEstimated,
+    isBpmEstimatedForMatch(candidate),
     anchorBpmOverride != null ? bpmUncertainty : 0
   );
   raw += bpmPart.delta;
@@ -250,15 +253,16 @@ export function computeMatchProbability(
 
   let confidence: MatchProbabilityResult['confidence'] = 'high';
   const estimated =
-    anchor.bpmEstimated ||
-    candidate.bpmEstimated ||
+    anchorBpmEstimated ||
+    isBpmEstimatedForMatch(candidate) ||
     anchor.keyEstimated ||
-    candidate.keyEstimated ||
-    anchorBpmOverride != null;
+    candidate.keyEstimated;
 
   if (estimated) {
     raw *= 0.9;
-    confidence = anchorBpmOverride != null ? 'medium' : 'low';
+    confidence = 'low';
+  } else if (anchorBpmOverride != null) {
+    confidence = 'medium';
   }
 
   if (
@@ -288,8 +292,8 @@ export function computeMatchProbability(
   const verifiedBpm =
     anchorBpm != null &&
     candidate.bpm != null &&
-    !anchor.bpmEstimated &&
-    !candidate.bpmEstimated;
+    !isBpmEstimatedForMatch(anchor) &&
+    !isBpmEstimatedForMatch(candidate);
 
   if (tier === 'strong' && !(verifiedKey && (verifiedBpm || anchorBpmOverride != null))) {
     tier = 'good';

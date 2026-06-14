@@ -15,7 +15,7 @@ function trackPracticeScore(track: Track, record: VinylRecord): number {
   const mix = classifyTrackMixability(track, record.genres).score;
   let score = mix;
 
-  if (track.bpm != null && !track.bpmEstimated) score += 12;
+  if (track.bpm != null && (track.bpmManual || track.bpmTapped || !track.bpmEstimated)) score += 12;
   if (resolveTrackCamelot(track).code && !track.keyEstimated) score += 10;
   if (track.isPrimary) score += 6;
   if ((track.vibeTags?.length ?? 0) > 0) score += 3;

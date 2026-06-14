@@ -4,7 +4,8 @@ import {
   countTracksNeedingMetadata,
   isPrimaryTrackEnriched,
 } from './fullMetadataEnrichment';
-import { normalizeFormat, normalizeGenre } from './filterLabels';
+import { normalizeFormat } from './filterLabels';
+import { groupGenreLabel, primaryGroupedGenre } from './genreGroups';
 import { isReleaseFullyEnriched } from './tracks';
 import { getPrimaryTrack, type RecordCondition, type VinylRecord } from './types';
 
@@ -183,8 +184,7 @@ export function groupRecordsByGenre(records: VinylRecord[]): GenreGroup[] {
   const map = new Map<string, VinylRecord[]>();
 
   for (const record of records) {
-    const genre =
-      record.genres.length > 0 ? normalizeGenre(record.genres[0]) : 'Uncategorized';
+    const genre = record.genres.length > 0 ? primaryGroupedGenre(record) : 'Uncategorized';
     const bucket = map.get(genre) ?? [];
     bucket.push(record);
     map.set(genre, bucket);
@@ -369,8 +369,11 @@ export function computeCollectionInsights(records: VinylRecord[]): CollectionIns
     const artistKey = record.artist.trim();
     if (artistKey) artists.set(artistKey, (artists.get(artistKey) ?? 0) + 1);
 
+    const groupedOnRecord = new Set<string>();
     for (const g of record.genres) {
-      const genre = normalizeGenre(g);
+      groupedOnRecord.add(groupGenreLabel(g));
+    }
+    for (const genre of groupedOnRecord) {
       genres.set(genre, (genres.get(genre) ?? 0) + 1);
     }
 

@@ -1,5 +1,8 @@
 export type RecordCondition = 'Mint' | 'NM' | 'VG+' | 'VG' | 'G+' | 'G' | 'P';
 
+/** DJ cut quality on a single track (Serato-style shorthand). */
+export type CutRating = 'G' | 'VG' | 'VG+';
+
 /** How artist/album titles appear on printed crate stickers. */
 export type LabelTitleLayout = 'artist-album' | 'album-artist' | 'album-only';
 
@@ -49,9 +52,15 @@ export interface Track {
   musicalKey?: string;
   /** True when BPM came from genre/wiki estimate, not audio analysis */
   bpmEstimated?: boolean;
+  /** True when BPM was saved from live tap — wins over enrichment */
+  bpmTapped?: boolean;
+  /** True when BPM was entered manually — highest priority, never overwritten by enrich */
+  bpmManual?: boolean;
   /** True when Camelot came from genre estimate, not detected key */
   keyEstimated?: boolean;
   vibeTags: string[];
+  /** User-rated cut quality — optional, never set by enrichment. */
+  cutRating?: CutRating;
   discogsTrackId?: number;
   /** Preferred track for single-track display (e.g. 12" A-side) */
   isPrimary?: boolean;

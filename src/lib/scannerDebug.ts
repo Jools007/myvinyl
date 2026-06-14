@@ -5,11 +5,24 @@ export interface ScannerDebugSnapshot {
   lastRaw: string;
   qrbox: { width: number; height: number } | null;
   viewfinder: { width: number; height: number } | null;
+  videoResolution: { width: number; height: number } | null;
+  decoder: string;
   fps: number;
   startedAt: number;
 }
 
 const LOG_PREFIX = '[BarcodeScanner]';
+
+/** html5-qrcode labels every failed frame "QR code parse error" even for 1D-only mode. */
+export function formatScannerDecodeError(message: string): string {
+  if (/qr code parse error/i.test(message)) {
+    return 'Scanning for barcode… align UPC/EAN in the frame';
+  }
+  if (/not found/i.test(message)) {
+    return 'Scanning for barcode…';
+  }
+  return message;
+}
 
 export function createScannerDebugState(): ScannerDebugSnapshot {
   return {
@@ -19,6 +32,8 @@ export function createScannerDebugState(): ScannerDebugSnapshot {
     lastRaw: '',
     qrbox: null,
     viewfinder: null,
+    videoResolution: null,
+    decoder: '',
     fps: 0,
     startedAt: Date.now(),
   };
@@ -50,6 +65,15 @@ export function logQrboxConfigured(
   });
 }
 
+export function logFullFrameConfigured(
+  viewfinderWidth: number,
+  viewfinderHeight: number
+): void {
+  console.info(`${LOG_PREFIX} full-frame decode`, {
+    viewfinder: { width: viewfinderWidth, height: viewfinderHeight },
+  });
+}
+
 export function recordDecodeAttempt(
   state: ScannerDebugSnapshot,
   errorMessage: string
@@ -58,7 +82,7 @@ export function recordDecodeAttempt(
   const next = {
     ...state,
     attempts,
-    lastError: errorMessage,
+    lastError: formatScannerDecodeError(errorMessage),
   };
 
   if (attempts === 1 || attempts % 25 === 0) {

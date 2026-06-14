@@ -1,11 +1,14 @@
 /** Map Last.fm tags / Discogs genres to MyVinyl vibe tag suggestions. */
 
 const TAG_TO_VIBE: [string, string][] = [
-  ['trip-hop', 'Late-night'],
-  ['trip hop', 'Late-night'],
+  ['trip-hop', 'Trip-Hop'],
+  ['trip hop', 'Trip-Hop'],
+  ['triphop', 'Trip-Hop'],
   ['downtempo', 'Deep'],
-  ['chillout', 'Late-night'],
-  ['chill out', 'Late-night'],
+  ['chillout', 'Chillout'],
+  ['chill out', 'Chillout'],
+  ['stoner rock', 'Stoner'],
+  ['stoner', 'Stoner'],
   ['nu jazz', 'Soulful'],
   ['nu-jazz', 'Soulful'],
   ['lounge', 'Sunset'],
@@ -41,6 +44,9 @@ const ALLOWED = new Set([
   'Soulful',
   'Hypnotic',
   'Groovy',
+  'Chillout',
+  'Stoner',
+  'Trip-Hop',
 ]);
 
 export function mapTagsToVibeHints(tags: string[], genres: string[] = []): string[] {

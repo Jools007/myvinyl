@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { DEMO_RECORDS } from '../lib/seed';
+
 import { isCdFormat, sanitizeVinylFormat } from '../lib/formats';
+import { isScannerSessionActive } from '../lib/scannerSession';
 import {
   runFullMetadataEnrichment,
   idleMetadataEnrichment,
@@ -62,6 +63,11 @@ export type LiveEnrichState = {
   recordId: string;
   trackId: string | null;
 } | null;
+
+export type UpdateRecordOptions = {
+  /** Write through to Supabase immediately (user-owned fields like manual BPM). */
+  persistImmediately?: boolean;
+};
 
 export function useCollection() {
   const { user, loading: authLoading } = useAuth();
@@ -145,6 +151,15 @@ export function useCollection() {
     if (!isPersistedRecordId(record.id)) return;
     void updateRecordInSupabase(record);
   }, []);
+
+  const persistRecordImmediately = useCallback((record: VinylRecord) => {
+    const pending = persistTimersRef.current.get(record.id);
+    if (pending) {
+      clearTimeout(pending);
+      persistTimersRef.current.delete(record.id);
+    }
+    persistRecordNow(record);
+  }, [persistRecordNow]);
 
   const replaceSavedRecord = useCallback(
     (localId: string, saved: VinylRecord) => {
@@ -231,14 +246,6 @@ export function useCollection() {
     };
   }, [hydrated, schedulePersistRecord]);
 
-  const loadDemo = useCallback(() => {
-    const entries = DEMO_RECORDS.map((record) => ({ ...record, id: generateId() }));
-    setRecords(entries);
-    for (const entry of entries) {
-      persistNewRecord(migrateRecord(entry));
-    }
-  }, [persistNewRecord]);
-
   const addRecord = useCallback(
     (record: Omit<VinylRecord, 'id' | 'addedAt'>) => {
       if (isCdFormat(record.format)) return null;
@@ -282,18 +289,30 @@ export function useCollection() {
   );
 
   const updateRecord = useCallback(
-    (id: string, patch: Partial<VinylRecord> | ((record: VinylRecord) => Partial<VinylRecord>)) => {
-      setRecords((prev) =>
-        prev.map((record) => {
-          if (record.id !== id) return record;
-          const nextPatch = typeof patch === 'function' ? patch(record) : patch;
-          const updated = migrateRecord({ ...record, ...nextPatch });
-          schedulePersistRecord(updated.id);
-          return updated;
-        })
-      );
+    (
+      id: string,
+      patch: Partial<VinylRecord> | ((record: VinylRecord) => Partial<VinylRecord>),
+      options?: UpdateRecordOptions
+    ) => {
+      flushSync(() => {
+        setRecords((prev) => {
+          const next = prev.map((record) => {
+            if (record.id !== id) return record;
+            const nextPatch = typeof patch === 'function' ? patch(record) : patch;
+            const updated = migrateRecord({ ...record, ...nextPatch });
+            if (options?.persistImmediately) {
+              persistRecordImmediately(updated);
+            } else {
+              schedulePersistRecord(updated.id);
+            }
+            return updated;
+          });
+          recordsRef.current = next;
+          return next;
+        });
+      });
     },
-    [schedulePersistRecord]
+    [persistRecordImmediately, schedulePersistRecord]
   );
 
   const applyEnrichedTrack = useCallback(
@@ -422,16 +441,59 @@ export function useCollection() {
     });
   }, []);
 
+  const isRefreshingRef = useRef(false);
+
   const refreshRecords = useCallback(async () => {
-    const result = await fetchRecords();
-    if (result.error) {
-      setCollectionError(friendlyCollectionError(result.error.message));
-      return;
+    if (isRefreshingRef.current) return;
+    isRefreshingRef.current = true;
+    try {
+      const result = await fetchRecords();
+      if (result.error) {
+        setCollectionError(friendlyCollectionError(result.error.message));
+        return;
+      }
+      const remote = (result.data ?? []).map((record) => migrateRecord(record));
+      setRecords(remote);
+      recordsRef.current = remote;
+      setCollectionError(null);
+      setHydrated(true);
+    } finally {
+      isRefreshingRef.current = false;
     }
-    setRecords((result.data ?? []).map((record) => migrateRecord(record)));
-    setCollectionError(null);
-    setHydrated(true);
   }, []);
+
+  useEffect(() => {
+    if (!hydrated || !user) return;
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastSyncAt = 0;
+    const MIN_SYNC_INTERVAL_MS = 15_000;
+
+    const syncFromServer = () => {
+      if (isScannerSessionActive()) return;
+      if (enrichActiveRecordIdRef.current) return;
+      if (metadataEnrichment.phase === 'running') return;
+      if (isRefreshingRef.current) return;
+      if (Date.now() - lastSyncAt < MIN_SYNC_INTERVAL_MS) return;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        lastSyncAt = Date.now();
+        void refreshRecords();
+      }, 1200);
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') syncFromServer();
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [hydrated, user?.id, metadataEnrichment.phase, refreshRecords]);
 
   const retryCollectionLoad = useCallback(() => {
     void loadCollection();
@@ -517,6 +579,7 @@ export function useCollection() {
     hydrated,
     collectionLoading,
     collectionError,
+    collectionHydrated: hydrated,
     retryCollectionLoad,
     backgroundSync,
     tracklistEnrichment,
@@ -535,7 +598,6 @@ export function useCollection() {
     clearCollection,
     markPlayed,
     updateSettings,
-    loadDemo,
     refreshRecords,
   };
 }

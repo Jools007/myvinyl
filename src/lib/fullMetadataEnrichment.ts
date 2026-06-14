@@ -45,6 +45,13 @@ export function countReleasesWithTracks(records: VinylRecord[]): number {
   return records.filter((r) => r.tracks.length > 0).length;
 }
 
+export function countBpmTappedTracks(records: VinylRecord[]): number {
+  return records.reduce(
+    (sum, record) => sum + record.tracks.filter((t) => t.bpmTapped || t.bpmManual).length,
+    0
+  );
+}
+
 export type FullMetadataEnrichmentOptions = {
   /** Re-run enrichment on every track, including those already marked complete */
   force?: boolean;
@@ -102,6 +109,8 @@ function trackChanged(before: Track, after: Track): boolean {
     before.bpm !== after.bpm ||
     resolveTrackCamelot(before).code !== resolveTrackCamelot(after).code ||
     before.bpmEstimated !== after.bpmEstimated ||
+    before.bpmTapped !== after.bpmTapped ||
+    before.bpmManual !== after.bpmManual ||
     before.keyEstimated !== after.keyEstimated ||
     JSON.stringify(before.vibeTags ?? []) !== JSON.stringify(after.vibeTags ?? [])
   );

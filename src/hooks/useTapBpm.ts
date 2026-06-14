@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-
-const TAP_WINDOW_MS = 3000;
-const MIN_TAPS = 4;
-const MAX_TAP_GAP_MS = 2000;
+import {
+  applyTap,
+  formatTapBpm,
+  TAP_BPM_DEFAULTS,
+  type TapBpmComputeResult,
+} from '../lib/tapBpm';
 
 export type TapBpmState = {
   bpm: number | null;
+  /** Formatted for display (1 decimal when needed) */
+  bpmLabel: string | null;
   tapCount: number;
   isActive: boolean;
 };
@@ -14,53 +18,54 @@ export function useTapBpm() {
   const tapsRef = useRef<number[]>([]);
   const [state, setState] = useState<TapBpmState>({
     bpm: null,
+    bpmLabel: null,
     tapCount: 0,
     isActive: false,
   });
 
+  const syncFromResult = useCallback((result: TapBpmComputeResult) => {
+    setState({
+      bpm: result.bpm,
+      bpmLabel: result.bpm != null ? formatTapBpm(result.bpm) : null,
+      tapCount: result.tapCount,
+      isActive: true,
+    });
+  }, []);
+
   const reset = useCallback(() => {
     tapsRef.current = [];
-    setState({ bpm: null, tapCount: 0, isActive: false });
+    setState({ bpm: null, bpmLabel: null, tapCount: 0, isActive: false });
   }, []);
 
   const tap = useCallback(() => {
-    const now = Date.now();
-    const taps = tapsRef.current.filter((t) => now - t < TAP_WINDOW_MS);
-    if (taps.length > 0 && now - taps[taps.length - 1] > MAX_TAP_GAP_MS) {
-      taps.length = 0;
-    }
-    taps.push(now);
+    const now = performance.now();
+    const { taps, result } = applyTap(tapsRef.current, now);
     tapsRef.current = taps;
+    syncFromResult(result);
+  }, [syncFromResult]);
 
-    if (taps.length < MIN_TAPS) {
-      setState({ bpm: null, tapCount: taps.length, isActive: true });
-      return;
-    }
-
-    const intervals: number[] = [];
-    for (let i = 1; i < taps.length; i++) {
-      intervals.push(taps[i] - taps[i - 1]);
-    }
-    const recent = intervals.slice(-(MIN_TAPS - 1));
-    const avgMs = recent.reduce((a, b) => a + b, 0) / recent.length;
-    const bpm = Math.round(60000 / avgMs);
-
-    setState({
-      bpm: bpm >= 60 && bpm <= 200 ? bpm : null,
-      tapCount: taps.length,
+  const setBpm = useCallback((bpm: number) => {
+    const rounded = Math.round(bpm * 10) / 10;
+    if (rounded < TAP_BPM_DEFAULTS.minBpm || rounded > TAP_BPM_DEFAULTS.maxBpm) return;
+    setState((s) => ({
+      ...s,
+      bpm: rounded,
+      bpmLabel: formatTapBpm(rounded),
       isActive: true,
-    });
+      tapCount: Math.max(s.tapCount, TAP_BPM_DEFAULTS.minTaps),
+    }));
   }, []);
 
   useEffect(() => {
     if (!state.isActive || state.tapCount === 0) return;
     const id = window.setTimeout(() => {
-      if (Date.now() - (tapsRef.current.at(-1) ?? 0) >= TAP_WINDOW_MS) {
+      const last = tapsRef.current.at(-1) ?? 0;
+      if (performance.now() - last >= TAP_BPM_DEFAULTS.maxGapMs) {
         setState((s) => ({ ...s, isActive: false }));
       }
-    }, TAP_WINDOW_MS + 50);
+    }, TAP_BPM_DEFAULTS.maxGapMs + 50);
     return () => window.clearTimeout(id);
   }, [state.isActive, state.tapCount]);
 
-  return { ...state, tap, reset };
+  return { ...state, tap, setBpm, reset };
 }

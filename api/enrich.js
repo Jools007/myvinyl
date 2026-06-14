@@ -1436,11 +1436,14 @@ function resolveStudioAlbumTitles(artist, releaseAlbum, lastfmAlbum) {
 
 // server/vibe-tags.ts
 var TAG_TO_VIBE = [
-  ["trip-hop", "Late-night"],
-  ["trip hop", "Late-night"],
+  ["trip-hop", "Trip-Hop"],
+  ["trip hop", "Trip-Hop"],
+  ["triphop", "Trip-Hop"],
   ["downtempo", "Deep"],
-  ["chillout", "Late-night"],
-  ["chill out", "Late-night"],
+  ["chillout", "Chillout"],
+  ["chill out", "Chillout"],
+  ["stoner rock", "Stoner"],
+  ["stoner", "Stoner"],
   ["nu jazz", "Soulful"],
   ["nu-jazz", "Soulful"],
   ["lounge", "Sunset"],
@@ -1474,7 +1477,10 @@ var ALLOWED = /* @__PURE__ */ new Set([
   "Warehouse",
   "Soulful",
   "Hypnotic",
-  "Groovy"
+  "Groovy",
+  "Chillout",
+  "Stoner",
+  "Trip-Hop"
 ]);
 function mapTagsToVibeHints(tags, genres = []) {
   const out = [];

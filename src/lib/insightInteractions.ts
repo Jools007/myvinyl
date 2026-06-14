@@ -1,5 +1,6 @@
 import { camelotDistance, isCompatibleKey, parseCamelot, resolveTrackCamelot } from './camelot';
 import { normalizeGenre, normalizeVibe } from './filterLabels';
+import { recordMatchesGroupedGenre } from './genreGroups';
 import type { InsightFilterAction } from './collectionInsights';
 import { scoreNextPlay } from './recommendations';
 import { getPrimaryTrack } from './tracks';
@@ -63,10 +64,6 @@ function decadeFromYear(year: number): string {
   return `${Math.floor(year / 10) * 10}s`;
 }
 
-function recordHasGenre(record: VinylRecord, genre: string): boolean {
-  return record.genres.some((g) => normalizeGenre(g) === genre);
-}
-
 function primaryBpm(record: VinylRecord): number | undefined {
   return getPrimaryTrack(record)?.bpm ?? undefined;
 }
@@ -123,7 +120,7 @@ export function isHarmonicPartner(selected: string, candidate: string): boolean 
 export function filterRecordsByLens(records: VinylRecord[], lens: InsightLens): VinylRecord[] {
   switch (lens.kind) {
     case 'genre':
-      return records.filter((r) => recordHasGenre(r, lens.label));
+      return records.filter((r) => recordMatchesGroupedGenre(r, lens.label));
     case 'format':
       return records.filter((r) => r.format === lens.label);
     case 'camelot':

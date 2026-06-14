@@ -61,7 +61,105 @@ export function suggestForStarterVibe(
     .map((x) => x.r);
 }
 
+/** Max vibe tags per track in add/edit flows. */
+export const MAX_VIBE_TAGS = 6;
+
+/**
+ * Curated crate tags — genre-first (aligned with STARTER_VIBES), plus a few set moods.
+ * Kept short so mobile add modal stays scannable at the turntable.
+ */
 export const VIBE_TAG_SUGGESTIONS = [
-  'Peak-time', 'Warm-up', 'Deep', 'Melodic', 'Raw', 'Uplifting',
-  'Late-night', 'Sunset', 'Warehouse', 'Soulful', 'Hypnotic', 'Groovy',
-];
+  'Jazz',
+  'Hip-Hop',
+  'Trip-Hop',
+  'Soul',
+  'Funk',
+  'House',
+  'Disco',
+  'Techno',
+  'Latin',
+  'Reggae',
+  'Ambient',
+  'Chillout',
+  'Stoner',
+  'Deep',
+  'Late-night',
+] as const;
+
+export type VibeTagSuggestion = (typeof VIBE_TAG_SUGGESTIONS)[number];
+
+const VIBE_SUGGESTION_LOOKUP = new Map(
+  VIBE_TAG_SUGGESTIONS.map((tag) => [tag.toLowerCase(), tag])
+);
+
+/** Map enrichment / legacy labels onto curated chips where possible. */
+const VIBE_TAG_ALIASES: Record<string, VibeTagSuggestion> = {
+  jazzy: 'Jazz',
+  jazz: 'Jazz',
+  bebop: 'Jazz',
+  'hip hop': 'Hip-Hop',
+  hiphop: 'Hip-Hop',
+  'hip-hop': 'Hip-Hop',
+  rap: 'Hip-Hop',
+  boombap: 'Hip-Hop',
+  'boom bap': 'Hip-Hop',
+  'trip hop': 'Trip-Hop',
+  'trip-hop': 'Trip-Hop',
+  triphop: 'Trip-Hop',
+  soulful: 'Soul',
+  motown: 'Soul',
+  groovy: 'Funk',
+  boogie: 'Disco',
+  'nu-disco': 'Disco',
+  'deep house': 'Deep',
+  hypnotic: 'Deep',
+  raw: 'Techno',
+  industrial: 'Techno',
+  'peak-time': 'Late-night',
+  'peak time': 'Late-night',
+  'late night': 'Late-night',
+  warmup: 'Deep',
+  'warm-up': 'Deep',
+  uplifting: 'Soul',
+  melodic: 'Deep',
+  warehouse: 'Techno',
+  sunset: 'Ambient',
+  chill: 'Chillout',
+  chillout: 'Chillout',
+  'chill out': 'Chillout',
+  downtempo: 'Chillout',
+  stoner: 'Stoner',
+  'stoner rock': 'Stoner',
+  stonerrock: 'Stoner',
+};
+
+export function isVibeTagSuggestion(tag: string): tag is VibeTagSuggestion {
+  return VIBE_SUGGESTION_LOOKUP.has(tag.toLowerCase());
+}
+
+/** Canonical chip label, alias mapping, or trimmed custom text. */
+export function canonicalVibeTag(tag: string): string {
+  const trimmed = tag.trim();
+  if (!trimmed) return '';
+
+  const direct = VIBE_SUGGESTION_LOOKUP.get(trimmed.toLowerCase());
+  if (direct) return direct;
+
+  const alias = VIBE_TAG_ALIASES[trimmed.toLowerCase()];
+  if (alias) return alias;
+
+  return trimmed;
+}
+
+/** Pick curated suggestions from API enrichment without clobbering user choices. */
+export function vibesFromEnrichment(tags: string[] | undefined): string[] {
+  if (!tags?.length) return [];
+  const out: string[] = [];
+  for (const raw of tags) {
+    const canonical = canonicalVibeTag(raw);
+    if (!canonical || !isVibeTagSuggestion(canonical)) continue;
+    if (!out.includes(canonical)) out.push(canonical);
+    if (out.length >= MAX_VIBE_TAGS) break;
+  }
+  return out;
+}

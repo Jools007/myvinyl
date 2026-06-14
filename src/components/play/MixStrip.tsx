@@ -1,20 +1,28 @@
 import { resolveTrackCamelot } from '../../lib/camelot';
-import type { Track } from '../../lib/types';
+import type { CutRating, Track } from '../../lib/types';
+import { CutRatingControl } from './CutRatingControl';
+import { EditableBpm } from './EditableBpm';
 
 export function MixStrip({
   track,
   variant,
-  tapBpm,
   className,
+  onSaveManualBpm,
+  onSaveCutRating,
 }: {
   track: Track | null;
   variant: 'now' | 'queue';
-  tapBpm?: number | null;
   className?: string;
+  /** Now playing only — persists as manual BPM (premium over tap/enrich). */
+  onSaveManualBpm?: (bpm: number) => void;
+  /** Now playing only — tap cycles G → VG → VG+ → blank */
+  onSaveCutRating?: (rating: CutRating | undefined) => void;
 }) {
   const { code } = track ? resolveTrackCamelot(track) : {};
   const vibes = (track?.vibeTags ?? []).slice(0, 2);
-  const showTap = variant === 'now' && tapBpm != null;
+  const canEditBpm = variant === 'now' && Boolean(onSaveManualBpm);
+  const canEditRating = variant === 'now' && Boolean(onSaveCutRating);
+  const showRating = canEditRating || track?.cutRating != null;
 
   return (
     <div
@@ -24,21 +32,27 @@ export function MixStrip({
     >
       <div className="play-dj__mix-cell">
         <span className="play-dj__mix-label">BPM</span>
-        <span className="play-dj__mix-value tabular-nums">
-          {showTap ? (
-            <span className="play-dj__mix-tap" title="Live tapped tempo">
-              {tapBpm}
-            </span>
-          ) : track?.bpm != null ? (
-            <>
-              {track.bpmEstimated ? <span className="text-[var(--text-muted)]">~</span> : null}
-              {track.bpm}
-            </>
-          ) : (
-            <span className="text-[var(--text-muted)]">—</span>
-          )}
-        </span>
+        <EditableBpm
+          value={track?.bpm}
+          track={track ?? undefined}
+          onCommit={canEditBpm ? onSaveManualBpm : undefined}
+          size="sm"
+          className="play-dj__mix-value"
+          ariaLabel="Catalog BPM"
+        />
       </div>
+      {showRating ? (
+        <div className="play-dj__mix-cell play-dj__mix-cell--rating">
+          <span className="play-dj__mix-label">Rating</span>
+          <CutRatingControl
+            rating={track?.cutRating}
+            size="sm"
+            readonly={!canEditRating}
+            onChange={canEditRating ? onSaveCutRating : undefined}
+            className="play-dj__mix-value"
+          />
+        </div>
+      ) : null}
       <div className="play-dj__mix-cell">
         <span className="play-dj__mix-label">Key</span>
         <span className="play-dj__mix-value play-dj__mix-value--key font-mono font-semibold">

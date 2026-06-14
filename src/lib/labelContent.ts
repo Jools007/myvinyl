@@ -108,7 +108,7 @@ export function buildCrateLabelContent(
     showKey: display.showKey,
     showVibes: display.showVibes,
     bpm: track?.bpm,
-    bpmEstimated: track?.bpmEstimated,
+    bpmEstimated: track?.bpmEstimated && !track?.bpmManual && !track?.bpmTapped,
     camelot: code,
     keyEstimated,
     vibes,

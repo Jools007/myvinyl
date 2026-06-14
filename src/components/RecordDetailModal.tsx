@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ENRICHMENT_ESTIMATE_HINT, enrichRecord } from '../lib/api';
 import { CAMELOT_KEYS } from '../lib/camelot';
 import { normalizeVinylFormatForChip, VINYL_FORMATS } from '../lib/formats';
-import { VIBE_TAG_SUGGESTIONS } from '../lib/vibes';
+import { canonicalVibeTag, MAX_VIBE_TAGS, VIBE_TAG_SUGGESTIONS } from '../lib/vibes';
 import { getPrimaryTrack, mergeEnrichmentOntoRelease, patchPrimaryTrack } from '../lib/tracks';
 import type { RecordCondition, VinylRecord } from '../lib/types';
 import { AboutReleaseSection } from './AboutReleaseSection';
@@ -95,16 +95,21 @@ export function RecordDetailModal({
         bpm: editDraft.bpm,
         camelotKey: editDraft.camelotKey,
         vibeTags: editDraft.vibeTags,
+        ...(editDraft.bpm != null
+          ? { bpmEstimated: false, bpmManual: true, bpmTapped: false }
+          : {}),
       }).tracks,
     });
     onClose();
   };
 
   const toggleDraftVibe = (tag: string) => {
+    const canonical = canonicalVibeTag(tag);
+    if (!canonical) return;
     const tags = editDraft.vibeTags;
-    const next = tags.includes(tag)
-      ? tags.filter((t) => t !== tag)
-      : [...tags, tag].slice(0, 6);
+    const next = tags.includes(canonical)
+      ? tags.filter((t) => t !== canonical)
+      : [...tags, canonical].slice(0, MAX_VIBE_TAGS);
     setEditDraft({ ...editDraft, vibeTags: next });
   };
 

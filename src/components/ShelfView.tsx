@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { normalizeGenre } from '../lib/filterLabels';
+import { primaryGroupedGenre } from '../lib/genreGroups';
 import { openRecordDetail } from '../lib/recordDetail';
 import { getPrimaryTrack } from '../lib/tracks';
 import type { VinylRecord } from '../lib/types';
@@ -16,8 +16,7 @@ export function ShelfView({ records }: ShelfViewProps) {
   const grouped = (() => {
     const map = new Map<string, VinylRecord[]>();
     for (const r of records) {
-      const g =
-        r.genres && r.genres.length > 0 ? normalizeGenre(r.genres[0]) || 'Other' : 'Other';
+      const g = r.genres && r.genres.length > 0 ? primaryGroupedGenre(r) : 'Other';
       if (!map.has(g)) map.set(g, []);
       map.get(g)!.push(r);
     }

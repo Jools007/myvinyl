@@ -1,7 +1,6 @@
 import {
   Filter,
   ListMusic,
-  ListPlus,
   Play,
   Shuffle,
   Sparkles,
@@ -31,9 +30,7 @@ type InsightExplorerProps = {
   onOpenCollection?: () => void;
   onPlay?: (record: VinylRecord, track: Track) => void;
   onQueue?: (record: VinylRecord, track: Track) => void;
-  onAddToCrate?: (record: VinylRecord, track: Track) => void;
   onQueueJourney?: (steps: JourneyStep[]) => void;
-  onAddJourneyToCrate?: (steps: JourneyStep[]) => void;
   onSelectCamelot?: (code: string) => void;
   onSpinAgain?: () => void;
 };
@@ -42,12 +39,10 @@ function ReleaseChip({
   record,
   onPlay,
   onQueue,
-  onAddToCrate,
 }: {
   record: VinylRecord;
   onPlay?: (record: VinylRecord, track: Track) => void;
   onQueue?: (record: VinylRecord, track: Track) => void;
-  onAddToCrate?: (record: VinylRecord, track: Track) => void;
 }) {
   const track = getPrimaryTrack(record);
   if (!track) return null;
@@ -72,21 +67,11 @@ function ReleaseChip({
         {onPlay ? (
           <button
             type="button"
-            className="insights-explorer__icon-btn"
+            className="insights-explorer__icon-btn insights-explorer__icon-btn--play"
             aria-label={`Play ${record.title}`}
             onClick={() => onPlay(record, track)}
           >
             <Play className="h-3.5 w-3.5" />
-          </button>
-        ) : null}
-        {onAddToCrate ? (
-          <button
-            type="button"
-            className="insights-explorer__icon-btn"
-            aria-label={`Add ${record.title} to tonight's crate`}
-            onClick={() => onAddToCrate(record, track)}
-          >
-            <ListPlus className="h-3.5 w-3.5" />
           </button>
         ) : null}
         {onQueue ? (
@@ -108,12 +93,10 @@ function MixPartnerRow({
   pick,
   onPlay,
   onQueue,
-  onAddToCrate,
 }: {
   pick: MixPick;
   onPlay?: (record: VinylRecord, track: Track) => void;
   onQueue?: (record: VinylRecord, track: Track) => void;
-  onAddToCrate?: (record: VinylRecord, track: Track) => void;
 }) {
   return (
     <div className="insights-explorer__mix-row">
@@ -127,21 +110,11 @@ function MixPartnerRow({
         {onPlay ? (
           <button
             type="button"
-            className="insights-explorer__icon-btn"
+            className="insights-explorer__icon-btn insights-explorer__icon-btn--play"
             onClick={() => onPlay(pick.record, pick.track)}
             aria-label="Play mix partner"
           >
             <Play className="h-3.5 w-3.5" />
-          </button>
-        ) : null}
-        {onAddToCrate ? (
-          <button
-            type="button"
-            className="insights-explorer__icon-btn"
-            onClick={() => onAddToCrate(pick.record, pick.track)}
-            aria-label="Add mix partner to tonight's crate"
-          >
-            <ListPlus className="h-3.5 w-3.5" />
           </button>
         ) : null}
         {onQueue ? (
@@ -168,9 +141,7 @@ export function InsightExplorer({
   onOpenCollection,
   onPlay,
   onQueue,
-  onAddToCrate,
   onQueueJourney,
-  onAddJourneyToCrate,
   onSelectCamelot,
   onSpinAgain,
 }: InsightExplorerProps) {
@@ -198,17 +169,17 @@ export function InsightExplorer({
   };
 
   return (
-    <aside className="insights-explorer" aria-label="Data explorer">
+    <aside className="insights-explorer" aria-label="Selection detail">
       <div className="insights-explorer__head">
         <div className="insights-explorer__head-copy">
           <p className="insights-explorer__kicker">
             <Sparkles className="h-3 w-3" aria-hidden />
-            Exploring
+            {matched.length} in selection
           </p>
           <h2 className="insights-explorer__title">{title}</h2>
           <p className="insights-explorer__subtitle">{subtitle}</p>
         </div>
-        <button type="button" className="insights-explorer__close" onClick={onClose} aria-label="Close explorer">
+        <button type="button" className="insights-explorer__close" onClick={onClose} aria-label="Close detail">
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -228,21 +199,11 @@ export function InsightExplorer({
                 {onPlay && index === 0 ? (
                   <button
                     type="button"
-                    className="insights-explorer__icon-btn"
+                    className="insights-explorer__icon-btn insights-explorer__icon-btn--play"
                     onClick={() => onPlay(step.record, step.track)}
                     aria-label="Play journey opener"
                   >
                     <Play className="h-3.5 w-3.5" />
-                  </button>
-                ) : null}
-                {onAddToCrate ? (
-                  <button
-                    type="button"
-                    className="insights-explorer__icon-btn"
-                    onClick={() => onAddToCrate(step.record, step.track)}
-                    aria-label={`Add ${step.track.title} to tonight's crate`}
-                  >
-                    <ListPlus className="h-3.5 w-3.5" />
                   </button>
                 ) : null}
               </div>
@@ -257,7 +218,6 @@ export function InsightExplorer({
               record={record}
               onPlay={onPlay}
               onQueue={onQueue}
-              onAddToCrate={onAddToCrate}
             />
           ))}
         </div>
@@ -272,7 +232,6 @@ export function InsightExplorer({
               pick={pick}
               onPlay={onPlay}
               onQueue={onQueue}
-              onAddToCrate={onAddToCrate}
             />
           ))}
           {onSelectCamelot ? (
@@ -305,20 +264,10 @@ export function InsightExplorer({
             <span className="insights-explorer__action-count tabular-nums">{matched.length}</span>
           </button>
         ) : null}
-        {showJourney && onAddJourneyToCrate ? (
-          <button
-            type="button"
-            className="insights-explorer__action insights-explorer__action--primary"
-            onClick={() => onAddJourneyToCrate(journey!)}
-          >
-            <ListPlus className="h-3.5 w-3.5" aria-hidden />
-            Add journey to crate
-          </button>
-        ) : null}
         {showJourney && onQueueJourney ? (
           <button
             type="button"
-            className="insights-explorer__action"
+            className="insights-explorer__action insights-explorer__action--primary"
             onClick={() => onQueueJourney(journey!)}
           >
             <ListMusic className="h-3.5 w-3.5" aria-hidden />

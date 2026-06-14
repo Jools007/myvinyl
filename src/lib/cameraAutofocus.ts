@@ -1,4 +1,13 @@
 import type { Html5Qrcode } from 'html5-qrcode';
+import { isMobilePlaybackDevice } from './playbackDevice';
+import {
+  SCANNER_DESKTOP_VIDEO_CONSTRAINTS,
+  SCANNER_GUIDE_OVERLAY,
+  SCANNER_MOBILE_VIDEO_CONSTRAINTS,
+  SCANNER_QRBOX,
+} from './scannerConfig';
+
+export { SCANNER_QRBOX } from './scannerConfig';
 
 type FocusMode = 'continuous' | 'single-shot';
 
@@ -8,41 +17,61 @@ type TrackConstraint = Record<string, unknown> & {
   zoom?: number;
 };
 
-export const SCANNER_ZOOM_IDEAL = 2;
+export function isScannerMobile(): boolean {
+  return isMobilePlaybackDevice();
+}
 
 /**
- * Wide, short scan region for horizontal 1D vinyl barcodes (EAN-13 / UPC).
- * Ratios are shared by html5-qrcode qrbox and the on-screen frame overlay.
- */
-export const SCANNER_QRBOX = {
-  widthRatio: 0.94,
-  heightRatio: 0.2,
-} as const;
-
-/**
- * Decode region sized from the live viewfinder — no max caps so the visual
- * frame and html5-qrcode scan box stay pixel-aligned.
+ * Desktop decode region — initial commit used 88%×28% capped at 340×140.
  */
 export function computeQrbox(viewfinderWidth: number, viewfinderHeight: number) {
   return {
-    width: Math.floor(viewfinderWidth * SCANNER_QRBOX.widthRatio),
-    height: Math.floor(viewfinderHeight * SCANNER_QRBOX.heightRatio),
+    width: Math.min(Math.floor(viewfinderWidth * SCANNER_QRBOX.widthRatio), SCANNER_QRBOX.maxWidth),
+    height: Math.min(
+      Math.floor(viewfinderHeight * SCANNER_QRBOX.heightRatio),
+      SCANNER_QRBOX.maxHeight
+    ),
   };
 }
 
-/** High-resolution rear camera with optical zoom and continuous autofocus. */
-export function buildScannerVideoConstraints(): MediaTrackConstraints {
+/** Cosmetic guide overlay only — decode uses full frame when qrbox is omitted. */
+export function computeGuideFrameOverlay(viewfinderWidth: number, viewfinderHeight: number) {
   return {
-    facingMode: 'environment',
-    width: { ideal: 1920 },
-    height: { ideal: 1080 },
-    zoom: { ideal: SCANNER_ZOOM_IDEAL },
-    focusMode: { ideal: 'continuous' },
-    advanced: [
-      { focusMode: 'continuous' },
-      { zoom: SCANNER_ZOOM_IDEAL },
-    ],
-  } as unknown as MediaTrackConstraints;
+    width: Math.floor(viewfinderWidth * SCANNER_GUIDE_OVERLAY.widthRatio),
+    height: Math.max(
+      SCANNER_GUIDE_OVERLAY.minHeightPx,
+      Math.floor(viewfinderHeight * SCANNER_GUIDE_OVERLAY.heightRatio)
+    ),
+  };
+}
+
+export function canUseNativeBarcodeDetector(): boolean {
+  if (typeof window === 'undefined') return false;
+  return 'BarcodeDetector' in window;
+}
+
+/** Camera profiles to try in order (desktop: webcam first; mobile: rear first). */
+export function getScannerCameraCandidates(): MediaTrackConstraints[] {
+  if (isScannerMobile()) {
+    return [{ facingMode: 'environment' }, { facingMode: 'user' }];
+  }
+  return [{ facingMode: 'user' }, { facingMode: 'environment' }];
+}
+
+/**
+ * Minimal constraints — avoid forced 2× zoom (blurs 1D barcodes on desktop).
+ * Initial working build did not apply zoom/focus advanced constraints.
+ */
+/** Mobile: rear camera + resolution ideal — no zoom/focus in advanced (breaks AF on iOS). */
+export function buildScannerMobileVideoConstraints(): MediaTrackConstraints {
+  return { ...SCANNER_MOBILE_VIDEO_CONSTRAINTS };
+}
+
+export function buildScannerVideoConstraints(): MediaTrackConstraints | undefined {
+  if (isScannerMobile()) {
+    return buildScannerMobileVideoConstraints();
+  }
+  return { ...SCANNER_DESKTOP_VIDEO_CONSTRAINTS };
 }
 
 function getVideoElement(regionId: string): HTMLVideoElement | null {
@@ -83,40 +112,13 @@ async function enableContinuousAutofocus(
   await applyTrackConstraint(scanner, regionId, { focusMode: 'continuous' });
 }
 
-async function enableOpticalZoom(scanner: Html5Qrcode, regionId: string): Promise<void> {
-  try {
-    const zoom = scanner.getRunningTrackCameraCapabilities().zoomFeature();
-    if (zoom.isSupported()) {
-      const target = Math.min(SCANNER_ZOOM_IDEAL, zoom.max());
-      await zoom.apply(Math.max(zoom.min(), target));
-      return;
-    }
-  } catch {
-    /* fall through */
-  }
-
-  await applyTrackConstraint(scanner, regionId, { zoom: SCANNER_ZOOM_IDEAL });
-  try {
-    await scanner.applyVideoConstraints({
-      zoom: { ideal: SCANNER_ZOOM_IDEAL },
-    } as unknown as MediaTrackConstraints);
-  } catch {
-    /* device may not support zoom */
-  }
-}
-
-/** Autofocus and optical zoom after html5-qrcode starts the camera. */
+/** Mobile only — desktop webcams rarely support optical zoom and it hurts decode. */
 export async function enableScannerEnhancements(
   scanner: Html5Qrcode,
   regionId: string
 ): Promise<void> {
+  if (!isScannerMobile()) return;
   await enableContinuousAutofocus(scanner, regionId);
-  await enableOpticalZoom(scanner, regionId);
-
-  window.setTimeout(() => {
-    void enableContinuousAutofocus(scanner, regionId);
-    void enableOpticalZoom(scanner, regionId);
-  }, 400);
 }
 
 export function normalizeTapPoint(
@@ -131,13 +133,15 @@ export function normalizeTapPoint(
   };
 }
 
-/** Tap-to-focus at a point, then restore continuous autofocus. */
+/** Desktop only — single-shot POI focus locks mobile cameras at the wrong distance. */
 export async function applyTapToFocus(
   scanner: Html5Qrcode,
   regionId: string,
   clientX: number,
   clientY: number
 ): Promise<void> {
+  if (isScannerMobile()) return;
+
   const video = getVideoElement(regionId);
   if (!video) return;
 

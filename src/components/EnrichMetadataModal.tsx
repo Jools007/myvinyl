@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import {
   countAllTracks,
   countReleasesNeedingMetadata,
+  countBpmTappedTracks,
   countReleasesWithTracks,
   countTracksNeedingMetadata,
 } from '../lib/fullMetadataEnrichment';
@@ -30,6 +31,7 @@ export function EnrichMetadataModal({
   const tracksNeeding = countTracksNeedingMetadata(records);
   const allTracks = countAllTracks(records);
   const allReleases = countReleasesWithTracks(records);
+  const tappedTracks = countBpmTappedTracks(records);
 
   const targetTracks = forceReenrich ? allTracks : tracksNeeding;
   const targetReleases = forceReenrich ? allReleases : releasesNeeding;
@@ -107,7 +109,10 @@ export function EnrichMetadataModal({
               <span>
                 <strong>Re-enrich all tracks</strong>
                 <span className="enrich-modal__option-hint">
-                  Re-apply improved methods to releases that are already enriched
+                  Re-apply improved methods to releases that are already enriched.
+                  {tappedTracks > 0
+                    ? ` Saved tap BPM on ${tappedTracks} track${tappedTracks === 1 ? '' : 's'} is kept — only key and vibes refresh.`
+                    : ' Saved tap BPM is never overwritten.'}
                 </span>
               </span>
             </label>

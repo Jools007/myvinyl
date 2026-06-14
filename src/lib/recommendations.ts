@@ -7,7 +7,7 @@ import {
   rhythmCompatibilityScore,
 } from './rhythmSource';
 import { playSelectionKey, type PlaySelection, type ResolvedPlaySelection } from './playSession';
-import { getPrimaryTrack } from './tracks';
+import { getPrimaryTrack, isBpmEstimatedForMatch } from './tracks';
 import type { Track, VinylRecord } from './types';
 
 function bpmDistance(a?: number, b?: number): number {
@@ -27,7 +27,7 @@ function genreOverlap(a: VinylRecord, b: VinylRecord): number {
 
 function estimatedConfidencePenalty(anchor: Track, candidate: Track): number {
   let factor = 1;
-  if (anchor.bpmEstimated || candidate.bpmEstimated) factor *= 0.88;
+  if (isBpmEstimatedForMatch(anchor) || isBpmEstimatedForMatch(candidate)) factor *= 0.88;
   if (anchor.keyEstimated || candidate.keyEstimated) factor *= 0.78;
   return factor;
 }
@@ -109,8 +109,8 @@ export function scoreNextPlay(
   if (
     anchorMixable &&
     harmonicOnly &&
-    (lastTrack.bpmEstimated ||
-      candidateTrack.bpmEstimated ||
+    (isBpmEstimatedForMatch(lastTrack) ||
+      isBpmEstimatedForMatch(candidateTrack) ||
       lastTrack.keyEstimated ||
       candidateTrack.keyEstimated)
   ) {

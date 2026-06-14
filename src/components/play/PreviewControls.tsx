@@ -89,14 +89,15 @@ export function PreviewControls({
     setDragRatio(null);
   };
 
-  let hint = 'Tap to play';
+  let hint = 'Press play';
   if (status === 'loading') hint = 'Finding audio…';
   else if (status === 'rate_limited') hint = 'Spotify busy — retry shortly';
   else if (status === 'unavailable') hint = 'No audio found';
-  else if (status === 'error') hint = 'Playback failed — tap to retry';
+  else if (status === 'error') hint = 'Playback failed — press play to retry';
+  else if (status === 'ready') hint = 'Tap play for audio';
   else if (canSeek) hint = 'Drag bar to seek';
   else if (source === 'spotify') hint = 'Spotify · 30s preview';
-  else if (source === 'youtube' && youtubeMuted && playing) hint = 'Tap play for sound';
+  else if (source === 'youtube' && youtubeMuted && playing) hint = 'Press play for sound';
   else if (source === 'youtube') hint = 'YouTube audio';
 
   return (

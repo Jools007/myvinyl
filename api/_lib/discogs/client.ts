@@ -1,3 +1,4 @@
+import { barcodeLookupVariants } from './barcode';
 import { resolveDiscogsCoverUrl } from './cover';
 
 const DISCOGS_API = 'https://api.discogs.com';
@@ -33,11 +34,11 @@ export async function searchDiscogs(
   return res.json() as Promise<{ results?: Record<string, unknown>[]; pagination?: unknown }>;
 }
 
-export async function searchDiscogsByBarcode(
+async function searchDiscogsByBarcodeOnce(
   token: string,
   barcode: string,
-  perPage = 5
-) {
+  perPage: number
+): Promise<{ results?: Record<string, unknown>[]; pagination?: unknown }> {
   const params = new URLSearchParams({
     barcode,
     type: 'release',
@@ -51,6 +52,23 @@ export async function searchDiscogsByBarcode(
     throw new Error(`Discogs barcode search failed: ${res.status} ${text}`);
   }
   return res.json() as Promise<{ results?: Record<string, unknown>[]; pagination?: unknown }>;
+}
+
+export async function searchDiscogsByBarcode(
+  token: string,
+  barcode: string,
+  perPage = 5
+) {
+  const variants = barcodeLookupVariants(barcode);
+  let last: { results?: Record<string, unknown>[]; pagination?: unknown } = { results: [] };
+
+  for (const variant of variants) {
+    const data = await searchDiscogsByBarcodeOnce(token, variant, perPage);
+    last = data;
+    if ((data.results?.length ?? 0) > 0) return data;
+  }
+
+  return last;
 }
 
 export type DiscogsCollectionBasicInfo = {

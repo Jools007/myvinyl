@@ -655,7 +655,7 @@ function drawCoverPage(
   insights: RichInsights
 ): void {
   const { doc } = ctx;
-  const collectionName = options.collectionName ?? 'Jools Collection';
+  const collectionName = options.collectionName ?? 'My Vinyl Collection';
   const generatedAt = options.generatedAt ?? new Date();
 
   setFill(doc, COLORS.navy);
@@ -1171,7 +1171,7 @@ export async function exportCollectionToPdf(options: CollectionPdfExportOptions)
     throw new Error('No records to export');
   }
 
-  const collectionName = options.collectionName ?? 'Jools Collection';
+  const collectionName = options.collectionName ?? 'My Vinyl Collection';
   options.onProgress?.('Preparing catalog…');
 
   const imageCache = await preloadCoverImages(options.records, options.onProgress);
@@ -1217,6 +1217,7 @@ export function buildCollectionFilterNote(
     condition: string | null;
     vibe: string | null;
     bpmRangeId: string;
+    cutRating?: string | null;
   },
   bpmLabel?: string
 ): string | undefined {
@@ -1227,6 +1228,7 @@ export function buildCollectionFilterNote(
   if (filters.condition) parts.push(`Condition: ${filters.condition}`);
   if (filters.vibe) parts.push(`Vibe: ${filters.vibe}`);
   if (filters.bpmRangeId !== 'all' && bpmLabel) parts.push(`BPM: ${bpmLabel}`);
+  if (filters.cutRating) parts.push(`Rating: ${filters.cutRating}`);
 
   return parts.length > 0 ? parts.join('   ·   ') : undefined;
 }

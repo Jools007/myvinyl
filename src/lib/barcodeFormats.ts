@@ -17,6 +17,17 @@ export const VINYL_BARCODE_FORMATS: Html5QrcodeSupportedFormats[] = [
   Html5QrcodeSupportedFormats.CODABAR,
 ];
 
+/** Mobile ZXing is faster with fewer symbologies — vinyl is almost always EAN/UPC. */
+export const VINYL_BARCODE_FORMATS_MOBILE: Html5QrcodeSupportedFormats[] = [
+  Html5QrcodeSupportedFormats.EAN_13,
+  Html5QrcodeSupportedFormats.UPC_A,
+  Html5QrcodeSupportedFormats.CODE_128,
+];
+
+export function vinylBarcodeFormatsForDevice(mobile: boolean): Html5QrcodeSupportedFormats[] {
+  return mobile ? VINYL_BARCODE_FORMATS_MOBILE : VINYL_BARCODE_FORMATS;
+}
+
 export const VINYL_BARCODE_FORMAT_LABELS: Record<string, string> = {
   [Html5QrcodeSupportedFormats.EAN_13]: 'EAN_13',
   [Html5QrcodeSupportedFormats.EAN_8]: 'EAN_8',

@@ -14,7 +14,7 @@ import {
   Waves,
   Zap,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   computeCollectionInsights,
@@ -53,18 +53,35 @@ type InsightsDashboardProps = {
   onPlayNow?: (record: VinylRecord, track: Track) => void;
   onAddToQueue?: (record: VinylRecord, track: Track) => void;
   onQueueMany?: (items: { record: VinylRecord; track: Track }[], label?: string) => void;
-  onAddToCrate?: (record: VinylRecord, track: Track) => void;
-  onAddManyToCrate?: (items: { record: VinylRecord; track: Track }[], label?: string) => void;
 };
 
-type SectionId = 'overview' | 'sound' | 'tempo' | 'harmonic' | 'health';
+type TabId = 'glance' | 'sound' | 'mix' | 'health';
 
-const SECTIONS: { id: SectionId; label: string; icon: typeof BarChart3 }[] = [
-  { id: 'overview', label: 'Overview', icon: Grid2x2 },
-  { id: 'sound', label: 'Sound', icon: Waves },
-  { id: 'tempo', label: 'Tempo', icon: Activity },
-  { id: 'harmonic', label: 'Keys', icon: KeyRound },
-  { id: 'health', label: 'Health', icon: HeartPulse },
+const TABS: { id: TabId; label: string; icon: typeof BarChart3; lead: string }[] = [
+  {
+    id: 'glance',
+    label: 'At a glance',
+    icon: Grid2x2,
+    lead: 'The shape of your crate — tap anything to dig in.',
+  },
+  {
+    id: 'sound',
+    label: 'Your sound',
+    icon: Waves,
+    lead: 'Genre, format, and vibe — tap a chart to preview releases.',
+  },
+  {
+    id: 'mix',
+    label: 'Mix & tempo',
+    icon: Activity,
+    lead: 'Keys, BPM, and set tools for home DJ sessions.',
+  },
+  {
+    id: 'health',
+    label: 'Crate health',
+    icon: HeartPulse,
+    lead: 'Metadata depth and what to enrich next.',
+  },
 ];
 
 function formatPct(value: number): string {
@@ -89,6 +106,25 @@ function lensKey(lens: InsightLens): string {
       return `journey:${lens.stepIds.join(',')}`;
     default:
       return 'unknown';
+  }
+}
+
+function tabForLens(lens: InsightLens): TabId {
+  switch (lens.kind) {
+    case 'genre':
+    case 'format':
+    case 'vibe':
+    case 'artist':
+      return 'sound';
+    case 'camelot':
+    case 'bpm':
+    case 'decade':
+    case 'release':
+    case 'roulette':
+    case 'journey':
+      return 'mix';
+    default:
+      return 'glance';
   }
 }
 
@@ -318,6 +354,111 @@ function HealthMeter({
   );
 }
 
+function CrateSnapshot({
+  insights,
+  onSelectLens,
+}: {
+  insights: CollectionInsights;
+  onSelectLens: (lens: InsightLens) => void;
+}) {
+  const quickLenses: { label: string; lens: InsightLens | null }[] = [
+    insights.topGenre
+      ? { label: insights.topGenre.name, lens: { kind: 'genre', label: insights.topGenre.name } }
+      : { label: '—', lens: null },
+    insights.topCamelot
+      ? { label: `Key ${insights.topCamelot.code}`, lens: { kind: 'camelot', code: insights.topCamelot.code } }
+      : { label: 'No keys', lens: null },
+    insights.dominantDecade
+      ? { label: insights.dominantDecade, lens: { kind: 'decade', label: insights.dominantDecade } }
+      : { label: insights.yearRange ?? '—', lens: null },
+    insights.bpmBuckets[0]
+      ? {
+          label: insights.bpmBuckets.reduce((a, b) => (b.count > a.count ? b : a)).label,
+          lens: bpmBucketLens(
+            insights.bpmBuckets.reduce((a, b) => (b.count > a.count ? b : a)).label
+          ),
+        }
+      : { label: '—', lens: null },
+  ];
+
+  return (
+    <div className="insights-snapshot">
+      <div className="insights-snapshot__stats">
+        <div className="insights-summary__stat">
+          <Disc3 className="insights-summary__icon" aria-hidden />
+          <span className="insights-summary__value tabular-nums">{insights.releaseCount}</span>
+          <span className="insights-summary__label">Releases</span>
+        </div>
+        <div className="insights-summary__stat">
+          <Music2 className="insights-summary__icon" aria-hidden />
+          <span className="insights-summary__value tabular-nums">{insights.trackCount}</span>
+          <span className="insights-summary__label">Tracks</span>
+        </div>
+        <div className="insights-summary__stat">
+          <Users className="insights-summary__icon" aria-hidden />
+          <span className="insights-summary__value tabular-nums">{insights.artistCount}</span>
+          <span className="insights-summary__label">Artists</span>
+        </div>
+        <div className="insights-summary__stat">
+          <Layers className="insights-summary__icon" aria-hidden />
+          <span className="insights-summary__value tabular-nums">
+            {insights.avgBpm != null ? insights.avgBpm : '—'}
+          </span>
+          <span className="insights-summary__label">
+            Avg BPM
+            {insights.medianBpm != null ? ` · med ${insights.medianBpm}` : ''}
+          </span>
+        </div>
+      </div>
+
+      <div className="insights-snapshot__pulse" aria-label={`${insights.primaryEnrichmentPct}% primary tracks ready`}>
+        <svg viewBox="0 0 96 96" className="insights-summary__ring" role="presentation">
+          <circle cx="48" cy="48" r="40" className="insights-ring__track" />
+          <circle
+            cx="48"
+            cy="48"
+            r="40"
+            className="insights-ring__progress"
+            strokeDasharray={`${(insights.primaryEnrichmentPct / 100) * 251} 251`}
+          />
+        </svg>
+        <div className="insights-summary__ring-label">
+          <span className="insights-summary__ring-value tabular-nums">
+            {insights.primaryEnrichmentPct}%
+          </span>
+          <span className="insights-summary__ring-hint">mix-ready</span>
+        </div>
+      </div>
+
+      <div className="insights-snapshot__personality">
+        <p className="insights-snapshot__energy">{insights.energyLabel}</p>
+        {insights.yearRange ? (
+          <p className="insights-snapshot__era">{insights.yearRange}</p>
+        ) : null}
+        <div className="insights-snapshot__quick" role="list">
+          {quickLenses.map(({ label, lens }) =>
+            lens ? (
+              <button
+                key={label}
+                type="button"
+                role="listitem"
+                className="insights-snapshot__chip"
+                onClick={() => onSelectLens(lens)}
+              >
+                {label}
+              </button>
+            ) : (
+              <span key={label} className="insights-snapshot__chip insights-snapshot__chip--muted">
+                {label}
+              </span>
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function InsightsDashboard({
   records,
   onApplyFilter,
@@ -327,37 +468,30 @@ export function InsightsDashboard({
   onPlayNow,
   onAddToQueue,
   onQueueMany,
-  onAddToCrate,
-  onAddManyToCrate,
 }: InsightsDashboardProps) {
   const insights = useMemo(() => computeCollectionInsights(records), [records]);
-  const [activeSection, setActiveSection] = useState<SectionId>('overview');
+  const [activeTab, setActiveTab] = useState<TabId>('glance');
   const [lens, setLens] = useState<InsightLens | null>(null);
   const [journey, setJourney] = useState<JourneyStep[] | null>(null);
   const [rouletteSpinning, setRouletteSpinning] = useState(false);
-  const sectionRefs = useRef<Partial<Record<SectionId, HTMLElement | null>>>({});
-  const navRef = useRef<HTMLDivElement>(null);
-  const scrollingRef = useRef(false);
 
-  const highlights = insights.actionableInsights.slice(0, 4);
-  const heroPct = insights.primaryEnrichmentPct;
+  const highlights = insights.actionableInsights.slice(0, 3);
   const canBuildJourney = records.filter((r) => {
     const t = r.tracks.find((x) => x.isPrimary) ?? r.tracks[0];
     return t?.bpm != null;
   }).length >= 2;
 
-  const selectedCamelot =
-    lens?.kind === 'camelot' ? lens.code : null;
-  const selectedBpm =
-    lens?.kind === 'bpm' ? lens.label : null;
-  const selectedDecade =
-    lens?.kind === 'decade' ? lens.label : null;
-  const selectedScatterId =
-    lens?.kind === 'release' ? lens.recordId : null;
+  const selectedCamelot = lens?.kind === 'camelot' ? lens.code : null;
+  const selectedBpm = lens?.kind === 'bpm' ? lens.label : null;
+  const selectedDecade = lens?.kind === 'decade' ? lens.label : null;
+  const selectedScatterId = lens?.kind === 'release' ? lens.recordId : null;
+
+  const activeTabMeta = TABS.find((t) => t.id === activeTab)!;
 
   const setLensFromInsight = useCallback((next: InsightLens | null) => {
     setLens(next);
     if (next?.kind !== 'journey') setJourney(null);
+    if (next) setActiveTab(tabForLens(next));
   }, []);
 
   const handleRoulette = useCallback(
@@ -369,6 +503,7 @@ export function InsightsDashboard({
         if (result) {
           setJourney(null);
           setLens(result.lens);
+          setActiveTab('mix');
         }
       }, 420);
     },
@@ -383,16 +518,19 @@ export function InsightsDashboard({
       kind: 'journey',
       stepIds: steps.map((s) => s.record.id),
     });
+    setActiveTab('mix');
   }, [records]);
 
   const handleInsightAction = useCallback(
     (insight: ActionableInsight) => {
       if (insight.action === 'enrich-metadata') {
         onEnrichMetadata?.();
+        setActiveTab('health');
         return;
       }
       if (insight.action === 'enrich-tracklists') {
         onEnrichTracklists?.();
+        setActiveTab('health');
         return;
       }
       if (insight.filter) {
@@ -438,35 +576,6 @@ export function InsightsDashboard({
     [onAddToQueue, onQueueMany]
   );
 
-  const handleAddJourneyToCrate = useCallback(
-    (steps: JourneyStep[]) => {
-      const items = steps.map((s) => ({ record: s.record, track: s.track }));
-      if (onAddManyToCrate) {
-        onAddManyToCrate(
-          items,
-          `Journey added · ${steps.length} track${steps.length === 1 ? '' : 's'}`
-        );
-        return;
-      }
-      if (!onAddToCrate) return;
-      for (const step of steps) onAddToCrate(step.record, step.track);
-    },
-    [onAddToCrate, onAddManyToCrate]
-  );
-
-  const scrollToSection = useCallback((id: SectionId) => {
-    const el = sectionRefs.current[id];
-    if (!el) return;
-    scrollingRef.current = true;
-    setActiveSection(id);
-    const navH = navRef.current?.offsetHeight ?? 0;
-    const top = el.getBoundingClientRect().top + window.scrollY - navH - 12;
-    window.scrollTo({ top, behavior: 'smooth' });
-    window.setTimeout(() => {
-      scrollingRef.current = false;
-    }, 600);
-  }, []);
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setLensFromInsight(null);
@@ -474,29 +583,6 @@ export function InsightsDashboard({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [setLensFromInsight]);
-
-  useEffect(() => {
-    const ids = SECTIONS.map((s) => s.id);
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (scrollingRef.current) return;
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-        if (visible?.target.id) {
-          const id = visible.target.id.replace('insights-', '') as SectionId;
-          if (ids.includes(id)) setActiveSection(id);
-        }
-      },
-      { rootMargin: '-30% 0px -55% 0px', threshold: [0, 0.15, 0.4] }
-    );
-
-    for (const id of ids) {
-      const el = sectionRefs.current[id];
-      if (el) observer.observe(el);
-    }
-    return () => observer.disconnect();
-  }, [records.length]);
 
   if (records.length === 0) {
     return (
@@ -525,7 +611,7 @@ export function InsightsDashboard({
           <div className="insights-topbar__copy">
             <p className="insights-topbar__kicker">
               <BarChart3 className="h-3.5 w-3.5" aria-hidden />
-              Collection analytics
+              Know your crate
             </p>
             <h1 className="insights-topbar__title">Insights</h1>
           </div>
@@ -537,7 +623,14 @@ export function InsightsDashboard({
               </button>
             ) : null}
             {insights.releasesNeedingMetadata > 0 && onEnrichMetadata ? (
-              <button type="button" className="insights-topbar__cta" onClick={onEnrichMetadata}>
+              <button
+                type="button"
+                className="insights-topbar__cta"
+                onClick={() => {
+                  setActiveTab('health');
+                  onEnrichMetadata();
+                }}
+              >
                 <Zap className="h-3.5 w-3.5" aria-hidden />
                 Enrich {insights.tracksNeedingMetadata}
               </button>
@@ -545,15 +638,15 @@ export function InsightsDashboard({
           </div>
         </header>
 
-        <div ref={navRef} className="insights-nav" role="tablist" aria-label="Insight sections">
-          {SECTIONS.map(({ id, label, icon: Icon }) => (
+        <div className="insights-nav" role="tablist" aria-label="Insight views">
+          {TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               type="button"
               role="tab"
-              aria-selected={activeSection === id}
-              className={`insights-nav__tab${activeSection === id ? ' insights-nav__tab--active' : ''}`}
-              onClick={() => scrollToSection(id)}
+              aria-selected={activeTab === id}
+              className={`insights-nav__tab${activeTab === id ? ' insights-nav__tab--active' : ''}`}
+              onClick={() => setActiveTab(id)}
             >
               <Icon className="h-3.5 w-3.5" aria-hidden />
               {label}
@@ -562,329 +655,265 @@ export function InsightsDashboard({
         </div>
       </div>
 
-      {lens ? (
-        <InsightExplorer
-          key={lensKey(lens)}
-          lens={lens}
-          records={records}
-          journey={journey}
-          onClose={() => setLensFromInsight(null)}
-          onFilter={onApplyFilter}
-          onOpenCollection={onOpenCollection}
-          onPlay={onPlayNow}
-          onQueue={onAddToQueue}
-          onAddToCrate={onAddToCrate}
-          onQueueJourney={handleQueueJourney}
-          onAddJourneyToCrate={handleAddJourneyToCrate}
-          onSelectCamelot={(code) => setLensFromInsight({ kind: 'camelot', code })}
-          onSpinAgain={
-            lens.kind === 'roulette' ? () => handleRoulette('any') : undefined
-          }
-        />
-      ) : null}
+      <div className="insights-workspace">
+        <div className="insights-workspace__main">
+          <p className="insights-workspace__lead">{activeTabMeta.lead}</p>
 
-      <div
-        id="insights-overview"
-        ref={(el) => {
-          sectionRefs.current.overview = el;
-        }}
-        className="insights-section"
-      >
-        <div className="insights-summary">
-          <div className="insights-summary__stats">
-            <div className="insights-summary__stat">
-              <Disc3 className="insights-summary__icon" aria-hidden />
-              <span className="insights-summary__value tabular-nums">{insights.releaseCount}</span>
-              <span className="insights-summary__label">Releases</span>
-            </div>
-            <div className="insights-summary__stat">
-              <Music2 className="insights-summary__icon" aria-hidden />
-              <span className="insights-summary__value tabular-nums">{insights.trackCount}</span>
-              <span className="insights-summary__label">Tracks</span>
-            </div>
-            <div className="insights-summary__stat">
-              <Users className="insights-summary__icon" aria-hidden />
-              <span className="insights-summary__value tabular-nums">{insights.artistCount}</span>
-              <span className="insights-summary__label">Artists</span>
-            </div>
-            <div className="insights-summary__stat">
-              <Layers className="insights-summary__icon" aria-hidden />
-              <span className="insights-summary__value tabular-nums">
-                {insights.avgBpm != null ? insights.avgBpm : '—'}
-              </span>
-              <span className="insights-summary__label">
-                Avg BPM
-                {insights.medianBpm != null ? ` · med ${insights.medianBpm}` : ''}
-              </span>
-            </div>
-          </div>
+          {activeTab === 'glance' ? (
+            <div className="insights-tab-panel">
+              <CrateSnapshot insights={insights} onSelectLens={setLensFromInsight} />
 
-          <div className="insights-summary__pulse" aria-label={`${heroPct}% primary tracks ready`}>
-            <svg viewBox="0 0 96 96" className="insights-summary__ring" role="presentation">
-              <circle cx="48" cy="48" r="40" className="insights-ring__track" />
-              <circle
-                cx="48"
-                cy="48"
-                r="40"
-                className="insights-ring__progress"
-                strokeDasharray={`${(heroPct / 100) * 251} 251`}
-              />
-            </svg>
-            <div className="insights-summary__ring-label">
-              <span className="insights-summary__ring-value tabular-nums">{heroPct}%</span>
-              <span className="insights-summary__ring-hint">primary ready</span>
-            </div>
-          </div>
-        </div>
-
-        <PlayfulTools
-          onRoulette={handleRoulette}
-          onBuildJourney={handleBuildJourney}
-          canBuildJourney={canBuildJourney}
-          spinning={rouletteSpinning}
-        />
-
-        <div className="insights-tags">
-          <span className="insights-badge">{insights.energyLabel}</span>
-          {insights.yearRange ? (
-            <span className="insights-badge insights-badge--muted">{insights.yearRange}</span>
-          ) : null}
-          {insights.topGenre ? (
-            <button
-              type="button"
-              className="insights-badge insights-badge--muted insights-badge--clickable"
-              onClick={() => setLensFromInsight({ kind: 'genre', label: insights.topGenre!.name })}
-            >
-              {insights.topGenre.name}
-            </button>
-          ) : null}
-          {insights.topCamelot ? (
-            <button
-              type="button"
-              className="insights-badge insights-badge--muted insights-badge--clickable"
-              onClick={() => setLensFromInsight({ kind: 'camelot', code: insights.topCamelot!.code })}
-            >
-              Key {insights.topCamelot.code}
-            </button>
-          ) : null}
-        </div>
-
-        {highlights.length > 0 ? (
-          <div className="insights-highlights" aria-label="Key takeaways">
-            {highlights.map((insight) => (
-              <HighlightCard key={insight.id} insight={insight} onAction={handleInsightAction} />
-            ))}
-          </div>
-        ) : null}
-      </div>
-
-      <div
-        id="insights-sound"
-        ref={(el) => {
-          sectionRefs.current.sound = el;
-        }}
-        className="insights-section"
-      >
-        <h2 className="insights-section__title">Sound & genre</h2>
-        <p className="insights-section__lead">Tap a segment — preview releases, then filter or play.</p>
-        <div className="insights-bento">
-          <div className="insights-bento__cell insights-bento__cell--8">
-            <InsightTreemapChart
-              title="Genre landscape"
-              subtitle="Share of shelf by primary genre"
-              cells={insights.genreTreemap}
-              onCellClick={(cell) => setLensFromInsight({ kind: 'genre', label: cell.label })}
-            />
-          </div>
-          <div className="insights-bento__cell insights-bento__cell--4">
-            <InsightDonutChart
-              title="Format mix"
-              subtitle="Vinyl, reissues & pressings"
-              items={insights.formatCounts}
-              onSliceClick={(item) => setLensFromInsight({ kind: 'format', label: item.label })}
-            />
-          </div>
-          <div className="insights-bento__cell insights-bento__cell--6">
-            <InsightBarChart
-              title="Top artists"
-              subtitle="Tap to see their releases"
-              items={insights.topArtists}
-              accent="coral"
-              selectedLabel={lens?.kind === 'artist' ? lens.label : null}
-              onItemClick={(item) => setLensFromInsight({ kind: 'artist', label: item.label })}
-              compact
-            />
-          </div>
-          {insights.vibeRadar.length >= 3 ? (
-            <div className="insights-bento__cell insights-bento__cell--6">
-              <InsightRadarChart
-                title="Vibe signature"
-                subtitle="Tag frequency — tap to explore"
-                axes={insights.vibeRadar}
-                onAxisClick={(axis) => setLensFromInsight({ kind: 'vibe', label: axis.label })}
-              />
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      <div
-        id="insights-tempo"
-        ref={(el) => {
-          sectionRefs.current.tempo = el;
-        }}
-        className="insights-section"
-      >
-        <h2 className="insights-section__title">Tempo & era</h2>
-        <p className="insights-section__lead">Plot your crate in time — tap dots to pull up a release.</p>
-        <div className="insights-bento">
-          <div className="insights-bento__cell insights-bento__cell--12">
-            <InsightScatterChart
-              title="Tempo vs era"
-              subtitle="Each dot is a release — year × primary-track BPM"
-              points={insights.scatterPoints}
-              selectedId={selectedScatterId}
-              onPointSelect={(point) =>
-                setLensFromInsight({
-                  kind: 'release',
-                  recordId: point.id,
-                  label: point.label,
-                })
-              }
-            />
-          </div>
-          <div className="insights-bento__cell insights-bento__cell--6">
-            <InsightBarChart
-              title="BPM buckets"
-              subtitle="Tempo zones in your library"
-              items={insights.bpmBuckets}
-              selectedLabel={selectedBpm}
-              onItemClick={(item) => {
-                const l = bpmBucketLens(item.label);
-                if (l) setLensFromInsight(l);
-              }}
-            />
-          </div>
-          <div className="insights-bento__cell insights-bento__cell--6">
-            <InsightBarChart
-              title="Decade spread"
-              subtitle="Releases per decade"
-              items={insights.decadeCounts}
-              accent="violet"
-              selectedLabel={selectedDecade}
-              onItemClick={(item) => setLensFromInsight({ kind: 'decade', label: item.label })}
-            />
-          </div>
-        </div>
-      </div>
-
-      <div
-        id="insights-harmonic"
-        ref={(el) => {
-          sectionRefs.current.harmonic = el;
-        }}
-        className="insights-section"
-      >
-        <h2 className="insights-section__title">Harmonic keys</h2>
-        <p className="insights-section__lead">DJ-style key mixing — see partners light up on the wheel.</p>
-        <div className="insights-bento">
-          <div className="insights-bento__cell insights-bento__cell--7">
-            <CamelotWheel
-              wheel={insights.camelotWheel}
-              selectedCode={selectedCamelot}
-              onKeySelect={(code) => setLensFromInsight({ kind: 'camelot', code })}
-            />
-          </div>
-          <div className="insights-bento__cell insights-bento__cell--5">
-            {insights.keyCounts.length > 0 ? (
-              <InsightPanel title="Top keys" subtitle="Quick jump to a Camelot code">
-                <div className="insights-key-chips">
-                  {insights.keyCounts.map((k) => (
-                    <button
-                      key={k.label}
-                      type="button"
-                      className={`insights-key-chip tabular-nums${selectedCamelot === k.label ? ' insights-key-chip--selected' : ''}`}
-                      onClick={() => setLensFromInsight({ kind: 'camelot', code: k.label })}
-                    >
-                      {k.label}
-                      <span className="insights-key-chip__count">{k.count}</span>
-                    </button>
+              {highlights.length > 0 ? (
+                <div className="insights-highlights insights-highlights--glance" aria-label="Key takeaways">
+                  {highlights.map((insight) => (
+                    <HighlightCard key={insight.id} insight={insight} onAction={handleInsightAction} />
                   ))}
                 </div>
-              </InsightPanel>
-            ) : (
-              <InsightPanel title="Top keys" subtitle="Run metadata enrichment to populate keys">
-                <p className="insights-card__empty">
-                  No key data yet.
-                  {onEnrichMetadata ? (
-                    <>
-                      {' '}
-                      <button type="button" className="insights-inline-link" onClick={onEnrichMetadata}>
-                        Enrich metadata
-                      </button>
-                    </>
-                  ) : null}
-                </p>
-              </InsightPanel>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div
-        id="insights-health"
-        ref={(el) => {
-          sectionRefs.current.health = el;
-        }}
-        className="insights-section insights-section--last"
-      >
-        <h2 className="insights-section__title">Crate health</h2>
-        <p className="insights-section__lead">Metadata depth across three tiers.</p>
-        <div className="insights-bento">
-          <div className="insights-bento__cell insights-bento__cell--12">
-            <InsightPanel title="Enrichment depth" subtitle="What percentage of your library is DJ-ready">
-              <div className="insights-health-grid">
-                {insights.enrichmentTiers.map((tier) => (
-                  <HealthMeter
-                    key={tier.id}
-                    label={tier.label}
-                    value={tier.value}
-                    detail={tier.detail}
-                    emphasis={tier.id === 'primary'}
-                  />
-                ))}
-                <HealthMeter
-                  label="Discogs linked"
-                  value={pct(insights.discogsLinkedCount, insights.releaseCount)}
-                  detail={`${insights.discogsLinkedCount} releases with Discogs IDs`}
-                />
-                <HealthMeter
-                  label="Marked played"
-                  value={insights.playedPct}
-                  detail={`${insights.playedCount} releases spun recently`}
-                />
-              </div>
-              {insights.releasesNeedingMetadata > 0 && onEnrichMetadata ? (
-                <div className="insights-health-actions">
-                  <button type="button" className="insights-health-cta" onClick={onEnrichMetadata}>
-                    <KeyRound className="h-3.5 w-3.5" aria-hidden />
-                    Enrich {insights.tracksNeedingMetadata} tracks
-                  </button>
-                  {onEnrichTracklists && insights.discogsLinkedCount > 0 ? (
-                    <button
-                      type="button"
-                      className="insights-health-cta insights-health-cta--ghost"
-                      onClick={onEnrichTracklists}
-                    >
-                      <Disc3 className="h-3.5 w-3.5" aria-hidden />
-                      Import tracklists
-                    </button>
-                  ) : null}
-                </div>
               ) : null}
-            </InsightPanel>
-          </div>
+
+              <PlayfulTools
+                onRoulette={handleRoulette}
+                onBuildJourney={handleBuildJourney}
+                canBuildJourney={canBuildJourney}
+                spinning={rouletteSpinning}
+              />
+
+              {insights.topArtists.length > 0 ? (
+                <InsightBarChart
+                  title="Shelf leaders"
+                  subtitle="Tap an artist to preview their releases"
+                  items={insights.topArtists.slice(0, 6)}
+                  accent="coral"
+                  selectedLabel={lens?.kind === 'artist' ? lens.label : null}
+                  onItemClick={(item) => setLensFromInsight({ kind: 'artist', label: item.label })}
+                  compact
+                />
+              ) : null}
+            </div>
+          ) : null}
+
+          {activeTab === 'sound' ? (
+            <div className="insights-tab-panel">
+              <div className="insights-bento">
+                <div className="insights-bento__cell insights-bento__cell--8">
+                  <InsightTreemapChart
+                    title="Genre landscape"
+                    subtitle="Share of shelf by primary genre"
+                    cells={insights.genreTreemap}
+                    onCellClick={(cell) => setLensFromInsight({ kind: 'genre', label: cell.label })}
+                  />
+                </div>
+                <div className="insights-bento__cell insights-bento__cell--4">
+                  <InsightDonutChart
+                    title="Format mix"
+                    subtitle="Vinyl, reissues & pressings"
+                    items={insights.formatCounts}
+                    onSliceClick={(item) => setLensFromInsight({ kind: 'format', label: item.label })}
+                  />
+                </div>
+                <div className="insights-bento__cell insights-bento__cell--6">
+                  <InsightBarChart
+                    title="Top artists"
+                    subtitle="Tap to see their releases"
+                    items={insights.topArtists}
+                    accent="coral"
+                    selectedLabel={lens?.kind === 'artist' ? lens.label : null}
+                    onItemClick={(item) => setLensFromInsight({ kind: 'artist', label: item.label })}
+                    compact
+                  />
+                </div>
+                {insights.vibeRadar.length >= 3 ? (
+                  <div className="insights-bento__cell insights-bento__cell--6">
+                    <InsightRadarChart
+                      title="Vibe signature"
+                      subtitle="Tag frequency — tap to explore"
+                      axes={insights.vibeRadar}
+                      onAxisClick={(axis) => setLensFromInsight({ kind: 'vibe', label: axis.label })}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          {activeTab === 'mix' ? (
+            <div className="insights-tab-panel">
+              <PlayfulTools
+                onRoulette={handleRoulette}
+                onBuildJourney={handleBuildJourney}
+                canBuildJourney={canBuildJourney}
+                spinning={rouletteSpinning}
+              />
+              <div className="insights-bento">
+                <div className="insights-bento__cell insights-bento__cell--7">
+                  <CamelotWheel
+                    wheel={insights.camelotWheel}
+                    selectedCode={selectedCamelot}
+                    onKeySelect={(code) => setLensFromInsight({ kind: 'camelot', code })}
+                  />
+                </div>
+                <div className="insights-bento__cell insights-bento__cell--5">
+                  {insights.keyCounts.length > 0 ? (
+                    <InsightPanel title="Top keys" subtitle="Quick jump to a Camelot code">
+                      <div className="insights-key-chips">
+                        {insights.keyCounts.map((k) => (
+                          <button
+                            key={k.label}
+                            type="button"
+                            className={`insights-key-chip tabular-nums${selectedCamelot === k.label ? ' insights-key-chip--selected' : ''}`}
+                            onClick={() => setLensFromInsight({ kind: 'camelot', code: k.label })}
+                          >
+                            {k.label}
+                            <span className="insights-key-chip__count">{k.count}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </InsightPanel>
+                  ) : (
+                    <InsightPanel title="Top keys" subtitle="Run metadata enrichment to populate keys">
+                      <p className="insights-card__empty">
+                        No key data yet.
+                        {onEnrichMetadata ? (
+                          <>
+                            {' '}
+                            <button
+                              type="button"
+                              className="insights-inline-link"
+                              onClick={() => {
+                                setActiveTab('health');
+                                onEnrichMetadata();
+                              }}
+                            >
+                              Enrich metadata
+                            </button>
+                          </>
+                        ) : null}
+                      </p>
+                    </InsightPanel>
+                  )}
+                </div>
+                <div className="insights-bento__cell insights-bento__cell--12">
+                  <InsightScatterChart
+                    title="Tempo vs era"
+                    subtitle="Each dot is a release — year × primary-track BPM"
+                    points={insights.scatterPoints}
+                    selectedId={selectedScatterId}
+                    onPointSelect={(point) =>
+                      setLensFromInsight({
+                        kind: 'release',
+                        recordId: point.id,
+                        label: point.label,
+                      })
+                    }
+                  />
+                </div>
+                <div className="insights-bento__cell insights-bento__cell--6">
+                  <InsightBarChart
+                    title="BPM buckets"
+                    subtitle="Tempo zones in your library"
+                    items={insights.bpmBuckets}
+                    selectedLabel={selectedBpm}
+                    onItemClick={(item) => {
+                      const l = bpmBucketLens(item.label);
+                      if (l) setLensFromInsight(l);
+                    }}
+                  />
+                </div>
+                <div className="insights-bento__cell insights-bento__cell--6">
+                  <InsightBarChart
+                    title="Decade spread"
+                    subtitle="Releases per decade"
+                    items={insights.decadeCounts}
+                    accent="violet"
+                    selectedLabel={selectedDecade}
+                    onItemClick={(item) => setLensFromInsight({ kind: 'decade', label: item.label })}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {activeTab === 'health' ? (
+            <div className="insights-tab-panel">
+              <div className="insights-bento">
+                <div className="insights-bento__cell insights-bento__cell--12">
+                  <InsightPanel
+                    title="Enrichment depth"
+                    subtitle="What percentage of your library is DJ-ready"
+                  >
+                    <div className="insights-health-grid">
+                      {insights.enrichmentTiers.map((tier) => (
+                        <HealthMeter
+                          key={tier.id}
+                          label={tier.label}
+                          value={tier.value}
+                          detail={tier.detail}
+                          emphasis={tier.id === 'primary'}
+                        />
+                      ))}
+                      <HealthMeter
+                        label="Discogs linked"
+                        value={pct(insights.discogsLinkedCount, insights.releaseCount)}
+                        detail={`${insights.discogsLinkedCount} releases with Discogs IDs`}
+                      />
+                      <HealthMeter
+                        label="Marked played"
+                        value={insights.playedPct}
+                        detail={`${insights.playedCount} releases spun recently`}
+                      />
+                    </div>
+                    {insights.releasesNeedingMetadata > 0 && onEnrichMetadata ? (
+                      <div className="insights-health-actions">
+                        <button type="button" className="insights-health-cta" onClick={onEnrichMetadata}>
+                          <KeyRound className="h-3.5 w-3.5" aria-hidden />
+                          Enrich {insights.tracksNeedingMetadata} tracks
+                        </button>
+                        {onEnrichTracklists && insights.discogsLinkedCount > 0 ? (
+                          <button
+                            type="button"
+                            className="insights-health-cta insights-health-cta--ghost"
+                            onClick={onEnrichTracklists}
+                          >
+                            <Disc3 className="h-3.5 w-3.5" aria-hidden />
+                            Import tracklists
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </InsightPanel>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
+
+        {lens ? (
+          <div className="insights-workspace__detail">
+            <InsightExplorer
+              key={lensKey(lens)}
+              lens={lens}
+              records={records}
+              journey={journey}
+              onClose={() => setLensFromInsight(null)}
+              onFilter={onApplyFilter}
+              onOpenCollection={onOpenCollection}
+              onPlay={onPlayNow}
+              onQueue={onAddToQueue}
+              onQueueJourney={handleQueueJourney}
+              onSelectCamelot={(code) => setLensFromInsight({ kind: 'camelot', code })}
+              onSpinAgain={lens.kind === 'roulette' ? () => handleRoulette('any') : undefined}
+            />
+          </div>
+        ) : (
+          <div className="insights-workspace__hint" aria-hidden={activeTab === 'health'}>
+            <Sparkles className="insights-workspace__hint-icon" strokeWidth={1.25} />
+            <p>
+              {activeTab === 'health'
+                ? 'Enrich metadata to unlock mix maps and deeper charts.'
+                : 'Tap a chart, key, or quick chip to preview releases and jump to Play.'}
+            </p>
+          </div>
+        )}
       </div>
 
       {rouletteSpinning ? (

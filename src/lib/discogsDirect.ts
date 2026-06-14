@@ -1,3 +1,4 @@
+import { barcodeLookupVariants } from './barcodeLookup';
 import { flattenDiscogsTracklist } from './discogsTracklist';
 import { resolveDiscogsCoverUrl } from './discogsCover';
 import type { DiscogsSearchHit } from './types';
@@ -270,10 +271,10 @@ export async function directSearchDiscogs(
   return (data.results ?? []).map(parseSearchResult);
 }
 
-export async function directSearchDiscogsByBarcode(
+async function directSearchDiscogsByBarcodeOnce(
   token: string,
   barcode: string,
-  perPage = 5
+  perPage: number
 ): Promise<DiscogsSearchHit[]> {
   const params = new URLSearchParams({
     barcode,
@@ -291,6 +292,23 @@ export async function directSearchDiscogsByBarcode(
   }
   const data = (await res.json()) as { results?: Record<string, unknown>[] };
   return (data.results ?? []).map(parseSearchResult);
+}
+
+export async function directSearchDiscogsByBarcode(
+  token: string,
+  barcode: string,
+  perPage = 5
+): Promise<DiscogsSearchHit[]> {
+  const variants = barcodeLookupVariants(barcode);
+  let last: DiscogsSearchHit[] = [];
+
+  for (const variant of variants) {
+    const hits = await directSearchDiscogsByBarcodeOnce(token, variant, perPage);
+    last = hits;
+    if (hits.length > 0) return hits;
+  }
+
+  return last;
 }
 
 export async function directFetchDiscogsRelease(
