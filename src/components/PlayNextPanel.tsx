@@ -16,6 +16,7 @@ import { PlayBrowsePanel } from './play/PlayBrowsePanel';
 import { EditableBpm } from './play/EditableBpm';
 import { MixStrip } from './play/MixStrip';
 import { ReleaseTrackPickerSheet } from './play/ReleaseTrackPickerSheet';
+import { PlaybackDebugBar } from './play/PlaybackDebugBar';
 import { PreviewControls } from './play/PreviewControls';
 import { RecordArtwork } from './RecordArtwork';
 interface PlayNextPanelProps {
@@ -349,6 +350,11 @@ export function PlayNextPanel({
                       onToggle={handlePreviewToggle}
                       onSeek={preview.seekTo}
                       onSkip={preview.skipBy}
+                    />
+                    <PlaybackDebugBar
+                      status={preview.status}
+                      source={preview.source}
+                      youtubeMode={preview.getYoutubeMode()}
                     />
                   </div>
                 </div>

@@ -4,7 +4,6 @@ import {
   type PlaybackSource,
   type TrackPlayback,
 } from '../lib/api';
-import { playbackDiag } from '../lib/playbackDiagnostics';
 import { mountAudioElement, unmountAudioElement } from '../lib/playMediaHost';
 import { playSelectionKey, type PlaySelection } from '../lib/playSession';
 import { YouTubePreviewPlayer } from '../lib/youtubePlayer';
@@ -14,10 +13,6 @@ const SPOTIFY_PREVIEW_SECONDS = 30;
 const LOAD_TIMEOUT_MS = 22_000;
 const DEFAULT_YOUTUBE_SECONDS = 240;
 const PLAYBACK_CACHE_MAX = 64;
-/** Only cache after this many ms of confirmed playback (avoids caching embed-blocked ids). */
-const CACHE_CONFIRM_MS = 3_000;
-/** Retry alternate video if UI shows playing but time stalls this long (jsapi fallback). */
-const PLAYBACK_STALL_MS = 5_000;
 
 const playbackCache = new Map<string, TrackPlayback>();
 
@@ -54,102 +49,6 @@ export function useTrackPreview() {
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [source, setSource] = useState<PlaybackSource | null>(null);
   const [youtubeMuted, setYoutubeMuted] = useState(false);
-  const [diagHint, setDiagHint] = useState<string | null>(null);
-  const statusRef = useRef<PreviewStatus>('idle');
-  const loadCtxRef = useRef<{
-    record: VinylRecord;
-    track: Track;
-    key: string;
-    artist: string;
-    albumTitle: string;
-    albumIndex?: number;
-  } | null>(null);
-  const failedVideoIdsRef = useRef<Set<string>>(new Set());
-  const loadSeqRef = useRef(0);
-  const retryEmbedBlockRef = useRef<
-    (key: string, videoId: string, code: number) => void
-  >(() => {});
-  const retryInFlightRef = useRef(false);
-  const cacheConfirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingCacheRef = useRef<{ key: string; data: TrackPlayback } | null>(null);
-  const stallWatchRef = useRef<{
-    key: string;
-    videoId: string;
-    lastElapsed: number;
-    lastAdvanceAt: number;
-    timer: ReturnType<typeof setInterval> | null;
-  } | null>(null);
-
-  const clearCacheConfirmTimer = useCallback(() => {
-    if (cacheConfirmTimerRef.current != null) {
-      clearTimeout(cacheConfirmTimerRef.current);
-      cacheConfirmTimerRef.current = null;
-    }
-  }, []);
-
-  const clearStallWatch = useCallback(() => {
-    const w = stallWatchRef.current;
-    if (w?.timer != null) clearInterval(w.timer);
-    stallWatchRef.current = null;
-  }, []);
-
-  const schedulePlaybackCache = useCallback(
-    (key: string, data: TrackPlayback) => {
-      clearCacheConfirmTimer();
-      pendingCacheRef.current = { key, data };
-      cacheConfirmTimerRef.current = setTimeout(() => {
-        cacheConfirmTimerRef.current = null;
-        const pending = pendingCacheRef.current;
-        if (!pending || pending.key !== key || activeKeyRef.current !== key) return;
-        if (statusRef.current !== 'playing') return;
-        rememberPlayback(key, pending.data);
-        pendingCacheRef.current = null;
-        playbackDiag('playback_cache_confirmed', { key, source: pending.data.source });
-      }, CACHE_CONFIRM_MS);
-    },
-    [clearCacheConfirmTimer]
-  );
-
-  const startStallWatch = useCallback(
-    (key: string, videoId: string) => {
-      // jsapi time is estimated — stall detection only meaningful for YT.Player (api mode).
-      if (youtubeRef.current?.getPlayerMode() !== 'api') return;
-      clearStallWatch();
-      const startedAt = Date.now();
-      stallWatchRef.current = {
-        key,
-        videoId,
-        lastElapsed: 0,
-        lastAdvanceAt: startedAt,
-        timer: setInterval(() => {
-          const w = stallWatchRef.current;
-          if (!w || w.key !== key || activeKeyRef.current !== key) return;
-          if (statusRef.current !== 'playing' || sourceRef.current !== 'youtube') return;
-
-          const yt = youtubeRef.current;
-          if (!yt?.isActivelyPlaying()) return;
-
-          const t = yt.getCurrentTime();
-          if (t > w.lastElapsed + 0.4) {
-            w.lastElapsed = t;
-            w.lastAdvanceAt = Date.now();
-            return;
-          }
-
-          if (Date.now() - w.lastAdvanceAt >= PLAYBACK_STALL_MS) {
-            playbackDiag('youtube_playback_stall', { key, videoId: w.videoId });
-            clearStallWatch();
-            retryEmbedBlockRef.current(key, w.videoId, 150);
-          }
-        }, 1_000),
-      };
-    },
-    [clearStallWatch]
-  );
-
-  useEffect(() => {
-    statusRef.current = status;
-  }, [status]);
 
   const stopRaf = useCallback(() => {
     if (rafRef.current != null) {
@@ -170,9 +69,6 @@ export function useTrackPreview() {
   }, [stopRaf]);
 
   const reset = useCallback(() => {
-    clearCacheConfirmTimer();
-    clearStallWatch();
-    pendingCacheRef.current = null;
     detachAudio();
     detachYouTube();
     activeKeyRef.current = null;
@@ -184,21 +80,7 @@ export function useTrackPreview() {
     setProgress(0);
     setElapsed(0);
     setDuration(SPOTIFY_PREVIEW_SECONDS);
-    setDiagHint(null);
-  }, [clearCacheConfirmTimer, clearStallWatch, detachAudio, detachYouTube]);
-
-  useEffect(() => {
-    return () => {
-      loadSeqRef.current += 1;
-      clearCacheConfirmTimer();
-      clearStallWatch();
-      pendingCacheRef.current = null;
-      detachAudio();
-      detachYouTube();
-      activeKeyRef.current = null;
-      sourceRef.current = null;
-    };
-  }, [clearCacheConfirmTimer, clearStallWatch, detachAudio, detachYouTube]);
+  }, [detachAudio, detachYouTube]);
 
   const tick = useCallback(() => {
     const key = activeKeyRef.current;
@@ -217,7 +99,7 @@ export function useTrackPreview() {
       t = Math.min(audio.currentTime, dur);
     } else if (sourceRef.current === 'youtube') {
       const yt = youtubeRef.current;
-      if (!yt || !yt.isActivelyPlaying()) return;
+      if (!yt) return;
       dur = yt.getDuration() || DEFAULT_YOUTUBE_SECONDS;
       t = Math.min(yt.getCurrentTime(), dur);
     } else {
@@ -276,7 +158,6 @@ export function useTrackPreview() {
       const audio = new Audio(previewUrl);
       mountAudioElement(audio);
       audioRef.current = audio;
-      playbackDiag('spotify_attach', { key, url: previewUrl.slice(0, 80) });
 
       audio.addEventListener('play', () => {
         if (activeKeyRef.current !== key) return;
@@ -303,16 +184,11 @@ export function useTrackPreview() {
       });
 
       setStatus('ready');
-      schedulePlaybackCache(key, {
-        source: 'spotify',
-        previewUrl,
-        durationSec: SPOTIFY_PREVIEW_SECONDS,
-      });
       if (opts?.autoplay) {
         playCurrent({ enableSound: opts.enableSound === true });
       }
     },
-    [detachAudio, detachYouTube, playCurrent, schedulePlaybackCache, startProgress, stopRaf]
+    [detachAudio, detachYouTube, playCurrent, startProgress, stopRaf]
   );
 
   const attachYouTube = useCallback(
@@ -333,67 +209,48 @@ export function useTrackPreview() {
       const enableSound = opts?.enableSound === true;
       setYoutubeMuted(!enableSound);
 
-      playbackDiag('youtube_attach', { key, videoId, autoplay, enableSound });
-      setDiagHint(null);
-
       youtubeRef.current = new YouTubePreviewPlayer(
         videoId,
         {
-          onReady: () => {
-            if (activeKeyRef.current !== key) return;
-            const d = youtubeRef.current?.getDuration();
-            if (d && d > 0) setDuration(d);
-            setStatus('ready');
-            playbackDiag('preview_ready', {
-              key,
-              mode: youtubeRef.current?.getPlayerMode(),
-            });
-            if (autoplay) {
-              playCurrent({ enableSound: enableSound });
-            }
-          },
-          onMutedChange: (muted) => {
-            if (activeKeyRef.current !== key) return;
-            setYoutubeMuted(muted);
-          },
-          onPlaying: () => {
-            if (activeKeyRef.current !== key) return;
-            setStatus('playing');
-            setDiagHint(null);
-            startProgress();
-            startStallWatch(key, videoId);
-          },
-          onPaused: () => {
-            if (activeKeyRef.current !== key) return;
-            clearStallWatch();
-            stopRaf();
-            setStatus('paused');
-          },
-          onEnded: () => {
-            if (activeKeyRef.current !== key) return;
-            clearStallWatch();
-            stopRaf();
-            setStatus('ended');
-            setProgress(1);
-            setElapsed(youtubeRef.current?.getDuration() || duration);
-          },
-          onError: (code) => {
-            playbackDiag('preview_error', { key, code, videoId });
-            if (activeKeyRef.current !== key) return;
-            if (code === 101 || code === 150) {
-              retryEmbedBlockRef.current(key, videoId, code ?? 0);
-              return;
-            }
-            setStatus('error');
-            if (import.meta.env.DEV) {
-              setDiagHint(`YouTube error ${code ?? '?'} — press play to retry`);
-            }
-          },
+        onReady: () => {
+          if (activeKeyRef.current !== key) return;
+          const d = youtubeRef.current?.getDuration();
+          if (d && d > 0) setDuration(d);
+          setStatus('ready');
+          if (autoplay) {
+            playCurrent({ enableSound: enableSound });
+          }
         },
+        onMutedChange: (muted) => {
+          if (activeKeyRef.current !== key) return;
+          setYoutubeMuted(muted);
+        },
+        onPlaying: () => {
+          if (activeKeyRef.current !== key) return;
+          setStatus('playing');
+          startProgress();
+        },
+        onPaused: () => {
+          if (activeKeyRef.current !== key) return;
+          stopRaf();
+          setStatus('paused');
+        },
+        onEnded: () => {
+          if (activeKeyRef.current !== key) return;
+          stopRaf();
+          setStatus('ended');
+          setProgress(1);
+          setElapsed(youtubeRef.current?.getDuration() || duration);
+        },
+        onError: (code) => {
+          console.warn('[play-audio] YouTube player error', code, videoId);
+          if (activeKeyRef.current === key) setStatus('error');
+        },
+      },
         { autoplay, enableSound }
       );
     },
-    [clearStallWatch, detachAudio, detachYouTube, duration, playCurrent, startProgress, stopRaf, startStallWatch]
+    [detachAudio, detachYouTube, duration, playCurrent, startProgress, stopRaf]
   );
 
   const applyPlayback = useCallback(
@@ -423,120 +280,6 @@ export function useTrackPreview() {
     [attachSpotify, attachYouTube]
   );
 
-  const fetchAndApplyPlayback = useCallback(
-    async (
-      key: string,
-      ctx: {
-        record: VinylRecord;
-        track: Track;
-        artist: string;
-        albumTitle: string;
-        albumIndex?: number;
-      },
-      autoplay: boolean,
-      enableSoundOnAutoplay: boolean,
-      loadSeq: number
-    ) => {
-      for (let attempt = 0; attempt < 6; attempt++) {
-        const result = await fetchTrackPlayback(
-          ctx.artist,
-          ctx.track.title,
-          ctx.albumTitle || undefined,
-          {
-            albumIndex: ctx.albumIndex,
-            spotifyTrackId: ctx.track.spotifyTrackId,
-            excludeVideoIds: [...failedVideoIdsRef.current],
-          }
-        );
-
-        if (loadSeqRef.current !== loadSeq || activeKeyRef.current !== key) return false;
-
-        if (!result.ok) {
-          setStatus(result.reason === 'rate_limited' ? 'rate_limited' : 'unavailable');
-          if (import.meta.env.DEV && result.reason === 'not_found') {
-            setDiagHint('No embeddable YouTube audio found');
-          }
-          return false;
-        }
-
-        if (
-          result.data.source === 'youtube' &&
-          failedVideoIdsRef.current.has(result.data.videoId)
-        ) {
-          playbackDiag('youtube_skip_duplicate', { videoId: result.data.videoId, attempt });
-          continue;
-        }
-
-        if (result.data.source === 'youtube') {
-          schedulePlaybackCache(key, result.data);
-        } else {
-          rememberPlayback(key, result.data);
-        }
-        applyPlayback(result.data, key, autoplay, enableSoundOnAutoplay);
-        return true;
-      }
-
-      setStatus('unavailable');
-      if (import.meta.env.DEV) {
-        setDiagHint('No alternate embeddable video found');
-      }
-      return false;
-    },
-    [applyPlayback, schedulePlaybackCache]
-  );
-
-  const retryYouTubeAfterEmbedBlock = useCallback(
-    async (key: string, failedVideoId: string, code: number) => {
-      if (retryInFlightRef.current) return;
-
-      const ctx = loadCtxRef.current;
-      if (!ctx || ctx.key !== key) return;
-
-      failedVideoIdsRef.current.add(failedVideoId);
-      playbackCache.delete(key);
-      clearCacheConfirmTimer();
-      clearStallWatch();
-      pendingCacheRef.current = null;
-      detachYouTube();
-
-      playbackDiag('youtube_embed_blocked_retry', {
-        failedVideoId,
-        code,
-        excludes: [...failedVideoIdsRef.current],
-      });
-
-      if (failedVideoIdsRef.current.size > 6) {
-        setStatus('unavailable');
-        if (import.meta.env.DEV) {
-          setDiagHint(`No embeddable video after ${failedVideoIdsRef.current.size} tries`);
-        }
-        return;
-      }
-
-      retryInFlightRef.current = true;
-      setStatus('loading');
-      setDiagHint(import.meta.env.DEV ? `Trying alternate video (blocked ${failedVideoId})…` : null);
-
-      try {
-        const wasPlaying =
-          statusRef.current === 'playing' ||
-          statusRef.current === 'paused' ||
-          statusRef.current === 'loading';
-        const loadSeq = ++loadSeqRef.current;
-        await fetchAndApplyPlayback(key, ctx, wasPlaying, wasPlaying, loadSeq);
-      } finally {
-        retryInFlightRef.current = false;
-      }
-    },
-    [clearCacheConfirmTimer, clearStallWatch, detachYouTube, fetchAndApplyPlayback]
-  );
-
-  useEffect(() => {
-    retryEmbedBlockRef.current = (key, videoId, code) => {
-      void retryYouTubeAfterEmbedBlock(key, videoId, code);
-    };
-  }, [retryYouTubeAfterEmbedBlock]);
-
   const load = useCallback(
     async (
       record: VinylRecord,
@@ -545,26 +288,6 @@ export function useTrackPreview() {
       enableSoundOnAutoplay = false
     ) => {
       const key = playSelectionKey({ recordId: record.id, trackId: track.id });
-      const prevKey = activeKeyRef.current;
-      if (prevKey !== key) {
-        failedVideoIdsRef.current.clear();
-      }
-
-      const artist = track.artist?.trim() || record.artist;
-      const albumTitle = record.title.trim();
-      const albumIndex =
-        record.tracks?.findIndex((t) => t.id === track.id);
-      const albumIndexOne =
-        albumIndex != null && albumIndex >= 0 ? albumIndex + 1 : undefined;
-
-      loadCtxRef.current = {
-        record,
-        track,
-        key,
-        artist,
-        albumTitle,
-        albumIndex: albumIndexOne,
-      };
 
       const alreadyAttached =
         activeKeyRef.current === key &&
@@ -584,28 +307,18 @@ export function useTrackPreview() {
       setStatus('loading');
       setProgress(0);
       setElapsed(0);
-      setDiagHint(null);
-      playbackDiag('preview_load', {
-        key,
-        track: track.title,
-        artist: track.artist || record.artist,
-        autoplay,
-      });
 
       const failIfStillLoading = () => {
         if (activeKeyRef.current === key) setStatus('unavailable');
       };
       const loadTimeout = window.setTimeout(failIfStillLoading, LOAD_TIMEOUT_MS);
-      const loadSeq = ++loadSeqRef.current;
+
+      const artist = track.artist?.trim() || record.artist;
+      const albumTitle = record.title.trim();
+      const albumIndex = record.tracks?.findIndex((t) => t.id === track.id);
 
       const cached = playbackCache.get(key);
-      if (
-        cached &&
-        !(
-          cached.source === 'youtube' &&
-          failedVideoIdsRef.current.has(cached.videoId)
-        )
-      ) {
+      if (cached) {
         window.clearTimeout(loadTimeout);
         applyPlayback(cached, key, autoplay, enableSoundOnAutoplay);
         return;
@@ -620,34 +333,32 @@ export function useTrackPreview() {
           spotifyTrackId: track.spotifyTrackId,
           durationSec: SPOTIFY_PREVIEW_SECONDS,
         };
-        schedulePlaybackCache(key, data);
+        rememberPlayback(key, data);
         applyPlayback(data, key, autoplay, enableSoundOnAutoplay);
         return;
       }
 
       try {
+        const result = await fetchTrackPlayback(artist, track.title, albumTitle || undefined, {
+          albumIndex: albumIndex != null && albumIndex >= 0 ? albumIndex + 1 : undefined,
+          spotifyTrackId: track.spotifyTrackId,
+        });
         window.clearTimeout(loadTimeout);
-        await fetchAndApplyPlayback(
-          key,
-          {
-            record,
-            track,
-            artist,
-            albumTitle,
-            albumIndex: albumIndexOne,
-          },
-          autoplay,
-          enableSoundOnAutoplay,
-          loadSeq
-        );
+        if (activeKeyRef.current !== key) return;
+
+        if (!result.ok) {
+          setStatus(result.reason === 'rate_limited' ? 'rate_limited' : 'unavailable');
+          return;
+        }
+
+        rememberPlayback(key, result.data);
+        applyPlayback(result.data, key, autoplay, enableSoundOnAutoplay);
       } catch {
         window.clearTimeout(loadTimeout);
-        if (activeKeyRef.current === key && loadSeqRef.current === loadSeq) {
-          setStatus('error');
-        }
+        if (activeKeyRef.current === key) setStatus('error');
       }
     },
-    [applyPlayback, fetchAndApplyPlayback, playCurrent, schedulePlaybackCache]
+    [applyPlayback, playCurrent]
   );
 
   const seekTo = useCallback(
@@ -748,6 +459,8 @@ export function useTrackPreview() {
     [activeKey]
   );
 
+  useEffect(() => () => reset(), [reset]);
+
   return {
     status,
     progress,
@@ -756,7 +469,8 @@ export function useTrackPreview() {
     activeKey,
     source,
     youtubeMuted,
-    diagHint,
+    diagHint: null as string | null,
+    getYoutubeMode: () => youtubeRef.current?.getPlayerMode() ?? null,
     load,
     toggle,
     seekTo,

@@ -5153,6 +5153,53 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   font-size: 0.75rem;
 }
 
+.play-dj__playback-debug {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 0.5rem;
+  border: 1px dashed color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--bg-subtle) 70%, transparent);
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.play-dj__playback-debug-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
+  margin: 0;
+}
+
+.play-dj__playback-debug-label {
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.62rem;
+}
+
+.play-dj__playback-debug-btn {
+  margin-top: 0.35rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.35rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: 0.65rem;
+  cursor: pointer;
+}
+
+.play-dj__playback-debug-btn:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.play-dj__playback-debug-help {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+}
+
 .play-dj__preview-hint {
   color: var(--text-muted);
   overflow: hidden;
