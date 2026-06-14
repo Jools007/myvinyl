@@ -15,9 +15,10 @@ export const PLAYBACK_BASELINE = {
     soundOnAutoplay: false,
   },
   youtube: {
-    /** Desktop prod: IFrame API. Localhost: simple embed (preferSimpleIframe) */
-    localhostMode: 'simple-iframe',
-    desktopHostPosition: 'right-bottom-in-viewport' as const,
+    /** Desktop + localhost: IFrame API with origin. iOS: enablejsapi embed + postMessage */
+    localhostMode: 'iframe-api',
+    iosMode: 'enablejsapi-embed',
+    desktopHostMount: 'document.body-with-inline-styles' as const,
   },
   css: {
     /**

@@ -345,6 +345,7 @@ export function PlayNextPanel({
                       progress={preview.progress}
                       elapsed={preview.elapsed}
                       duration={preview.duration}
+                      diagHint={preview.diagHint}
                       onToggle={handlePreviewToggle}
                       onSeek={preview.seekTo}
                       onSkip={preview.skipBy}

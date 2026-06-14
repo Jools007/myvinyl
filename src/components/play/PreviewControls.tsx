@@ -16,6 +16,7 @@ type PreviewControlsProps = {
   progress: number;
   elapsed: number;
   duration: number;
+  diagHint?: string | null;
   onToggle: () => void;
   onSeek: (seconds: number) => void;
   onSkip: (deltaSeconds: number) => void;
@@ -28,6 +29,7 @@ export function PreviewControls({
   progress,
   elapsed,
   duration,
+  diagHint,
   onToggle,
   onSeek,
   onSkip,
@@ -99,6 +101,7 @@ export function PreviewControls({
   else if (source === 'spotify') hint = 'Spotify · 30s preview';
   else if (source === 'youtube' && youtubeMuted && playing) hint = 'Press play for sound';
   else if (source === 'youtube') hint = 'YouTube audio';
+  if (import.meta.env.DEV && diagHint) hint = diagHint;
 
   return (
     <div className="play-dj__preview" role="group" aria-label="Track preview playback">

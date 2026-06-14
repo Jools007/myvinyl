@@ -27,7 +27,8 @@ Reference when preview audio stutters, stops after ~2s, or regresses after Play 
 |------|------|
 | `src/components/PlayNextPanel.tsx` | Owns preview hook + load effect |
 | `src/hooks/useTrackPreview.ts` | Spotify + YouTube attach (match `adfecc2` sound logic) |
-| `src/lib/youtubePlayer.ts` | `preferSimpleIframe()` on localhost; IFrame API on prod |
+| `src/lib/youtubePlayer.ts` | IFrame API on desktop/localhost; enablejsapi embed on iOS |
+| `src/lib/playbackDiagnostics.ts` | Dev log — `window.__MYVINYL_PLAYBACK__.report()` |
 | `src/index.css` | `.play-dj__yt-host` desktop positioning (see below) |
 | `src/lib/playbackConfig.ts` | Frozen rules (this doc's source of truth) |
 
@@ -66,6 +67,7 @@ npm run dev   # http://127.0.0.1:5174
 3. Audio plays **> 10 seconds** without stopping
 4. Press preview **play** if muted — sound continues
 5. Console: Roboto font / `compute-pressure` warnings are **harmless** (YouTube embed noise)
+6. If playback fails: run `__MYVINYL_PLAYBACK__.report()` in DevTools console — check `ytHosts` dimensions (must be 320×180 in viewport)
 
 API probe:
 
