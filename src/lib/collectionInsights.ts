@@ -64,6 +64,30 @@ export type ActionableInsight = {
   filter?: InsightFilterAction;
 };
 
+export type ValuedRecord = {
+  id: string;
+  artist: string;
+  title: string;
+  amount: number;
+  currency: string;
+  year?: string;
+};
+
+export type NotableRecord = {
+  id: string;
+  artist: string;
+  title: string;
+  reason: string;
+  metric: string;
+};
+
+export type NarrativeInsight = {
+  id: string;
+  headline: string;
+  body: string;
+  icon: 'era' | 'artist' | 'genre' | 'tempo' | 'health' | 'value' | 'discovery';
+};
+
 export type CollectionInsights = {
   releaseCount: number;
   trackCount: number;
@@ -73,7 +97,17 @@ export type CollectionInsights = {
   oldestYear: number | null;
   newestYear: number | null;
   medianYear: number | null;
+  avgYear: number | null;
   avgTracksPerRelease: number;
+  tracklistCompletePct: number;
+  tracklistCompleteCount: number;
+  artistConcentrationPct: number;
+  unplayedCount: number;
+  valuedRecords: ValuedRecord[];
+  estimatedCollectionValue: number | null;
+  valueCurrency: string | null;
+  notableRecords: NotableRecord[];
+  narrativeInsights: NarrativeInsight[];
   mintCount: number;
   mintPct: number;
   withBpmCount: number;
@@ -167,6 +201,121 @@ function bpmRangeIdForValue(bpm: number): string {
 function pct(part: number, total: number): number {
   if (total === 0) return 0;
   return Math.round((part / total) * 100);
+}
+
+function avg(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return Math.round(values.reduce((sum, n) => sum + n, 0) / values.length);
+}
+
+function parsePurchasePrice(notes?: string): { amount: number; currency: string } | null {
+  if (!notes?.trim()) return null;
+  const text = notes.trim();
+  const symbolFirst = text.match(/([£$€])\s*(\d+(?:\.\d{1,2})?)/);
+  if (symbolFirst) {
+    const currency = symbolFirst[1] === '£' ? 'GBP' : symbolFirst[1] === '€' ? 'EUR' : 'USD';
+    return { amount: parseFloat(symbolFirst[2]), currency };
+  }
+  const symbolAfter = text.match(/(\d+(?:\.\d{1,2})?)\s*(£|\$|€|gbp|usd|eur)\b/i);
+  if (symbolAfter) {
+    const raw = symbolAfter[2].toLowerCase();
+    const currency =
+      raw === '£' || raw === 'gbp' ? 'GBP' : raw === '€' || raw === 'eur' ? 'EUR' : 'USD';
+    return { amount: parseFloat(symbolAfter[1]), currency };
+  }
+  const paid = text.match(/\b(?:paid|cost|price)\s*[:\-]?\s*(\d+(?:\.\d{1,2})?)/i);
+  if (paid) return { amount: parseFloat(paid[1]), currency: 'GBP' };
+  return null;
+}
+
+function buildNarrativeInsights(data: CollectionInsights): NarrativeInsight[] {
+  const out: NarrativeInsight[] = [];
+  const { releaseCount } = data;
+  if (releaseCount === 0) return out;
+
+  if (data.topArtist && data.topArtist.count >= 2) {
+    const share = pct(data.topArtist.count, releaseCount);
+    out.push({
+      id: 'artist-depth',
+      headline: `${data.topArtist.name} leads your shelf`,
+      body:
+        share >= 15
+          ? `${data.topArtist.count} copies (${share}% of the collection) — a serious deep-dive into one artist's catalogue.`
+          : `${data.topArtist.count} releases make ${data.topArtist.name} your most-collected artist across ${data.artistCount} names.`,
+      icon: 'artist',
+    });
+  }
+
+  if (data.avgYear != null && data.yearRange) {
+    out.push({
+      id: 'era-profile',
+      headline: `Pressings centre on ${data.avgYear}`,
+      body: `Your average year is ${data.avgYear} with a median of ${data.medianYear ?? '—'}. The crate spans ${data.yearRange}${data.dominantDecade ? `, weighted toward the ${data.dominantDecade}` : ''}.`,
+      icon: 'era',
+    });
+  }
+
+  if (data.topGenre && data.topGenre.count >= 2) {
+    const genreShare = pct(data.topGenre.count, releaseCount);
+    const runner = data.topGenres[1];
+    out.push({
+      id: 'genre-identity',
+      headline: `${data.topGenre.name} shapes the sound`,
+      body: runner
+        ? `${genreShare}% of releases carry ${data.topGenre.name.toLowerCase()} tags — ${runner.label} follows at ${runner.count}.`
+        : `${data.topGenre.count} releases across ${data.genreCount} genre lanes — ${data.topGenre.name} is the through-line.`,
+      icon: 'genre',
+    });
+  }
+
+  if (data.avgBpm != null) {
+    out.push({
+      id: 'tempo-character',
+      headline: data.energyLabel,
+      body:
+        data.bpmSpread != null && data.bpmSpread >= 20
+          ? `Average ${data.avgBpm} BPM with a ${data.bpmSpread}-BPM spread — versatile enough for warm-up through peak-time.`
+          : `Average ${data.avgBpm} BPM${data.medianBpm != null ? ` (median ${data.medianBpm})` : ''} — a cohesive tempo profile for single-energy sets.`,
+      icon: 'tempo',
+    });
+  }
+
+  if (data.unplayedCount > 0 && releaseCount >= 8) {
+    out.push({
+      id: 'listening-backlog',
+      headline: `${data.unplayedCount} records still unspun`,
+      body: `${data.playedPct}% of your shelf shows a recent play date — ${data.unplayedCount} releases are waiting for their first spin.`,
+      icon: 'discovery',
+    });
+  }
+
+  if (data.estimatedCollectionValue != null && data.valuedRecords.length >= 3) {
+    const sym = data.valueCurrency === 'USD' ? '$' : data.valueCurrency === 'EUR' ? '€' : '£';
+    out.push({
+      id: 'collection-value',
+      headline: `~${sym}${data.estimatedCollectionValue.toLocaleString()} logged spend`,
+      body: `Parsed from ${data.valuedRecords.length} purchase notes — add prices in record notes (£, $, €) for sharper value tracking.`,
+      icon: 'value',
+    });
+  } else if (data.valuedRecords.length > 0) {
+    const top = data.valuedRecords[0];
+    const sym = top.currency === 'USD' ? '$' : top.currency === 'EUR' ? '€' : '£';
+    out.push({
+      id: 'top-spend',
+      headline: `Top logged purchase: ${sym}${top.amount}`,
+      body: `${top.artist} — ${top.title}. Add more purchase notes to unlock full collection value estimates.`,
+      icon: 'value',
+    });
+  }
+
+  out.push({
+    id: 'crate-health',
+    headline: `${data.primaryEnrichmentPct}% mix-ready`,
+    body: `${data.tracklistCompletePct}% have imported tracklists · ${data.discogsLinkedCount} Discogs-linked · ${data.mintPct}% graded Mint/NM.`,
+    icon: 'health',
+  });
+
+  return out.slice(0, 6);
 }
 
 function harmonicNeighbors(code: string): string[] {
@@ -363,6 +512,8 @@ export function computeCollectionInsights(records: VinylRecord[]): CollectionIns
   let manualAddCount = 0;
   let importAddCount = 0;
   let playedCount = 0;
+  let tracklistCompleteCount = 0;
+  const valuedRecords: ValuedRecord[] = [];
 
   for (const record of records) {
     trackCount += record.tracks.length;
@@ -398,6 +549,20 @@ export function computeCollectionInsights(records: VinylRecord[]): CollectionIns
     if (record.discogsId) discogsLinkedCount += 1;
     if (record.addSource === 'discogs-import') importAddCount += 1;
     else manualAddCount += 1;
+
+    if (record.tracks.length >= 2) tracklistCompleteCount += 1;
+
+    const price = parsePurchasePrice(record.notes);
+    if (price) {
+      valuedRecords.push({
+        id: record.id,
+        artist: record.artist,
+        title: record.title,
+        amount: price.amount,
+        currency: price.currency,
+        year: record.year,
+      });
+    }
 
     if (isReleaseFullyEnriched(record)) fullyEnrichedCount += 1;
     if (isPrimaryTrackEnriched(record)) primaryEnrichedCount += 1;
@@ -526,6 +691,68 @@ export function computeCollectionInsights(records: VinylRecord[]): CollectionIns
     },
   ];
 
+  valuedRecords.sort((a, b) => b.amount - a.amount);
+
+  const valueByCurrency = new Map<string, number>();
+  for (const v of valuedRecords) {
+    valueByCurrency.set(v.currency, (valueByCurrency.get(v.currency) ?? 0) + v.amount);
+  }
+  const dominantCurrency = [...valueByCurrency.entries()].sort((a, b) => b[1] - a[1])[0];
+  const estimatedCollectionValue = dominantCurrency?.[1] ?? null;
+  const valueCurrency = dominantCurrency?.[0] ?? null;
+
+  const notableRecords: NotableRecord[] = [];
+  const deepest = [...records].sort((a, b) => b.tracks.length - a.tracks.length)[0];
+  if (deepest && deepest.tracks.length >= 8) {
+    notableRecords.push({
+      id: deepest.id,
+      artist: deepest.artist,
+      title: deepest.title,
+      reason: 'Most tracks on one pressing',
+      metric: `${deepest.tracks.length} tracks`,
+    });
+  }
+  const oldest = years.length
+    ? records.find((r) => parseInt(String(r.year), 10) === Math.min(...years))
+    : undefined;
+  if (oldest?.year) {
+    notableRecords.push({
+      id: oldest.id,
+      artist: oldest.artist,
+      title: oldest.title,
+      reason: 'Oldest pressing',
+      metric: oldest.year,
+    });
+  }
+  const newest = years.length
+    ? records.find((r) => parseInt(String(r.year), 10) === Math.max(...years))
+    : undefined;
+  if (newest?.year && newest.id !== oldest?.id) {
+    notableRecords.push({
+      id: newest.id,
+      artist: newest.artist,
+      title: newest.title,
+      reason: 'Newest pressing',
+      metric: newest.year,
+    });
+  }
+  if (valuedRecords[0]) {
+    const top = valuedRecords[0];
+    notableRecords.push({
+      id: top.id,
+      artist: top.artist,
+      title: top.title,
+      reason: 'Highest logged purchase',
+      metric: `${top.currency === 'USD' ? '$' : top.currency === 'EUR' ? '€' : '£'}${top.amount}`,
+    });
+  }
+
+  const artistConcentrationPct = topArtistEntry
+    ? pct(topArtistEntry[1], releaseCount)
+    : 0;
+  const unplayedCount = releaseCount - playedCount;
+  const tracklistCompletePct = pct(tracklistCompleteCount, releaseCount);
+
   const base: CollectionInsights = {
     releaseCount,
     trackCount,
@@ -535,6 +762,7 @@ export function computeCollectionInsights(records: VinylRecord[]): CollectionIns
     oldestYear,
     newestYear,
     medianYear: median(years),
+    avgYear: avg(years),
     avgTracksPerRelease:
       releaseCount > 0 ? Math.round((trackCount / releaseCount) * 10) / 10 : 0,
     mintCount,
@@ -581,10 +809,20 @@ export function computeCollectionInsights(records: VinylRecord[]): CollectionIns
     scatterPoints: scatterPoints.slice(0, 120),
     genreTreemap,
     vibeRadar,
+    tracklistCompletePct,
+    tracklistCompleteCount,
+    artistConcentrationPct,
+    unplayedCount,
+    valuedRecords: valuedRecords.slice(0, 8),
+    estimatedCollectionValue,
+    valueCurrency,
+    notableRecords: notableRecords.slice(0, 4),
+    narrativeInsights: [],
     actionableInsights: [],
   };
 
   base.actionableInsights = buildActionableInsights(base, releaseCount);
+  base.narrativeInsights = buildNarrativeInsights(base);
   return base;
 }
 
