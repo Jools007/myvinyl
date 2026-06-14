@@ -12,8 +12,10 @@ export function isMobilePlaybackDevice(): boolean {
   return isIOSDevice() || /Android/i.test(navigator.userAgent);
 }
 
-/** iOS only — desktop (including localhost) uses the IFrame API for stable play/pause. */
+/** iOS + local dev: simple embed; IFrame API postMessage needs a stable production origin. */
 export function shouldUseSimpleYouTubeEmbed(): boolean {
+  const host = typeof window !== 'undefined' ? window.location.hostname : '';
+  if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') return true;
   return isIOSDevice();
 }
 

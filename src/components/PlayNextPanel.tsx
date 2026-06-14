@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, Disc3, Loader2, Sparkles } from 'lucide-react';
 import { useTapBpm } from '../hooks/useTapBpm';
-import type { TrackPreview } from '../hooks/useTrackPreview';
+import { useTrackPreview } from '../hooks/useTrackPreview';
 import type { CompatibilityOptions } from '../lib/compatibility';
 
 import {
@@ -21,8 +21,6 @@ import { RecordArtwork } from './RecordArtwork';
 interface PlayNextPanelProps {
   collection: VinylRecord[];
   nowPlaying: ResolvedPlaySelection | null;
-  preview: TrackPreview;
-  pendingAutoplayKeyRef?: RefObject<string | null>;
   queue: ResolvedPlaySelection[];
   onPlayNow: (record: VinylRecord, track: Track) => void;
   onSaveTapBpm?: (recordId: string, trackId: string, bpm: number) => void;
@@ -79,8 +77,6 @@ function NowPlayingArtwork({
 export function PlayNextPanel({
   collection,
   nowPlaying,
-  preview,
-  pendingAutoplayKeyRef,
   queue,
   onPlayNow,
   onSaveTapBpm,
@@ -89,10 +85,10 @@ export function PlayNextPanel({
   onEnrichRelease,
   enrichingRelease = false,
 }: PlayNextPanelProps) {
+  const preview = useTrackPreview();
   const tapBpm = useTapBpm();
   const [releasePickerOpen, setReleasePickerOpen] = useState(false);
-  const localAutoplayKeyRef = useRef<string | null>(null);
-  const autoplayKeyRef = pendingAutoplayKeyRef ?? localAutoplayKeyRef;
+  const autoplayPendingRef = useRef<string | null>(null);
 
   const nowKey = nowPlaying
     ? playSelectionKey({ recordId: nowPlaying.record.id, trackId: nowPlaying.track.id })
@@ -103,14 +99,14 @@ export function PlayNextPanel({
   }, [nowPlaying?.record.id, nowPlaying?.track.id]);
 
   useEffect(() => {
-    if (!nowPlaying || !nowKey) {
+    if (!nowPlaying) {
       preview.reset();
       return;
     }
 
-    const autoplay = autoplayKeyRef.current === nowKey;
-    if (autoplay) autoplayKeyRef.current = null;
-    void preview.load(nowPlaying.record, nowPlaying.track, autoplay, autoplay);
+    const autoplay = autoplayPendingRef.current === nowKey;
+    if (autoplay) autoplayPendingRef.current = null;
+    void preview.load(nowPlaying.record, nowPlaying.track, autoplay, false);
   }, [nowKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const exclude = useMemo((): PlaySelection[] => {
@@ -127,10 +123,13 @@ export function PlayNextPanel({
   const handlePlay = useCallback(
     (record: VinylRecord, track: Track) => {
       tapBpm.reset();
-      autoplayKeyRef.current = playSelectionKey({ recordId: record.id, trackId: track.id });
+      autoplayPendingRef.current = playSelectionKey({
+        recordId: record.id,
+        trackId: track.id,
+      });
       onPlayNow(record, track);
     },
-    [autoplayKeyRef, onPlayNow, tapBpm]
+    [onPlayNow, tapBpm]
   );
 
   const matchOptions = useMemo((): CompatibilityOptions | undefined => {
@@ -141,10 +140,7 @@ export function PlayNextPanel({
   const handlePreviewToggle = () => {
     if (!nowPlaying) return;
     const ref = { recordId: nowPlaying.record.id, trackId: nowPlaying.track.id };
-    if (preview.status === 'loading') {
-      preview.armPlay();
-      return;
-    }
+    if (preview.status === 'loading') return;
 
     const needsLoad =
       !preview.matchesSelection(ref) ||
@@ -153,7 +149,6 @@ export function PlayNextPanel({
       preview.status === 'error' ||
       preview.status === 'rate_limited';
     if (needsLoad) {
-      preview.armPlay();
       void preview.load(nowPlaying.record, nowPlaying.track, true, true);
       return;
     }

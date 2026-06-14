@@ -58,8 +58,7 @@ import { useAppRouter } from './hooks/useAppRouter';
 import { getLastPlayed } from './lib/recommendations';
 import { useAuth } from './contexts/AuthContext';
 import { useCollection } from './hooks/useCollection';
-import { useTrackPreview } from './hooks/useTrackPreview';
-import { isIOSDevice } from './lib/playbackDevice';
+
 import { normalizeGenre, normalizeVibe, parseFilterList } from './lib/filterLabels';
 import { collectGroupedGenreOptions, recordMatchesGroupedGenre } from './lib/genreGroups';
 import { isCdFormat } from './lib/formats';
@@ -139,10 +138,7 @@ function App() {
   );
   const [nowPlaying, setNowPlaying] = useState<PlaySelection | null>(null);
   const [playQueue, setPlayQueue] = useState<PlaySelection[]>([]);
-  const preview = useTrackPreview();
   const playHydratedRef = useRef<string | null>(null);
-  /** PlayNextPanel consumes this to autoplay once after route/hydrate or explicit play. */
-  const pendingAutoplayKeyRef = useRef<string | null>(null);
   const queueHydratedRef = useRef(false);
   const releaseRouteRef = useRef<string | null>(null);
 
@@ -427,9 +423,6 @@ function App() {
     playHydratedRef.current = key;
     setNowPlaying(routePlay);
     saveNowPlaying(routePlay);
-    if (!isIOSDevice()) {
-      pendingAutoplayKeyRef.current = key;
-    }
   }, [
     authLoading,
     collectionHydrated,
@@ -505,9 +498,6 @@ function App() {
       markPlayed(record.id);
       setPlayQueue((q) => q.filter((item) => !isSamePlaySelection(item, ref)));
       router.goToPlay(ref);
-      if (!isIOSDevice()) {
-        pendingAutoplayKeyRef.current = key;
-      }
       const idx = record.tracks.findIndex((t) => t.id === track.id);
       toast.success(`Now playing: ${track.title}`, {
         description: `${trackPositionLabel(track, idx >= 0 ? idx : 0)} · ${record.artist}`,
@@ -515,13 +505,6 @@ function App() {
     },
     [markPlayed, router]
   );
-
-  useEffect(() => {
-    if (router.location.page === 'play') return;
-    preview.reset();
-    playHydratedRef.current = null;
-    pendingAutoplayKeyRef.current = null;
-  }, [router.location.page, preview.reset]);
 
   const handleApplyInsightFilter = useCallback((patch: InsightFilterAction) => {
     setCollectionFilters((prev) => ({ ...prev, ...patch }));
@@ -881,8 +864,6 @@ function App() {
               <PlayNextPanel
                 collection={records}
                 nowPlaying={playAnchor}
-                preview={preview}
-                pendingAutoplayKeyRef={pendingAutoplayKeyRef}
                 queue={resolvedQueue}
                 onPlayNow={handlePlayNow}
                 onSaveTapBpm={(recordId, trackId, bpm) => {

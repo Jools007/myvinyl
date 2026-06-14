@@ -33,17 +33,6 @@
       "maxDuration": 10
     }
   },
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        {
-          "key": "Permissions-Policy",
-          "value": "compute-pressure=(self \"https://www.youtube.com\" \"https://www.youtube-nocookie.com\")"
-        }
-      ]
-    }
-  ],
   "rewrites": [
     { "source": "/api/discogs/search", "destination": "/api/health" },
     { "source": "/api/discogs/release/:id", "destination": "/api/health?releaseId=:id" },
