@@ -495,15 +495,16 @@ function App() {
 
   const handlePlayNow = useCallback(
     (record: VinylRecord, track: Track) => {
-      const autoStart = !isIOSDevice();
-      void preview.load(record, track, autoStart, autoStart);
       const ref: PlaySelection = { recordId: record.id, trackId: track.id };
-      playHydratedRef.current = playSelectionKey(ref);
-      setNowPlaying(ref);
+      const key = playSelectionKey(ref);
+      playHydratedRef.current = key;
       saveNowPlaying(ref);
+      setNowPlaying(ref);
       markPlayed(record.id);
       setPlayQueue((q) => q.filter((item) => !isSamePlaySelection(item, ref)));
       router.goToPlay(ref);
+      const autoStart = !isIOSDevice();
+      void preview.load(record, track, autoStart, autoStart);
       const idx = record.tracks.findIndex((t) => t.id === track.id);
       toast.success(`Now playing: ${track.title}`, {
         description: `${trackPositionLabel(track, idx >= 0 ? idx : 0)} · ${record.artist}`,
@@ -515,16 +516,15 @@ function App() {
   useEffect(() => {
     if (nowPlaying) return;
 
-    const pendingRoute =
-      router.location.page === 'play'
-        ? router.location.playSelection ?? loadNowPlaying()
-        : null;
-
-    if (pendingRoute) {
-      const key = playSelectionKey(pendingRoute);
-      if (playHydratedRef.current !== key) return;
+    // Play hydration sets playHydratedRef before nowPlaying state flushes — never
+    // reset while a play route or in-flight hydrate is active.
+    if (router.location.page === 'play') {
+      const pendingRoute = router.location.playSelection ?? loadNowPlaying();
+      if (pendingRoute) return;
     }
+    if (playHydratedRef.current) return;
 
+    playHydratedRef.current = null;
     preview.reset();
   }, [
     nowPlaying,
