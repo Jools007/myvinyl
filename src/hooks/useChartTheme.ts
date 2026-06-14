@@ -80,8 +80,13 @@ export function useChartTheme(): ChartTheme {
 }
 
 export function chartFont(size = 11, weight: number | 'bold' | 'normal' = 500) {
+  const family =
+    typeof document !== 'undefined'
+      ? getComputedStyle(document.documentElement).getPropertyValue('--font-sans').trim() ||
+        '"Inter", ui-sans-serif, system-ui, sans-serif'
+      : '"Inter", ui-sans-serif, system-ui, sans-serif';
   return {
-    family: '"Inter", ui-sans-serif, system-ui, sans-serif',
+    family,
     size,
     weight,
   };
@@ -103,19 +108,19 @@ export function baseChartOptions(theme: ChartTheme) {
         borderWidth: 1,
         padding: 10,
         cornerRadius: 8,
-        titleFont: chartFont(12, 'bold'),
-        bodyFont: chartFont(11),
+        titleFont: chartFont(12, 600),
+        bodyFont: chartFont(11, 500),
       },
     },
     scales: {
       x: {
         grid: { color: gridColor },
-        ticks: { color: theme.textMuted, font: chartFont(10) },
+        ticks: { color: theme.textMuted, font: chartFont(11, 500), padding: 6 },
         border: { display: false },
       },
       y: {
         grid: { color: gridColor },
-        ticks: { color: theme.textMuted, font: chartFont(10) },
+        ticks: { color: theme.textMuted, font: chartFont(11, 500), padding: 6 },
         border: { display: false },
       },
     },

@@ -464,7 +464,7 @@ export function CollectionFilters({
 
   return (
     <div className="collection-toolbar-sticky !pt-0 !pb-0">
-      <div className="collection-toolbar relative overflow-visible sm:rounded-xl sm:border sm:border-[var(--border)] bg-[var(--bg-elevated)] shadow-[var(--shadow)]">
+      <div className="collection-toolbar relative overflow-visible bg-[var(--bg-elevated)]">
       <div className="collection-toolbar__search w-full bg-[var(--bg-elevated)] px-0 pt-0 sm:static sm:bg-transparent sm:px-3.5 sm:pt-2.5">
         <div className="relative flex items-center">
           <Search

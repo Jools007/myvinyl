@@ -4,6 +4,13 @@ import { recordMatchesGroupedGenre } from './genreGroups';
 import type { InsightFilterAction } from './collectionInsights';
 import { scoreNextPlay } from './recommendations';
 import { getPrimaryTrack } from './tracks';
+import { curatedArtistLabel, isCuratedRelease } from './curatedTracks';
+import {
+  COMPILATIONS_CHART_LABEL,
+  recordMatchesCompilationScope,
+  SOUNDTRACKS_CHART_LABEL,
+  type CompilationScope,
+} from './variousArtist';
 import type { Track, VinylRecord } from './types';
 
 export type InsightLens =
@@ -13,6 +20,9 @@ export type InsightLens =
   | { kind: 'bpm'; label: string; rangeId: string }
   | { kind: 'vibe'; label: string }
   | { kind: 'artist'; label: string }
+  | { kind: 'compilation'; scope: CompilationScope }
+  | { kind: 'curated-artist'; label: string }
+  | { kind: 'curated'; scope: 'all' | 'manual-bpm' | 'rated' }
   | { kind: 'decade'; label: string }
   | { kind: 'release'; recordId: string; label: string }
   | { kind: 'roulette'; recordId: string; quip: string }
@@ -131,6 +141,21 @@ export function filterRecordsByLens(records: VinylRecord[], lens: InsightLens): 
       return records.filter((r) => recordHasVibe(r, lens.label));
     case 'artist':
       return records.filter((r) => r.artist.trim() === lens.label);
+    case 'compilation':
+      return records.filter((r) => recordMatchesCompilationScope(r, lens.scope));
+    case 'curated-artist':
+      return records.filter(
+        (r) => curatedArtistLabel(r) === lens.label && isCuratedRelease(r)
+      );
+    case 'curated':
+      return records.filter((r) => {
+        if (!isCuratedRelease(r)) return false;
+        if (lens.scope === 'all') return true;
+        if (lens.scope === 'manual-bpm') {
+          return r.tracks.some((t) => t.bpmManual);
+        }
+        return r.tracks.some((t) => t.cutRating != null);
+      });
     case 'decade':
       return records.filter((r) => {
         const y = r.year ? parseInt(String(r.year), 10) : NaN;
@@ -340,6 +365,31 @@ export function describeLens(lens: InsightLens, matchCount: number): { title: st
         title: lens.label,
         subtitle: `${matchCount} release${matchCount === 1 ? '' : 's'} from this artist in your crate.`,
       };
+    case 'compilation':
+      return {
+        title:
+          lens.scope === 'soundtracks'
+            ? SOUNDTRACKS_CHART_LABEL
+            : lens.scope === 'compilations'
+              ? COMPILATIONS_CHART_LABEL
+              : 'Various artists',
+        subtitle: `${matchCount} VA pressing${matchCount === 1 ? '' : 's'} — Discogs stores these as "Various".`,
+      };
+    case 'curated-artist':
+      return {
+        title: `${lens.label} · your picks`,
+        subtitle: `${matchCount} release${matchCount === 1 ? '' : 's'} with manual BPM or cut ratings.`,
+      };
+    case 'curated':
+      return {
+        title:
+          lens.scope === 'manual-bpm'
+            ? 'Manual BPM tracks'
+            : lens.scope === 'rated'
+              ? 'Rated cuts'
+              : 'Your picks',
+        subtitle: `${matchCount} release${matchCount === 1 ? '' : 's'} you've marked as go-to tracks.`,
+      };
     case 'decade':
       return {
         title: lens.label,
@@ -371,6 +421,23 @@ export function lensPreviewRecords(
   limit = 6
 ): VinylRecord[] {
   return filterRecordsByLens(records, lens).slice(0, limit);
+}
+
+export function curatedArtistChartLabelToLens(label: string): InsightLens {
+  if (label === COMPILATIONS_CHART_LABEL) {
+    return { kind: 'compilation', scope: 'all' };
+  }
+  return { kind: 'curated-artist', label };
+}
+
+export function artistChartLabelToLens(label: string): InsightLens {
+  if (label === COMPILATIONS_CHART_LABEL) {
+    return { kind: 'compilation', scope: 'compilations' };
+  }
+  if (label === SOUNDTRACKS_CHART_LABEL) {
+    return { kind: 'compilation', scope: 'soundtracks' };
+  }
+  return { kind: 'artist', label };
 }
 
 export function bpmBucketLens(label: string): InsightLens | null {

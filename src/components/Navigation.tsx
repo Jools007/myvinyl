@@ -84,6 +84,7 @@ export function Navigation({
                   <a
                     key={id}
                     href={href}
+                    title={label}
                     onClick={(event) => {
                       event.preventDefault();
                       onNavigate(id);
@@ -100,8 +101,8 @@ export function Navigation({
                         transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                       />
                     )}
-                    <Icon className="relative h-4 w-4" strokeWidth={active ? 2 : 1.5} />
-                    <span className="relative">{label}</span>
+                    <Icon className="relative h-4 w-4 shrink-0" strokeWidth={active ? 2 : 1.5} />
+                    <span className="app-nav__link-label relative">{label}</span>
                   </a>
                 );
               })}

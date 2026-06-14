@@ -134,6 +134,7 @@ export function ChartBar({
   horizontal = true,
   onBarClick,
   accentIndex = 0,
+  large = false,
 }: {
   title: string;
   subtitle?: string;
@@ -141,6 +142,7 @@ export function ChartBar({
   horizontal?: boolean;
   onBarClick?: ClickHandler<ChartItem>;
   accentIndex?: number;
+  large?: boolean;
 }) {
   const theme = useChartTheme();
   if (items.length === 0) return panelEmpty(title, subtitle);
@@ -158,7 +160,7 @@ export function ChartBar({
           ),
           borderRadius: horizontal ? { topRight: 6, bottomRight: 6 } : { topLeft: 6, topRight: 6 },
           borderSkipped: false,
-          maxBarThickness: horizontal ? 22 : 40,
+          maxBarThickness: horizontal ? (large ? 28 : 22) : large ? 48 : 40,
         },
       ],
     }),
@@ -222,7 +224,13 @@ export function ChartBar({
     <InsightPanel title={title} subtitle={subtitle} className="insights-chart-panel">
       <div
         className={`insights-chart-panel__canvas${horizontal ? ' insights-chart-panel__canvas--bar-h' : ' insights-chart-panel__canvas--bar-v'}`}
-        style={{ height: horizontal ? `${Math.max(180, items.length * 36)}px` : '220px' }}
+        style={{
+          height: horizontal
+            ? `${Math.max(large ? 240 : 200, items.length * (large ? 46 : 38))}px`
+            : large
+              ? '300px'
+              : '240px',
+        }}
       >
         <Bar data={data} options={options as object} />
       </div>

@@ -738,7 +738,7 @@ function App() {
       <main
         className={`app-main mx-auto max-w-7xl px-3 sm:px-6 ${
           page === 'collection'
-            ? 'app-main--collection pb-8 pt-0 sm:pt-4'
+            ? 'app-main--collection pb-8 pt-0 sm:pt-2'
             : page === 'labels'
               ? 'app-main--labels pb-0 pt-3 sm:py-8'
               : page === 'insights'

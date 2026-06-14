@@ -8,6 +8,13 @@ import { normalizeFormat } from './filterLabels';
 import { groupGenreLabel, primaryGroupedGenre } from './genreGroups';
 import { isReleaseFullyEnriched } from './tracks';
 import { getPrimaryTrack, type RecordCondition, type VinylRecord } from './types';
+import { computeCuratedInsights, type CuratedInsights } from './curatedTracks';
+import {
+  COMPILATIONS_CHART_LABEL,
+  isSoundtrackAlbum,
+  isVariousArtist,
+  SOUNDTRACKS_CHART_LABEL,
+} from './variousArtist';
 
 export type ChartItem = { label: string; count: number };
 
@@ -85,13 +92,36 @@ export type NarrativeInsight = {
   id: string;
   headline: string;
   body: string;
-  icon: 'era' | 'artist' | 'genre' | 'tempo' | 'health' | 'value' | 'discovery';
+  icon:
+    | 'era'
+    | 'artist'
+    | 'genre'
+    | 'tempo'
+    | 'health'
+    | 'value'
+    | 'discovery'
+    | 'compilation'
+    | 'picks';
+};
+
+export type SectionInsights = {
+  overview: string;
+  picks: string;
+  collection: string;
+  artists: string;
+  sound: string;
+  health: string;
 };
 
 export type CollectionInsights = {
   releaseCount: number;
   trackCount: number;
   artistCount: number;
+  /** Named performers only — excludes Discogs "Various". */
+  namedArtistCount: number;
+  compilationCount: number;
+  compilationPct: number;
+  soundtrackVaCount: number;
   genreCount: number;
   yearRange: string | null;
   oldestYear: number | null;
@@ -108,6 +138,9 @@ export type CollectionInsights = {
   valueCurrency: string | null;
   notableRecords: NotableRecord[];
   narrativeInsights: NarrativeInsight[];
+  sectionInsights: SectionInsights;
+  /** Tracks you've marked with manual BPM and/or cut rating — preference signal. */
+  curated: CuratedInsights;
   mintCount: number;
   mintPct: number;
   withBpmCount: number;
@@ -228,20 +261,168 @@ function parsePurchasePrice(notes?: string): { amount: number; currency: string 
   return null;
 }
 
+function buildTopArtistsChart(
+  artists: Map<string, number>,
+  compilationCount: number,
+  soundtrackVaCount: number,
+  limit = 8
+): ChartItem[] {
+  const named = [...artists.entries()]
+    .filter(([name]) => !isVariousArtist(name))
+    .map(([label, count]) => ({ label, count }));
+
+  const vaBuckets: ChartItem[] = [];
+  if (compilationCount > 0) {
+    const compOnly = compilationCount - soundtrackVaCount;
+    if (soundtrackVaCount > 0 && compOnly > 0) {
+      vaBuckets.push({ label: SOUNDTRACKS_CHART_LABEL, count: soundtrackVaCount });
+      vaBuckets.push({ label: COMPILATIONS_CHART_LABEL, count: compOnly });
+    } else if (soundtrackVaCount > 0) {
+      vaBuckets.push({ label: SOUNDTRACKS_CHART_LABEL, count: soundtrackVaCount });
+    } else {
+      vaBuckets.push({ label: COMPILATIONS_CHART_LABEL, count: compilationCount });
+    }
+  }
+
+  return [...vaBuckets, ...named].sort((a, b) => b.count - a.count).slice(0, limit);
+}
+
+function buildSectionInsights(data: CollectionInsights): SectionInsights {
+  const { releaseCount } = data;
+  const namedLead = data.topArtist
+    ? `${data.topArtist.name} (${data.topArtist.count} copies) is your deepest named artist`
+    : 'No single artist dominates yet';
+
+  const compilationNote =
+    data.compilationCount > 0
+      ? `${data.compilationCount} Discogs "Various" pressings (${data.compilationPct}% of shelf) are counted as compilations${data.soundtrackVaCount > 0 ? `, including ${data.soundtrackVaCount} soundtracks` : ''}.`
+      : '';
+
+  const genreNote = data.topGenre
+    ? `${data.topGenre.name} tags appear on ${data.topGenre.count} releases (${pct(data.topGenre.count, releaseCount)}%).`
+    : '';
+
+  const eraNote =
+    data.yearRange && data.avgYear != null
+      ? `Pressings average ${data.avgYear} (median ${data.medianYear ?? '—'}) across ${data.yearRange}.`
+      : '';
+
+  const formatNote = data.formatCounts[0]
+    ? `${data.formatCounts[0].label} is the most common format (${data.formatCounts[0].count}).`
+    : '';
+
+  const bpmNote =
+    data.avgBpm != null
+      ? `Your library averages ${data.avgBpm} BPM — ${data.energyLabel.toLowerCase()}.${data.bpmSpread != null ? ` Spread: ${data.bpmSpread} BPM.` : ''}`
+      : 'Add BPM metadata to unlock tempo insights.';
+
+  const vibeNote = data.vibeCounts[0]
+    ? `"${data.vibeCounts[0].label}" is the strongest vibe tag (${data.vibeCounts[0].count} tracks).`
+    : '';
+
+  const healthNote = `${data.primaryEnrichmentPct}% of releases have BPM & key on the lead track; ${data.tracklistCompletePct}% have multi-track listings imported. ${data.mintPct}% are graded Mint or NM.`;
+
+  const picksNote =
+    data.curated.trackCount >= 1
+      ? `${data.curated.trackCount} tracks (${data.curated.trackPct}% of your library) carry manual BPM or cut ratings — your personal "I play this" signal.`
+      : 'Rate cuts or add manual BPM on tracks you love to unlock preference-based insights.';
+
+  const picksLead =
+    data.curated.topArtist && data.curated.trackCount >= 3
+      ? `Your picks lean toward ${data.curated.topArtist.name} (${data.curated.topArtist.trackCount} curated tracks).`
+      : '';
+
+  const gapNote =
+    data.curated.preferenceGaps[0] && data.curated.preferenceGaps[0].ownedCount >= 3
+      ? `You own ${data.curated.preferenceGaps[0].ownedCount} ${data.curated.preferenceGaps[0].artist} releases but haven't curated any tracks yet — shelf depth doesn't always mean favourites.`
+      : '';
+
+  return {
+    overview: [
+      `You have ${releaseCount} releases, ${data.trackCount} tracks, and ${data.namedArtistCount} named artists.`,
+      compilationNote,
+      namedLead + (data.compilationCount > 0 ? ` — separate from the VA / compilation lane.` : '.'),
+      picksLead,
+    ]
+      .filter(Boolean)
+      .join(' '),
+    picks: [picksNote, picksLead, gapNote, data.curated.shelfVsPicks && data.curated.topArtist && data.topArtist
+      ? `Shelf leader ${data.topArtist.name} differs from pick leader ${data.curated.topArtist.name} — the charts below show what you actually reach for.`
+      : ''].filter(Boolean).join(' '),
+    collection: [genreNote, eraNote, formatNote, data.dominantDecade ? `The ${data.dominantDecade} is your strongest decade.` : '']
+      .filter(Boolean)
+      .join(' '),
+    artists: [
+      compilationNote,
+      namedLead + `. Artist concentration on your top named pick: ${data.artistConcentrationPct}% of shelf.`,
+      data.topArtists.length > 1
+        ? `After compilations, ${data.topArtists.find((a) => a.label !== COMPILATIONS_CHART_LABEL && a.label !== SOUNDTRACKS_CHART_LABEL)?.label ?? 'your runners-up'} round out the leaderboard.`
+        : '',
+    ]
+      .filter(Boolean)
+      .join(' '),
+    sound: [bpmNote, vibeNote, data.topCamelot ? `Harmonic centre: Camelot ${data.topCamelot.code} (${data.topCamelot.count} tracks).` : '']
+      .filter(Boolean)
+      .join(' '),
+    health: healthNote,
+  };
+}
+
 function buildNarrativeInsights(data: CollectionInsights): NarrativeInsight[] {
   const out: NarrativeInsight[] = [];
   const { releaseCount } = data;
   if (releaseCount === 0) return out;
 
+  if (data.curated.trackCount >= 5 && data.curated.topArtist) {
+    out.push({
+      id: 'curated-picks',
+      headline:
+        data.curated.shelfVsPicks && data.topArtist
+          ? `Your picks: ${data.curated.topArtist.name}`
+          : `${data.curated.topArtist.name} — tracks you mark`,
+      body:
+        data.curated.shelfVsPicks && data.topArtist
+          ? `You own more ${data.topArtist.name} (${data.topArtist.count} releases) on paper, but you've manually rated or BPM-tagged ${data.curated.topArtist.trackCount} tracks from ${data.curated.topArtist.name} — that's the stronger taste signal.`
+          : `${data.curated.topArtist.trackCount} tracks with manual BPM or G/VG/VG+ ratings. Unrated shelf copies aren't ignored — they just haven't been promoted to "go-to" yet.`,
+      icon: 'picks',
+    });
+  }
+
+  if (data.curated.preferenceGaps.length >= 1 && data.curated.preferenceGaps[0].ownedCount >= 3) {
+    const g = data.curated.preferenceGaps[0];
+    out.push({
+      id: 'preference-gap',
+      headline: `${g.artist}: owned, not curated`,
+      body: `${g.ownedCount} releases on the shelf, zero tracks with manual BPM or ratings — common for "have it, don't reach for it" copies.`,
+      icon: 'discovery',
+    });
+  }
+
+  if (data.compilationCount >= 3) {
+    const compOnly = data.compilationCount - data.soundtrackVaCount;
+    out.push({
+      id: 'compilation-lane',
+      headline:
+        data.compilationPct >= 25
+          ? 'Compilations are a major lane'
+          : `${data.compilationCount} compilations on the shelf`,
+      body:
+        data.soundtrackVaCount > 0 && compOnly > 0
+          ? `${data.compilationCount} Discogs "Various" rows (${data.compilationPct}% of releases) — ${data.soundtrackVaCount} soundtracks and ${compOnly} other multi-artist albums. Stored as Various in Discogs; shown as compilations here only.`
+          : `${data.compilationCount} multi-artist or VA pressings (${data.compilationPct}% of your collection). These aren't one artist — they're samplers, soundtracks, and label comps.`,
+      icon: 'compilation',
+    });
+  }
+
   if (data.topArtist && data.topArtist.count >= 2) {
     const share = pct(data.topArtist.count, releaseCount);
     out.push({
       id: 'artist-depth',
-      headline: `${data.topArtist.name} leads your shelf`,
+      headline: `${data.topArtist.name} is your deepest artist`,
       body:
-        share >= 15
-          ? `${data.topArtist.count} copies (${share}% of the collection) — a serious deep-dive into one artist's catalogue.`
-          : `${data.topArtist.count} releases make ${data.topArtist.name} your most-collected artist across ${data.artistCount} names.`,
+        share >= 10
+          ? `${data.topArtist.count} copies (${share}% of named-artist shelf share) — the strongest single-performer thread in your crate.`
+          : `${data.topArtist.count} releases from ${data.topArtist.name} lead among ${data.namedArtistCount} named artists.`,
       icon: 'artist',
     });
   }
@@ -262,9 +443,29 @@ function buildNarrativeInsights(data: CollectionInsights): NarrativeInsight[] {
       id: 'genre-identity',
       headline: `${data.topGenre.name} shapes the sound`,
       body: runner
-        ? `${genreShare}% of releases carry ${data.topGenre.name.toLowerCase()} tags — ${runner.label} follows at ${runner.count}.`
+        ? `${genreShare}% of releases carry ${data.topGenre.name.toLowerCase()} tags — ${runner.label} follows at ${runner.count} across ${data.genreCount} genre lanes.`
         : `${data.topGenre.count} releases across ${data.genreCount} genre lanes — ${data.topGenre.name} is the through-line.`,
       icon: 'genre',
+    });
+  }
+
+  if (data.formatCounts.length >= 2) {
+    const primary = data.formatCounts[0];
+    const secondary = data.formatCounts[1];
+    out.push({
+      id: 'format-mix',
+      headline: `${primary.label}-forward collection`,
+      body: `${primary.count} ${primary.label.toLowerCase()} pressings vs ${secondary.count} ${secondary.label.toLowerCase()} — ${data.avgTracksPerRelease} tracks per release on average.`,
+      icon: 'discovery',
+    });
+  }
+
+  if (data.topCamelot && data.topCamelot.count >= 2) {
+    out.push({
+      id: 'key-anchor',
+      headline: `Camelot ${data.topCamelot.code} is your harmonic hub`,
+      body: `${data.topCamelot.count} tracks sit on this code — useful as a mix-in or mix-out anchor when planning sets.`,
+      icon: 'tempo',
     });
   }
 
@@ -315,7 +516,7 @@ function buildNarrativeInsights(data: CollectionInsights): NarrativeInsight[] {
     icon: 'health',
   });
 
-  return out.slice(0, 6);
+  return out.slice(0, 9);
 }
 
 function harmonicNeighbors(code: string): string[] {
@@ -513,12 +714,18 @@ export function computeCollectionInsights(records: VinylRecord[]): CollectionIns
   let importAddCount = 0;
   let playedCount = 0;
   let tracklistCompleteCount = 0;
+  let compilationCount = 0;
+  let soundtrackVaCount = 0;
   const valuedRecords: ValuedRecord[] = [];
 
   for (const record of records) {
     trackCount += record.tracks.length;
     const artistKey = record.artist.trim();
     if (artistKey) artists.set(artistKey, (artists.get(artistKey) ?? 0) + 1);
+    if (isVariousArtist(artistKey)) {
+      compilationCount += 1;
+      if (isSoundtrackAlbum(record.title)) soundtrackVaCount += 1;
+    }
 
     const groupedOnRecord = new Set<string>();
     for (const g of record.genres) {
@@ -609,7 +816,9 @@ export function computeCollectionInsights(records: VinylRecord[]): CollectionIns
     }
   }
 
-  const topArtistEntry = [...artists.entries()].sort((a, b) => b[1] - a[1])[0];
+  const topNamedArtistEntry = [...artists.entries()]
+    .filter(([name]) => !isVariousArtist(name))
+    .sort((a, b) => b[1] - a[1])[0];
   const topGenreEntry = [...genres.entries()].sort((a, b) => b[1] - a[1])[0];
   const topCamelotEntry = [...camelotRaw.entries()].sort((a, b) => b[1] - a[1])[0];
   const topDecadeEntry = [...decades.entries()].sort((a, b) => b[1] - a[1])[0];
@@ -747,16 +956,23 @@ export function computeCollectionInsights(records: VinylRecord[]): CollectionIns
     });
   }
 
-  const artistConcentrationPct = topArtistEntry
-    ? pct(topArtistEntry[1], releaseCount)
+  const namedArtistCount = [...artists.keys()].filter((name) => !isVariousArtist(name)).length;
+  const compilationPct = pct(compilationCount, releaseCount);
+  const artistConcentrationPct = topNamedArtistEntry
+    ? pct(topNamedArtistEntry[1], releaseCount)
     : 0;
   const unplayedCount = releaseCount - playedCount;
   const tracklistCompletePct = pct(tracklistCompleteCount, releaseCount);
+  const topArtistsChart = buildTopArtistsChart(artists, compilationCount, soundtrackVaCount, 8);
 
   const base: CollectionInsights = {
     releaseCount,
     trackCount,
     artistCount: artists.size,
+    namedArtistCount,
+    compilationCount,
+    compilationPct,
+    soundtrackVaCount,
     genreCount: groupRecordsByGenre(records).length,
     yearRange,
     oldestYear,
@@ -790,10 +1006,12 @@ export function computeCollectionInsights(records: VinylRecord[]): CollectionIns
     playedPct: pct(playedCount, releaseCount),
     energyLabel,
     dominantDecade: topDecadeEntry?.[0] ?? null,
-    topArtist: topArtistEntry ? { name: topArtistEntry[0], count: topArtistEntry[1] } : null,
+    topArtist: topNamedArtistEntry
+      ? { name: topNamedArtistEntry[0], count: topNamedArtistEntry[1] }
+      : null,
     topGenre: topGenreEntry ? { name: topGenreEntry[0], count: topGenreEntry[1] } : null,
     topCamelot: topCamelotEntry ? { code: topCamelotEntry[0], count: topCamelotEntry[1] } : null,
-    topArtists: toChartItems(artists, 6),
+    topArtists: topArtistsChart,
     topGenres: toChartItems(genres, 8),
     formatCounts: toChartItems(formats, 6),
     decadeCounts: [...decades.entries()]
@@ -818,11 +1036,21 @@ export function computeCollectionInsights(records: VinylRecord[]): CollectionIns
     valueCurrency,
     notableRecords: notableRecords.slice(0, 4),
     narrativeInsights: [],
+    sectionInsights: {
+      overview: '',
+      picks: '',
+      collection: '',
+      artists: '',
+      sound: '',
+      health: '',
+    },
+    curated: computeCuratedInsights(records, topNamedArtistEntry?.[0] ?? null),
     actionableInsights: [],
   };
 
   base.actionableInsights = buildActionableInsights(base, releaseCount);
   base.narrativeInsights = buildNarrativeInsights(base);
+  base.sectionInsights = buildSectionInsights(base);
   return base;
 }
 
