@@ -151,13 +151,6 @@ export function useTrackPreview() {
     statusRef.current = status;
   }, [status]);
 
-  useEffect(() => {
-    return () => {
-      clearCacheConfirmTimer();
-      clearStallWatch();
-    };
-  }, [clearCacheConfirmTimer, clearStallWatch]);
-
   const stopRaf = useCallback(() => {
     if (rafRef.current != null) {
       cancelAnimationFrame(rafRef.current);
@@ -192,6 +185,19 @@ export function useTrackPreview() {
     setElapsed(0);
     setDuration(SPOTIFY_PREVIEW_SECONDS);
     setDiagHint(null);
+  }, [clearCacheConfirmTimer, clearStallWatch, detachAudio, detachYouTube]);
+
+  useEffect(() => {
+    return () => {
+      loadSeqRef.current += 1;
+      clearCacheConfirmTimer();
+      clearStallWatch();
+      pendingCacheRef.current = null;
+      detachAudio();
+      detachYouTube();
+      activeKeyRef.current = null;
+      sourceRef.current = null;
+    };
   }, [clearCacheConfirmTimer, clearStallWatch, detachAudio, detachYouTube]);
 
   const tick = useCallback(() => {
