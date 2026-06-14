@@ -23,6 +23,17 @@ function parsePriceEntry(raw: unknown): DiscogsPriceSuggestion | null {
   };
 }
 
+function discogsErrorMessage(status: number, text: string): string {
+  try {
+    const json = JSON.parse(text) as { message?: string; error?: string };
+    const detail = json.message ?? json.error;
+    if (detail) return detail;
+  } catch {
+    /* plain text */
+  }
+  return text.trim() || `Discogs request failed (${status})`;
+}
+
 export function normalizePriceSuggestions(payload: unknown): DiscogsPriceSuggestions {
   if (!payload || typeof payload !== 'object') return {};
   const out: DiscogsPriceSuggestions = {};
@@ -77,7 +88,7 @@ export async function fetchDiscogsPriceSuggestions(
     }
 
     const text = await res.text();
-    lastError = `Discogs price suggestions failed (${attempt.label}): ${res.status} ${text}`;
+    lastError = discogsErrorMessage(res.status, text);
 
     if (res.status === 401 || res.status === 403 || res.status === 404) {
       if (res.status === 404) saw404 = true;
@@ -89,8 +100,12 @@ export async function fetchDiscogsPriceSuggestions(
     throw new Error(lastError);
   }
 
+  if (saw404 && /seller settings/i.test(lastError)) {
+    throw new Error(lastError);
+  }
+
   if (saw404) {
-    throw new Error('Release not found on Discogs marketplace');
+    throw new Error('No marketplace price data for this release');
   }
 
   throw new Error(lastError);

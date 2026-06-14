@@ -67,6 +67,15 @@ function parsePriceEntry(raw) {
     value: row.value
   };
 }
+function discogsErrorMessage(status, text) {
+  try {
+    const json2 = JSON.parse(text);
+    const detail = json2.message ?? json2.error;
+    if (detail) return detail;
+  } catch {
+  }
+  return text.trim() || `Discogs request failed (${status})`;
+}
 function normalizePriceSuggestions(payload) {
   if (!payload || typeof payload !== "object") return {};
   const out = {};
@@ -107,7 +116,7 @@ async function fetchDiscogsPriceSuggestions(releaseId, auth) {
       return normalizePriceSuggestions(data);
     }
     const text = await res.text();
-    lastError = `Discogs price suggestions failed (${attempt.label}): ${res.status} ${text}`;
+    lastError = discogsErrorMessage(res.status, text);
     if (res.status === 401 || res.status === 403 || res.status === 404) {
       if (res.status === 404) saw404 = true;
       continue;
@@ -117,8 +126,11 @@ async function fetchDiscogsPriceSuggestions(releaseId, auth) {
     }
     throw new Error(lastError);
   }
+  if (saw404 && /seller settings/i.test(lastError)) {
+    throw new Error(lastError);
+  }
   if (saw404) {
-    throw new Error("Release not found on Discogs marketplace");
+    throw new Error("No marketplace price data for this release");
   }
   throw new Error(lastError);
 }

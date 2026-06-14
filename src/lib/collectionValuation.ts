@@ -99,6 +99,7 @@ export async function fetchCollectionValuation(
   const delayMs = opts?.delayMs ?? 1100;
   const valued: ValuedRecord[] = [];
   let done = 0;
+  let lastFetchError: string | null = null;
 
   const queue = [...linked];
   const workers = Array.from({ length: concurrency }, async () => {
@@ -130,8 +131,11 @@ export async function fetchCollectionValuation(
             estimate,
           });
         }
-      } catch {
-        /* skip failed release */
+      } catch (error) {
+        lastFetchError = error instanceof Error ? error.message : 'Price lookup failed';
+        if (/seller settings|not configured|rate limit/i.test(lastFetchError)) {
+          throw error;
+        }
       }
 
       done += 1;
@@ -141,6 +145,10 @@ export async function fetchCollectionValuation(
   });
 
   await Promise.all(workers);
+
+  if (valued.length === 0 && lastFetchError) {
+    throw new Error(lastFetchError);
+  }
 
   const result = buildValuationFromRows(valued);
   return {
