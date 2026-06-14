@@ -6841,8 +6841,8 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 
 @media (min-width: 900px) {
   .play-dj {
-    --play-cover-size: 4.75rem;
-    --play-disc-spin: 2.8s;
+    --play-cover-size: 7.75rem;
+    --play-disc-spin: 3s;
   }
 
   .play-dj__page-sub {
@@ -6861,8 +6861,8 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
     grid-template-columns: auto minmax(0, 1fr) minmax(11.5rem, 16rem);
     grid-template-areas: 'disc body mix';
     align-items: center;
-    gap: 0 1rem;
-    padding: 0.7rem 0.9rem;
+    gap: 0 0.85rem;
+    padding: 0.6rem 0.8rem;
   }
 
   .play-dj__now-top {
@@ -6872,11 +6872,69 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   .play-dj__now-stage {
     grid-area: disc;
     padding: 0;
+    align-self: center;
+  }
+
+  .play-dj__disc {
+    filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.42));
+  }
+
+  .play-dj__disc--active {
+    filter: drop-shadow(0 16px 36px color-mix(in srgb, var(--teal) 22%, transparent))
+      drop-shadow(0 10px 24px rgba(0, 0, 0, 0.34));
   }
 
   .play-dj__now-body {
     grid-area: body;
+    gap: 0.25rem;
+    padding-block: 0.05rem;
+  }
+
+  .play-dj__now-meta {
     gap: 0.3rem;
+  }
+
+  .play-dj__now-title {
+    font-size: 1.0625rem;
+    line-height: 1.2;
+  }
+
+  .play-dj__release-gate {
+    margin-top: 0.05rem;
+    padding: 0.38rem 0.5rem;
+    border-radius: 0.625rem;
+  }
+
+  .play-dj__release-gate--solo {
+    padding-block: 0.35rem;
+  }
+
+  .play-dj__release-gate-icon {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+
+  .play-dj__release-gate-label {
+    font-size: 0.5625rem;
+  }
+
+  .play-dj__release-gate-meta {
+    font-size: 0.75rem;
+    line-height: 1.3;
+  }
+
+  .play-dj__now-side {
+    font-size: 0.625rem;
+  }
+
+  .play-dj__preview {
+    padding: 0.4rem 0.55rem;
+    gap: 0.55rem;
+  }
+
+  .play-dj__preview-btn {
+    width: 2.25rem;
+    height: 2.25rem;
   }
 
   .play-dj__now-mix {
@@ -12199,7 +12257,7 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   }
 
   .play-dj {
-    --play-cover-size: 5.5rem;
+    --play-cover-size: 6.25rem;
     --play-sticky-top: var(--mobile-header-height);
   }
 
