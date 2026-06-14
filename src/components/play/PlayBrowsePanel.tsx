@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type KeyboardEvent } from 'react';
 import type { CompatibilityOptions } from '../../lib/compatibility';
 import { formatAddedAtLabel, listRecentlyAdded } from '../../lib/recentlyAdded';
 import { openRecordDetail } from '../../lib/recordDetail';
@@ -32,12 +32,23 @@ function RecentlyAddedRow({
 }) {
   const trackIndex = Math.max(0, record.tracks.findIndex((t) => t.id === track.id));
 
+  const openDetail = () => openRecordDetail(record);
+
+  const handleMainKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openDetail();
+    }
+  };
+
   return (
     <li className="play-compat__row">
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         className="play-compat__main"
-        onClick={() => openRecordDetail(record)}
+        onClick={openDetail}
+        onKeyDown={handleMainKeyDown}
       >
         <RecordArtwork
           src={record.coverUrl}
@@ -62,7 +73,7 @@ function RecentlyAddedRow({
           </p>
           <MixStrip track={track} variant="queue" className="play-compat__mix" />
         </div>
-      </button>
+      </div>
       <div className="play-compat__actions">
         <button
           type="button"

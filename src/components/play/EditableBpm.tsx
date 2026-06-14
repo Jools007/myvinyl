@@ -136,18 +136,31 @@ export function EditableBpm({
   }
 
   const label = formatBpmValue(value);
+  const displayClassName = `editable-bpm editable-bpm--display editable-bpm--${size}${canEdit ? ' editable-bpm--editable' : ''}${className ? ` ${className}` : ''}`;
+  const displayContent = (
+    <>
+      {showEstimate ? <span className="editable-bpm__estimate">~</span> : null}
+      <span className="editable-bpm__value tabular-nums">{label}</span>
+      {suffix ? <span className="editable-bpm__suffix">BPM</span> : null}
+    </>
+  );
+
+  if (!canEdit) {
+    return (
+      <span className={displayClassName} aria-label={`${ariaLabel} ${label}`}>
+        {displayContent}
+      </span>
+    );
+  }
 
   return (
     <button
       type="button"
-      className={`editable-bpm editable-bpm--display editable-bpm--${size}${canEdit ? ' editable-bpm--editable' : ''}${className ? ` ${className}` : ''}`}
+      className={displayClassName}
       onClick={openEditor}
-      disabled={!canEdit}
-      aria-label={canEdit ? `Edit ${ariaLabel}, currently ${label}` : `${ariaLabel} ${label}`}
+      aria-label={`Edit ${ariaLabel}, currently ${label}`}
     >
-      {showEstimate ? <span className="editable-bpm__estimate">~</span> : null}
-      <span className="editable-bpm__value tabular-nums">{label}</span>
-      {suffix ? <span className="editable-bpm__suffix">BPM</span> : null}
+      {displayContent}
     </button>
   );
 }
