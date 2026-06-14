@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronRight, Disc3 } from 'lucide-react';
+import { ChevronRight, Disc3, Loader2, Sparkles } from 'lucide-react';
 import { useTapBpm } from '../hooks/useTapBpm';
 import type { TrackPreview } from '../hooks/useTrackPreview';
 import type { CompatibilityOptions } from '../lib/compatibility';
@@ -237,10 +237,32 @@ export function PlayNextPanel({
                     />
                   </div>
                   <div className="play-dj__now-body">
-                    <p className="play-dj__now-label">
-                      <span className="play-dj__now-live" aria-hidden />
-                      Now playing
-                    </p>
+                    <div className="play-dj__now-head">
+                      <p className="play-dj__now-label">
+                        <span className="play-dj__now-live" aria-hidden />
+                        Now playing
+                      </p>
+                      {onEnrichRelease ? (
+                        <button
+                          type="button"
+                          className="play-dj__enrich-icon"
+                          onClick={() => void onEnrichRelease()}
+                          disabled={enrichingRelease}
+                          aria-label={
+                            enrichingRelease
+                              ? 'Enriching release'
+                              : 'Enrich BPM and key for this release'
+                          }
+                          title="Enrich BPM & key"
+                        >
+                          {enrichingRelease ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
+                          ) : (
+                            <Sparkles className="h-3.5 w-3.5" strokeWidth={1.75} />
+                          )}
+                        </button>
+                      ) : null}
+                    </div>
                     <div className="play-dj__now-meta">
                       <p className="play-dj__now-title">{nowPlaying.track.title}</p>
                       {showReleasePicker ? (

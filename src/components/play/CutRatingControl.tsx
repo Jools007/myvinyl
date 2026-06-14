@@ -16,6 +16,9 @@ import {
 } from '../../lib/cutRating';
 import type { CutRating } from '../../lib/types';
 
+/** Above release-picker portal (230) and other modals */
+const RATING_MENU_Z_INDEX = 260;
+
 type TrackRatingSelectProps = {
   rating?: CutRating;
   size?: 'xs' | 'sm';
@@ -129,7 +132,7 @@ export function CutRatingControl({
             top: menuPos.top,
             left: menuPos.left,
             width: menuPos.width,
-            zIndex: 140,
+            zIndex: RATING_MENU_Z_INDEX,
           }}
           className="track-rating-menu"
           onClick={stopBubble}

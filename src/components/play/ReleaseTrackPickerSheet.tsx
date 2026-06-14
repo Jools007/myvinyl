@@ -78,7 +78,7 @@ function TrackMetaChips({ meta }: { meta: TrackMixMeta }) {
 }
 
 const SelectableTrackRow = forwardRef<
-  HTMLDivElement,
+  HTMLButtonElement,
   {
     track: Track;
     index: number;
@@ -96,32 +96,32 @@ const SelectableTrackRow = forwardRef<
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: Math.min(listIndex * 0.02, 0.16), duration: 0.18 }}
     >
-      <div
-        ref={ref}
-        role="option"
-        aria-selected={false}
-        tabIndex={0}
-        className="release-picker__track"
-        onClick={() => onSelect(track)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            onSelect(track);
-          }
-        }}
-      >
-        <span className="release-picker__pos font-mono tabular-nums">{position}</span>
-        <span className="release-picker__track-main min-w-0">
-          <span className="release-picker__track-title-row">
-            <span className="release-picker__track-title">{track.title}</span>
-            {track.isPrimary ? (
-              <span className="release-picker__primary-badge" title="Lead cut on this release">
-                Lead
-              </span>
-            ) : null}
+      <div className="release-picker__track">
+        <button
+          ref={ref}
+          type="button"
+          role="option"
+          aria-selected={false}
+          tabIndex={0}
+          className="release-picker__track-hit"
+          onClick={() => onSelect(track)}
+        >
+          <span className="release-picker__pos font-mono tabular-nums">{position}</span>
+          <span className="release-picker__track-main min-w-0">
+            <span className="release-picker__track-title-row">
+              <span className="release-picker__track-title">{track.title}</span>
+              {track.isPrimary ? (
+                <span className="release-picker__primary-badge" title="Lead cut on this release">
+                  Lead
+                </span>
+              ) : null}
+            </span>
+            <TrackMetaChips meta={meta} />
           </span>
-          <TrackMetaChips meta={meta} />
-        </span>
+          <span className="release-picker__play-pill" aria-hidden>
+            <Play className="h-3.5 w-3.5" strokeWidth={2.25} fill="currentColor" />
+          </span>
+        </button>
         {onSaveCutRating ? (
           <CutRatingControl
             rating={track.cutRating}
@@ -137,9 +137,6 @@ const SelectableTrackRow = forwardRef<
             className="release-picker__track-rating"
           />
         )}
-        <span className="release-picker__play-pill" aria-hidden>
-          <Play className="h-3.5 w-3.5" strokeWidth={2.25} fill="currentColor" />
-        </span>
       </div>
     </motion.li>
   );
@@ -157,7 +154,7 @@ export function ReleaseTrackPickerSheet({
   onSaveCutRating,
 }: ReleaseTrackPickerSheetProps) {
   const isMobile = useIsMobile();
-  const optionRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const tracks = record?.tracks ?? [];
 
@@ -374,6 +371,13 @@ export function ReleaseTrackPickerSheet({
                     <span className="release-picker__section-hint tabular-nums">
                       {otherTracks.length} available
                     </span>
+                  </div>
+
+                  <div className="release-picker__col-head" aria-hidden>
+                    <span className="release-picker__col-head-pos">#</span>
+                    <span className="release-picker__col-head-track">Track</span>
+                    <span className="release-picker__col-head-rating">Rating</span>
+                    <span className="release-picker__col-head-play" />
                   </div>
 
                   {trackGroups.map((group) => (

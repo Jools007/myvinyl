@@ -5164,15 +5164,49 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   padding-top: 0.2rem;
 }
 
+.play-dj__now-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
 .play-dj__now-label {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+  margin: 0;
   font-size: 0.625rem;
   font-weight: 600;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--teal);
+}
+
+.play-dj__enrich-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.play-dj__enrich-icon:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--violet) 80%, var(--text-secondary));
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+}
+
+.play-dj__enrich-icon:disabled {
+  color: color-mix(in srgb, var(--violet) 70%, var(--text-muted));
+  cursor: wait;
 }
 
 .play-dj__now-live {
@@ -5660,11 +5694,11 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 
 .release-picker__section-title {
   margin: 0;
-  font-size: 0.6875rem;
-  font-weight: 600;
+  font-size: 0.75rem;
+  font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .release-picker__section-tag,
@@ -5716,9 +5750,37 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   color: inherit;
 }
 
+.release-picker__col-head {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr) 2rem auto;
+  gap: 0.35rem 0.4rem;
+  align-items: center;
+  margin-bottom: 0.2rem;
+  padding: 0.15rem 0.4rem 0.1rem;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.release-picker__col-head-rating {
+  justify-self: center;
+  min-width: 2.75rem;
+  text-align: center;
+}
+
 .release-picker__track {
   display: grid;
-  grid-template-columns: 2.25rem minmax(0, 1fr) auto 2rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem;
+  align-items: center;
+  width: 100%;
+}
+
+.release-picker__track-hit {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr) 2rem;
   gap: 0.4rem;
   align-items: center;
   width: 100%;
@@ -5728,6 +5790,8 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   background: transparent;
   text-align: left;
   cursor: pointer;
+  font: inherit;
+  color: inherit;
   transition:
     background 0.16s ease,
     border-color 0.16s ease,
@@ -5748,8 +5812,8 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 }
 
 @media (min-width: 640px) {
-  .release-picker--desktop .release-picker__track {
-    grid-template-columns: 2.5rem minmax(0, 1fr) auto 2.25rem;
+  .release-picker--desktop .release-picker__track-hit {
+    grid-template-columns: 2.5rem minmax(0, 1fr) 2.25rem;
     gap: 0.5rem;
     padding: 0.42rem 0.5rem;
     border-radius: 0.625rem;
@@ -5764,18 +5828,18 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   }
 }
 
-.release-picker__track:hover {
+.release-picker__track-hit:hover {
   background: color-mix(in srgb, var(--accent) 7%, transparent);
   border-color: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
-.release-picker__track:focus-visible {
+.release-picker__track-hit:focus-visible {
   outline: none;
   border-color: color-mix(in srgb, var(--accent) 35%, transparent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
-.release-picker__track:active {
+.release-picker__track-hit:active {
   transform: scale(0.995);
 }
 
@@ -5871,8 +5935,8 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   flex-shrink: 0;
 }
 
-.release-picker__track:hover .release-picker__play-pill,
-.release-picker__track:focus-visible .release-picker__play-pill {
+.release-picker__track-hit:hover .release-picker__play-pill,
+.release-picker__track-hit:focus-visible .release-picker__play-pill {
   color: var(--bg-elevated);
   background: var(--accent);
 }
@@ -6395,6 +6459,7 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
   box-shadow: var(--shadow-lg);
   backdrop-filter: blur(10px);
+  z-index: 260;
 }
 
 .track-rating-menu__option {
