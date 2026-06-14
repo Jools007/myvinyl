@@ -238,6 +238,128 @@ export function ChartBar({
   );
 }
 
+export function ChartValueBar({
+  title,
+  subtitle,
+  items,
+  currency = 'USD',
+  horizontal = true,
+  accentIndex = 4,
+}: {
+  title: string;
+  subtitle?: string;
+  items: ChartItem[];
+  currency?: string;
+  horizontal?: boolean;
+  accentIndex?: number;
+}) {
+  const theme = useChartTheme();
+  if (items.length === 0) return panelEmpty(title, subtitle);
+
+  const formatMoney = (value: number) => {
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency,
+        maximumFractionDigits: 0,
+      }).format(value);
+    } catch {
+      return `${currency} ${value.toFixed(0)}`;
+    }
+  };
+
+  const data = useMemo(
+    () => ({
+      labels: items.map((i) => i.label),
+      datasets: [
+        {
+          data: items.map((i) => i.count),
+          backgroundColor: items.map((_, i) =>
+            withAlpha(theme.palette[(accentIndex + i) % theme.palette.length], horizontal ? 0.82 : 0.9)
+          ),
+          borderRadius: horizontal ? { topRight: 8, bottomRight: 8 } : { topLeft: 8, topRight: 8 },
+          borderSkipped: false,
+          maxBarThickness: horizontal ? 26 : 44,
+        },
+      ],
+    }),
+    [items, theme, horizontal, accentIndex]
+  );
+
+  const options = useMemo(
+    () => ({
+      ...baseChartOptions(theme),
+      indexAxis: horizontal ? ('y' as const) : ('x' as const),
+      scales: horizontal
+        ? {
+            x: {
+              ...baseChartOptions(theme).scales?.x,
+              grid: { color: withAlpha(theme.border, 0.55) },
+              ticks: {
+                color: theme.textMuted,
+                font: chartFont(10),
+                callback: (value: string | number) => formatMoney(Number(value)),
+              },
+            },
+            y: {
+              ...baseChartOptions(theme).scales?.y,
+              grid: { display: false },
+              ticks: {
+                color: theme.text,
+                font: chartFont(11, 500),
+                autoSkip: false,
+              },
+            },
+          }
+        : {
+            x: {
+              ...baseChartOptions(theme).scales?.x,
+              grid: { display: false },
+              ticks: { color: theme.text, font: chartFont(10) },
+            },
+            y: {
+              ...baseChartOptions(theme).scales?.y,
+              beginAtZero: true,
+              grid: { color: withAlpha(theme.border, 0.55) },
+              ticks: {
+                color: theme.textMuted,
+                font: chartFont(10),
+                callback: (value: string | number) => formatMoney(Number(value)),
+              },
+            },
+          },
+      plugins: {
+        ...baseChartOptions(theme).plugins,
+        tooltip: {
+          ...baseChartOptions(theme).plugins?.tooltip,
+          callbacks: {
+            label: (ctx: { parsed: { x?: number; y?: number } }) => {
+              const val = horizontal ? ctx.parsed.x : ctx.parsed.y;
+              return formatMoney(val ?? 0);
+            },
+          },
+        },
+      },
+    }),
+    [horizontal, theme, currency]
+  );
+
+  return (
+    <InsightPanel title={title} subtitle={subtitle} className="insights-chart-panel">
+      <div
+        className={`insights-chart-panel__canvas${horizontal ? ' insights-chart-panel__canvas--bar-h' : ''}`}
+        style={{
+          height: horizontal
+            ? `${Math.max(220, items.length * 42)}px`
+            : '280px',
+        }}
+      >
+        <Bar data={data} options={options as object} />
+      </div>
+    </InsightPanel>
+  );
+}
+
 export function ChartDecadeLine({
   title,
   subtitle,

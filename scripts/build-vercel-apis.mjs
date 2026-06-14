@@ -14,6 +14,10 @@ const routes = [
   { entry: 'scripts/api-entries/lastfm/vibe.entry.ts', outfile: 'api/lastfm/vibe.js' },
   { entry: 'scripts/api-entries/lastfm/similar.entry.ts', outfile: 'api/lastfm/similar.js' },
   { entry: 'scripts/api-entries/discogs/collection.entry.ts', outfile: 'api/discogs/collection.js' },
+  {
+    entry: 'scripts/api-entries/discogs/price-suggestions.entry.ts',
+    outfile: 'api/discogs/price-suggestions.js',
+  },
   { entry: 'scripts/api-entries/image.entry.ts', outfile: 'api/image.js' },
   { entry: 'scripts/api-entries/album-info.entry.ts', outfile: 'api/album-info.js' },
   { entry: 'scripts/api-entries/enrich.entry.ts', outfile: 'api/enrich.js' },

@@ -45,8 +45,10 @@ import {
   ChartScatterBpm,
   ChartVibeRadar,
 } from './insights/InsightChartJs';
+import { CollectionValueSection } from './insights/CollectionValueSection';
 import { InsightExplorer } from './insights/InsightExplorer';
 import { PlayfulTools } from './insights/PlayfulTools';
+import { useCollectionValuation } from '../hooks/useCollectionValuation';
 
 type InsightsDashboardProps = {
   records: VinylRecord[];
@@ -59,10 +61,11 @@ type InsightsDashboardProps = {
   onQueueMany?: (items: { record: VinylRecord; track: Track }[], label?: string) => void;
 };
 
-type SectionId = 'overview' | 'picks' | 'collection' | 'artists' | 'sound' | 'dj' | 'health';
+type SectionId = 'overview' | 'value' | 'picks' | 'collection' | 'artists' | 'sound' | 'dj' | 'health';
 
 const SECTIONS: { id: SectionId; label: string; icon: typeof BarChart3 }[] = [
   { id: 'overview', label: 'Overview', icon: Sparkles },
+  { id: 'value', label: 'Value', icon: Gem },
   { id: 'picks', label: 'Your picks', icon: Heart },
   { id: 'collection', label: 'Collection', icon: Layers },
   { id: 'artists', label: 'Artists', icon: Users },
@@ -487,6 +490,8 @@ export function InsightsDashboard({
   onQueueMany,
 }: InsightsDashboardProps) {
   const insights = useMemo(() => computeCollectionInsights(records), [records]);
+  const { state: valuationState, linkedCount: valuationLinkedCount, refresh: refreshValuation } =
+    useCollectionValuation(records);
   const [activeSection, setActiveSection] = useState<SectionId>('overview');
   const [lens, setLens] = useState<InsightLens | null>(null);
   const [journey, setJourney] = useState<JourneyStep[] | null>(null);
@@ -745,6 +750,23 @@ export function InsightsDashboard({
                 ))}
               </div>
             ) : null}
+          </section>
+
+          <section
+            id="insights-value"
+            ref={(el) => {
+              sectionRefs.current.value = el;
+            }}
+            className="insights-v2-section"
+          >
+            <CollectionValueSection
+              state={valuationState}
+              linkedCount={valuationLinkedCount}
+              onRefresh={() => void refreshValuation()}
+              onSelectRecord={(id, label) =>
+                setLensFromInsight({ kind: 'release', recordId: id, label })
+              }
+            />
           </section>
 
           <section

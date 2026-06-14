@@ -17,6 +17,9 @@
     "api/discogs/collection.js": {
       "maxDuration": 30
     },
+    "api/discogs/price-suggestions.js": {
+      "maxDuration": 15
+    },
     "api/image.js": {
       "maxDuration": 10
     },
