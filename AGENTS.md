@@ -114,7 +114,7 @@ Bundled routes log `[route] env configured: { SPOTIFY_CLIENT_ID: true, ... }` in
 
 ## Playback (read before touching Play preview)
 
-**If preview stops ~2s or stutters:** read `docs/PLAYBACK_BASELINE.md` and `src/lib/playbackConfig.ts` first.
+**If preview stops ~2s or stutters:** read `docs/PLAYBACK_DEBUG.md` (full runbook), then `docs/PLAYBACK_BASELINE.md` and `src/lib/playbackConfig.ts`.
 
 - Known-good: commit `adfecc2` · Broken by: `9d1e21c` (routing + `left:-9999px` YouTube CSS)
 - `useTrackPreview()` **only** in `PlayNextPanel` — never `App.tsx`
@@ -124,7 +124,8 @@ Bundled routes log `[route] env configured: { SPOTIFY_CLIENT_ID: true, ... }` in
 
 | File | Use when |
 |------|----------|
-| `docs/PLAYBACK_BASELINE.md` | Preview stutter/stop regressions |
+| `docs/PLAYBACK_DEBUG.md` | Playback fixes, symptom table, dev debug workflow |
+| `docs/PLAYBACK_BASELINE.md` | CSS host sizing, restore procedure |
 | `CONTEXT.md` | Product + code orientation |
 | `PROJECT_SNAPSHOT.md` | Architecture deep-dive (may lag `api/`) |
 | `SERVERLESS_MIGRATION_PLAN.md` | API migration history |

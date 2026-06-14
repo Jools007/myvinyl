@@ -2,6 +2,8 @@
 
 Reference when preview audio stutters, stops after ~2s, or regresses after Play UI changes.
 
+> **Full runbook (2026-06 fixes, debug workflow, symptom table):** [`PLAYBACK_DEBUG.md`](./PLAYBACK_DEBUG.md)
+
 ## Known-good snapshot
 
 | Item | Value |
@@ -15,11 +17,12 @@ Reference when preview audio stutters, stops after ~2s, or regresses after Play 
 1. **`useTrackPreview()` only in `PlayNextPanel`** — not in `App.tsx`.
 2. **One load path** — `useEffect` on `nowKey` in `PlayNextPanel`:
    ```ts
-   void preview.load(record, track, autoplay, false);
+   void preview.load(record, track, autoplay, autoplay);
    ```
+   Browse ▶ is a user gesture — both `autoplay` and `enableSound` are `true` when pending.
 3. **`App.tsx` never calls** `preview.load()` or `preview.reset()`.
 4. **Autoplay flag** — set via `autoplayPendingRef` in `handlePlay` (browse ▶) only.
-5. **Sound** — user enables via preview play bar (`handlePreviewToggle` → `load(..., true, true)` or `toggle()`).
+5. **Sound** — browse ▶ unmutes via load above; preview bar uses `load(..., true, true)` or `toggle()`.
 
 ## Critical files
 
@@ -59,7 +62,7 @@ iOS uses `.play-dj__yt-host--touch` (off-screen is OK for WebKit gesture path).
 ## Local dev smoke test
 
 ```bash
-npm run dev   # http://127.0.0.1:5174
+npm run dev   # http://localhost:5174 (127.0.0.1 redirects to localhost)
 ```
 
 1. Sign in, open **Play**
@@ -72,7 +75,7 @@ npm run dev   # http://127.0.0.1:5174
 API probe:
 
 ```bash
-curl -s "http://127.0.0.1:5174/api/play/audio?artist=Massive%20Attack&title=Teardrop"
+curl -s "http://localhost:5174/api/play/audio?artist=Massive%20Attack&title=Teardrop"
 ```
 
 ## Restore procedure

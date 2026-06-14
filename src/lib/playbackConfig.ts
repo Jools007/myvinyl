@@ -1,5 +1,5 @@
 /**
- * Frozen playback baseline — update docs/PLAYBACK_BASELINE.md when changing any rule here.
+ * Frozen playback baseline — update docs/PLAYBACK_BASELINE.md and docs/PLAYBACK_DEBUG.md when changing rules.
  *
  * Last verified good: adfecc2 (2026-06-14, before Play URL routing 9d1e21c).
  */
@@ -11,8 +11,8 @@ export const PLAYBACK_BASELINE = {
     previewHookOwner: 'PlayNextPanel',
     /** Single load effect keyed on nowKey — App must not call preview.load() */
     loadEffectKey: 'nowKey',
-    /** browse ▶ passes autoplay true, enableSound false */
-    soundOnAutoplay: false,
+    /** browse ▶ passes autoplay true, enableSound true (user gesture) */
+    soundOnAutoplay: true,
   },
   youtube: {
     /** Localhost desktop: plain embed + src reload (adfecc2); prod uses YT.Player + iframe fallback. */
