@@ -9,6 +9,7 @@ import { resolveTrackCamelot } from '../camelot';
 import { getPrimaryTrack, type VinylRecord } from '../types';
 import { ensurePdfFonts, PDF_FONT } from './fonts';
 import {
+  BANNER,
   CATALOG,
   CHART_RGB,
   colX,
@@ -18,7 +19,14 @@ import {
   PAGE,
   PDF_COLORS,
 } from './theme';
-import { coverForRecord, PDF_ASSETS, preloadPdfImages, type ImageCache } from './images';
+import {
+  assetFromCache,
+  coverForRecord,
+  PDF_ASSETS,
+  preloadPdfImages,
+  type CachedImage,
+  type ImageCache,
+} from './images';
 
 export type CollectionPdfExportOptions = {
   records: VinylRecord[];
@@ -123,19 +131,41 @@ function ensureSpace(ctx: PdfContext, needed: number): void {
   newPage(ctx);
 }
 
-function addImageSafe(
+function placeImage(
   doc: jsPDF,
-  dataUrl: string,
+  image: CachedImage | null | undefined,
   x: number,
   y: number,
   w: number,
   h: number
 ): void {
+  if (!image) return;
   try {
-    doc.addImage(dataUrl, 'JPEG', x, y, w, h, undefined, 'FAST');
+    doc.addImage(image.dataUrl, image.format, x, y, w, h, undefined, 'FAST');
   } catch {
     /* skip broken asset */
   }
+}
+
+function placeRaster(
+  doc: jsPDF,
+  dataUrl: string | null,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  format: 'JPEG' | 'PNG' = 'PNG'
+): void {
+  if (!dataUrl) return;
+  try {
+    doc.addImage(dataUrl, format, x, y, w, h, undefined, 'FAST');
+  } catch {
+    /* skip broken asset */
+  }
+}
+
+function bannerHeight(widthMm: number): number {
+  return Math.round((widthMm * BANNER.catalog.h) / BANNER.catalog.w);
 }
 
 function renderBarChartImage(
@@ -151,7 +181,7 @@ function renderBarChartImage(
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
 
-  ctx.fillStyle = '#fcfbf9';
+  ctx.fillStyle = '#fcfaf6';
   ctx.fillRect(0, 0, widthPx, heightPx);
 
   const pad = 12;
@@ -198,53 +228,56 @@ function drawCover(
   const { doc } = ctx;
   const collectionName = options.collectionName ?? 'My Vinyl Collection';
   const generatedAt = options.generatedAt ?? new Date();
-  const texture = ctx.imageCache.get(PDF_ASSETS.coverTexture);
+  const texture = assetFromCache(ctx.imageCache, PDF_ASSETS.coverTexture);
+  const heroH = 98;
 
   setFill(doc, PDF_COLORS.cover);
   doc.rect(0, 0, PAGE.w, PAGE.h, 'F');
 
   if (texture) {
-    addImageSafe(doc, texture, 0, 0, PAGE.w, 88);
-    setFill(doc, PDF_COLORS.cover);
-    doc.rect(0, 52, PAGE.w, 36, 'F');
+    placeImage(doc, texture, 0, 0, PAGE.w, heroH);
+  }
+
+  for (let i = 0; i < 10; i++) {
+    const t = i / 9;
+    const shade = Math.round(32 + t * 18);
+    setFill(doc, [shade, shade - 4, shade - 8] as const);
+    doc.rect(0, heroH - 28 + i * 2.6, PAGE.w, 2.8, 'F');
   }
 
   const mosaic = options.records
     .filter((r) => coverForRecord(r, ctx.imageCache))
-    .slice(0, 10);
-  const tileW = PAGE.w / 5;
-  const tileH = 26;
+    .slice(0, 5);
+  const tileSize = CONTENT_W / 5;
+  const mosaicY = heroH - tileSize - 6;
   mosaic.forEach((record, i) => {
     const art = coverForRecord(record, ctx.imageCache);
-    if (!art) return;
-    const col = i % 5;
-    const row = Math.floor(i / 5);
-    addImageSafe(doc, art, col * tileW + 0.4, row * tileH + 0.4, tileW - 0.8, tileH - 0.8);
+    placeImage(doc, art, PAGE.margin + i * tileSize, mosaicY, tileSize - 1.2, tileSize - 1.2);
   });
 
   setFill(doc, PDF_COLORS.cover);
-  doc.rect(0, 54, PAGE.w, PAGE.h - 54, 'F');
+  doc.rect(0, heroH, PAGE.w, PAGE.h - heroH, 'F');
 
-  const heroY = 68;
-  setFill(doc, PDF_COLORS.accent);
-  doc.rect(PAGE.margin, heroY, 36, 0.7, 'F');
+  const heroY = heroH + 10;
+  setFill(doc, PDF_COLORS.accentWarm);
+  doc.rect(PAGE.margin, heroY, 32, 0.55, 'F');
 
   doc.setFont(PDF_FONT.display, 'bold');
-  doc.setFontSize(24);
+  doc.setFontSize(22);
   setText(doc, PDF_COLORS.coverInk);
-  doc.text(collectionName, PAGE.margin, heroY + 12);
+  doc.text(collectionName, PAGE.margin, heroY + 11);
 
   doc.setFont(PDF_FONT.body, 'normal');
-  doc.setFontSize(9.5);
-  setText(doc, PDF_COLORS.accentSoft);
-  doc.text('Vinyl collection catalog', PAGE.margin, heroY + 20);
+  doc.setFontSize(9);
+  setText(doc, PDF_COLORS.coverMuted);
+  doc.text('Vinyl collection catalog', PAGE.margin, heroY + 18);
 
   doc.setFontSize(7);
-  setText(doc, PDF_COLORS.coverInk);
+  setText(doc, PDF_COLORS.coverMuted);
   if (options.curatorName) {
-    doc.text(`Curated by ${options.curatorName}`, PAGE.margin, heroY + 27);
+    doc.text(`Curated by ${options.curatorName}`, PAGE.margin, heroY + 24);
   }
-  doc.text(formatGeneratedLabel(generatedAt), PAGE.margin, heroY + 33);
+  doc.text(formatGeneratedLabel(generatedAt), PAGE.margin, heroY + 29);
 
   const tiles: [string, string][] = [
     ['Releases', String(insights.releaseCount)],
@@ -256,27 +289,29 @@ function drawCover(
   ];
 
   const tileW2 = (CONTENT_W - PAGE.gutter * 2) / 3;
-  const baseY = heroY + 42;
+  const baseY = heroY + 36;
   tiles.forEach(([label, value], i) => {
     const col = i % 3;
     const row = Math.floor(i / 3);
     const x = PAGE.margin + col * (tileW2 + PAGE.gutter);
     const y = baseY + row * 13;
-    setFill(doc, [22, 30, 48]);
-    doc.roundedRect(x, y, tileW2, 10, 1.2, 1.2, 'F');
+    setFill(doc, PDF_COLORS.coverMid);
+    setDraw(doc, PDF_COLORS.accentWarm);
+    doc.setLineWidth(0.15);
+    doc.roundedRect(x, y, tileW2, 10, 1.2, 1.2, 'FD');
     doc.setFont(PDF_FONT.display, 'bold');
     doc.setFontSize(11);
-    setText(doc, PDF_COLORS.accentSoft);
+    setText(doc, PDF_COLORS.coverInk);
     doc.text(value, x + 3, y + 5.5);
     doc.setFont(PDF_FONT.body, 'normal');
     doc.setFontSize(5.6);
-    setText(doc, PDF_COLORS.inkSoft);
+    setText(doc, PDF_COLORS.coverMuted);
     doc.text(label.toUpperCase(), x + 3, y + 8.8);
   });
 
   doc.setFont(PDF_FONT.body, 'normal');
   doc.setFontSize(6.5);
-  setText(doc, PDF_COLORS.inkSoft);
+  setText(doc, PDF_COLORS.coverMuted);
   doc.text(
     'Master catalog sorted A–Z by artist  ·  Insights & DJ reference follow',
     PAGE.margin,
@@ -288,6 +323,13 @@ function drawCover(
 
 function drawPassport(ctx: PdfContext, insights: CollectionInsights, filterNote?: string): void {
   newPage(ctx, 'Collection passport');
+
+  const insightsBanner = assetFromCache(ctx.imageCache, PDF_ASSETS.sectionInsights);
+  const bannerH = bannerHeight(CONTENT_W);
+  if (insightsBanner) {
+    placeImage(ctx.doc, insightsBanner, PAGE.margin, ctx.y, CONTENT_W, bannerH);
+    ctx.y += bannerH + 5;
+  }
 
   docSectionTitle(ctx, 'Collection passport', 'At-a-glance insights from your library');
 
@@ -330,16 +372,9 @@ function drawPassport(ctx: PdfContext, insights: CollectionInsights, filterNote?
   ctx.y += 4;
 
   const imgY = ctx.y;
-  if (genreChart) addImageSafe(ctx.doc, genreChart, PAGE.margin, imgY, chartW, 52);
+  if (genreChart) placeRaster(ctx.doc, genreChart, PAGE.margin, imgY, chartW, 52);
   if (decadeChart) {
-    addImageSafe(
-      ctx.doc,
-      decadeChart,
-      PAGE.margin + chartW + PAGE.gutter,
-      imgY,
-      chartW,
-      52
-    );
+    placeRaster(ctx.doc, decadeChart, PAGE.margin + chartW + PAGE.gutter, imgY, chartW, 52);
   }
   ctx.y = imgY + 56;
 
@@ -401,11 +436,11 @@ function drawNoteBanner(ctx: PdfContext, text: string): void {
   const lines = doc.splitTextToSize(text, CONTENT_W - 8) as string[];
   const h = lines.length * 3.4 + 5;
   ensureSpace(ctx, h);
-  setFill(doc, PDF_COLORS.accentSoft);
+  setFill(doc, PDF_COLORS.paperMuted);
   doc.roundedRect(PAGE.margin, ctx.y, CONTENT_W, h, 1.2, 1.2, 'F');
   doc.setFont(PDF_FONT.body, 'normal');
   doc.setFontSize(6.8);
-  setText(doc, PDF_COLORS.accent);
+  setText(doc, PDF_COLORS.inkMid);
   doc.text(lines, PAGE.margin + 3, ctx.y + 4.5);
   ctx.y += h + 3;
 }
@@ -483,7 +518,7 @@ function drawCatalogHeaderRow(ctx: PdfContext, x0: number): void {
   const { doc } = ctx;
   const widths = Object.values(CATALOG.cols);
   const labels = ['#', '', 'Artist', 'Title', 'Yr', 'Format', 'Cond', 'BPM', 'Key', 'Genre'];
-  setFill(doc, PDF_COLORS.ink);
+  setFill(doc, PDF_COLORS.tableHead);
   doc.rect(x0, ctx.y, CONTENT_W, CATALOG.headerH, 'F');
   doc.setFont(PDF_FONT.body, 'bold');
   doc.setFontSize(5.6);
@@ -509,7 +544,7 @@ function drawCatalogRow(
   const keyMeta = primary ? resolveTrackCamelot(primary) : { code: undefined };
 
   if (stripe) {
-    setFill(doc, PDF_COLORS.paperMuted);
+    setFill(doc, PDF_COLORS.rowStripe);
     doc.rect(x0, y, CONTENT_W, CATALOG.rowH, 'F');
   }
 
@@ -522,7 +557,7 @@ function drawCatalogRow(
   const artY = y + (CATALOG.rowH - CATALOG.art) / 2;
   const art = coverForRecord(record, ctx.imageCache);
   if (art) {
-    addImageSafe(doc, art, artX, artY, CATALOG.art, CATALOG.art);
+    placeImage(doc, art, artX, artY, CATALOG.art, CATALOG.art);
   } else {
     setFill(doc, PDF_COLORS.line);
     doc.rect(artX, artY, CATALOG.art, CATALOG.art, 'F');
@@ -576,7 +611,7 @@ function drawLetterBand(ctx: PdfContext, x0: number, letter: string): void {
   doc.rect(x0, ctx.y, CONTENT_W, CATALOG.letterH, 'F');
   doc.setFont(PDF_FONT.display, 'bold');
   doc.setFontSize(7);
-  setText(doc, PDF_COLORS.accent);
+  setText(doc, PDF_COLORS.inkMid);
   doc.text(letter, x0 + 2, ctx.y + 3.6);
   ctx.y += CATALOG.letterH + 0.5;
 }
@@ -589,11 +624,12 @@ function drawMasterCatalog(ctx: PdfContext, records: VinylRecord[]): void {
     `${records.length} releases sorted A–Z by artist — compact shelf reference`
   );
 
-  const divider = ctx.imageCache.get(PDF_ASSETS.sectionCatalog);
+  const divider = assetFromCache(ctx.imageCache, PDF_ASSETS.sectionCatalog);
+  const dividerH = bannerHeight(CONTENT_W);
   if (divider) {
-    ensureSpace(ctx, 22);
-    addImageSafe(ctx.doc, divider, PAGE.margin, ctx.y, CONTENT_W, 18);
-    ctx.y += 20;
+    ensureSpace(ctx, dividerH + 4);
+    placeImage(ctx.doc, divider, PAGE.margin, ctx.y, CONTENT_W, dividerH);
+    ctx.y += dividerH + 4;
   }
 
   const sorted = sortByArtist(records);
@@ -633,10 +669,12 @@ function drawDjReference(ctx: PdfContext, insights: CollectionInsights): void {
   newPage(ctx, 'DJ reference');
   docSectionTitle(ctx, 'DJ reference', 'BPM, keys, and tracks you have marked');
 
-  const divider = ctx.imageCache.get(PDF_ASSETS.sectionDj);
+  const divider = assetFromCache(ctx.imageCache, PDF_ASSETS.sectionDj);
+  const dividerH = bannerHeight(CONTENT_W);
   if (divider) {
-    addImageSafe(ctx.doc, divider, PAGE.margin, ctx.y, CONTENT_W, 20);
-    ctx.y += 22;
+    ensureSpace(ctx, dividerH + 4);
+    placeImage(ctx.doc, divider, PAGE.margin, ctx.y, CONTENT_W, dividerH);
+    ctx.y += dividerH + 4;
   }
 
   drawStatStrip(ctx, [
@@ -696,8 +734,8 @@ function drawDjReference(ctx: PdfContext, insights: CollectionInsights): void {
     setText(doc, PDF_COLORS.ink);
     doc.text('BPM spread', PAGE.margin, ctx.y);
     doc.text('Harmonic keys', PAGE.margin + half + PAGE.gutter, ctx.y);
-    if (bpmChart) addImageSafe(doc, bpmChart, PAGE.margin, imgY, half, 48);
-    if (keyChart) addImageSafe(doc, keyChart, PAGE.margin + half + PAGE.gutter, imgY, half, 48);
+    if (bpmChart) placeRaster(doc, bpmChart, PAGE.margin, imgY, half, 48);
+    if (keyChart) placeRaster(doc, keyChart, PAGE.margin + half + PAGE.gutter, imgY, half, 48);
     ctx.y = imgY + 52;
   }
 

@@ -1,25 +1,30 @@
-/** MyVinyl editorial palette — print-safe, matches app accent. */
+/** Warm editorial palette — matches MyVinyl cream/charcoal/teal, no cold blues. */
 export const PDF_COLORS = {
   ink: [28, 25, 22] as const,
   inkMid: [69, 64, 54] as const,
   inkSoft: [111, 103, 92] as const,
-  paper: [252, 251, 249] as const,
-  paperMuted: [245, 243, 238] as const,
-  line: [226, 220, 210] as const,
+  paper: [252, 250, 246] as const,
+  paperMuted: [245, 241, 235] as const,
+  rowStripe: [250, 247, 242] as const,
+  line: [224, 216, 204] as const,
   accent: [21, 101, 94] as const,
-  accentSoft: [204, 251, 241] as const,
-  cover: [12, 18, 34] as const,
-  coverInk: [244, 243, 241] as const,
+  accentWarm: [180, 134, 78] as const,
+  accentSoft: [237, 229, 218] as const,
+  cover: [32, 28, 24] as const,
+  coverMid: [48, 42, 36] as const,
+  coverInk: [252, 248, 242] as const,
+  coverMuted: [196, 184, 168] as const,
   white: [255, 255, 255] as const,
+  tableHead: [42, 38, 34] as const,
 };
 
 export const CHART_RGB: readonly (readonly [number, number, number])[] = [
   PDF_COLORS.accent,
-  [79, 70, 229],
-  [224, 123, 84],
-  [30, 41, 59],
-  [56, 189, 248],
-  [167, 139, 250],
+  PDF_COLORS.accentWarm,
+  [139, 107, 74],
+  [92, 74, 58],
+  [21, 101, 94],
+  [160, 128, 96],
 ];
 
 export const PAGE = {
@@ -52,6 +57,13 @@ export const CATALOG = {
     key: 11,
     genre: 25,
   },
+} as const;
+
+export const BANNER = {
+  catalog: { w: 1600, h: 260 },
+  insights: { w: 1600, h: 260 },
+  dj: { w: 1600, h: 260 },
+  cover: { w: 1200, h: 900 },
 } as const;
 
 export function colX(start: number, widths: number[], index: number): number {
