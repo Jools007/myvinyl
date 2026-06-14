@@ -725,12 +725,16 @@ async function isYouTubeEmbeddable(videoId, apiKey) {
 }
 async function pickEmbeddable(ranked, apiKey, excludeVideoIds = /* @__PURE__ */ new Set(), maxTry = 10) {
   const slice = ranked.filter((row) => !excludeVideoIds.has(row.videoId)).slice(0, maxTry);
+  let fallback = null;
   for (const row of slice) {
-    if (await isYouTubeEmbeddable(row.videoId, apiKey)) {
-      return row;
-    }
+    const ok = await isYouTubeEmbeddable(row.videoId, apiKey);
+    if (ok) return row;
+    if (!fallback) fallback = row;
   }
-  return slice[0] ?? null;
+  if (slice.length > 1) {
+    return slice.find((row) => row.videoId !== fallback?.videoId) ?? slice[1] ?? null;
+  }
+  return fallback;
 }
 async function searchYouTubeForTrack(artist, title, album, apiKey, excludeVideoIds = []) {
   const a = artist.trim();

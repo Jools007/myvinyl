@@ -14,6 +14,10 @@ const SPOTIFY_PREVIEW_SECONDS = 30;
 const LOAD_TIMEOUT_MS = 22_000;
 const DEFAULT_YOUTUBE_SECONDS = 240;
 const PLAYBACK_CACHE_MAX = 64;
+/** Only cache after this many ms of confirmed playback (avoids caching embed-blocked ids). */
+const CACHE_CONFIRM_MS = 3_000;
+/** Retry alternate video if UI shows playing but time stalls this long (jsapi fallback). */
+const PLAYBACK_STALL_MS = 5_000;
 
 const playbackCache = new Map<string, TrackPlayback>();
 
@@ -66,10 +70,93 @@ export function useTrackPreview() {
     (key: string, videoId: string, code: number) => void
   >(() => {});
   const retryInFlightRef = useRef(false);
+  const cacheConfirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingCacheRef = useRef<{ key: string; data: TrackPlayback } | null>(null);
+  const stallWatchRef = useRef<{
+    key: string;
+    videoId: string;
+    lastElapsed: number;
+    lastAdvanceAt: number;
+    timer: ReturnType<typeof setInterval> | null;
+  } | null>(null);
+
+  const clearCacheConfirmTimer = useCallback(() => {
+    if (cacheConfirmTimerRef.current != null) {
+      clearTimeout(cacheConfirmTimerRef.current);
+      cacheConfirmTimerRef.current = null;
+    }
+  }, []);
+
+  const clearStallWatch = useCallback(() => {
+    const w = stallWatchRef.current;
+    if (w?.timer != null) clearInterval(w.timer);
+    stallWatchRef.current = null;
+  }, []);
+
+  const schedulePlaybackCache = useCallback(
+    (key: string, data: TrackPlayback) => {
+      clearCacheConfirmTimer();
+      pendingCacheRef.current = { key, data };
+      cacheConfirmTimerRef.current = setTimeout(() => {
+        cacheConfirmTimerRef.current = null;
+        const pending = pendingCacheRef.current;
+        if (!pending || pending.key !== key || activeKeyRef.current !== key) return;
+        if (statusRef.current !== 'playing') return;
+        rememberPlayback(key, pending.data);
+        pendingCacheRef.current = null;
+        playbackDiag('playback_cache_confirmed', { key, source: pending.data.source });
+      }, CACHE_CONFIRM_MS);
+    },
+    [clearCacheConfirmTimer]
+  );
+
+  const startStallWatch = useCallback(
+    (key: string, videoId: string) => {
+      // jsapi time is estimated — stall detection only meaningful for YT.Player (api mode).
+      if (youtubeRef.current?.getPlayerMode() !== 'api') return;
+      clearStallWatch();
+      const startedAt = Date.now();
+      stallWatchRef.current = {
+        key,
+        videoId,
+        lastElapsed: 0,
+        lastAdvanceAt: startedAt,
+        timer: setInterval(() => {
+          const w = stallWatchRef.current;
+          if (!w || w.key !== key || activeKeyRef.current !== key) return;
+          if (statusRef.current !== 'playing' || sourceRef.current !== 'youtube') return;
+
+          const yt = youtubeRef.current;
+          if (!yt?.isActivelyPlaying()) return;
+
+          const t = yt.getCurrentTime();
+          if (t > w.lastElapsed + 0.4) {
+            w.lastElapsed = t;
+            w.lastAdvanceAt = Date.now();
+            return;
+          }
+
+          if (Date.now() - w.lastAdvanceAt >= PLAYBACK_STALL_MS) {
+            playbackDiag('youtube_playback_stall', { key, videoId: w.videoId });
+            clearStallWatch();
+            retryEmbedBlockRef.current(key, w.videoId, 150);
+          }
+        }, 1_000),
+      };
+    },
+    [clearStallWatch]
+  );
 
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  useEffect(() => {
+    return () => {
+      clearCacheConfirmTimer();
+      clearStallWatch();
+    };
+  }, [clearCacheConfirmTimer, clearStallWatch]);
 
   const stopRaf = useCallback(() => {
     if (rafRef.current != null) {
@@ -90,6 +177,9 @@ export function useTrackPreview() {
   }, [stopRaf]);
 
   const reset = useCallback(() => {
+    clearCacheConfirmTimer();
+    clearStallWatch();
+    pendingCacheRef.current = null;
     detachAudio();
     detachYouTube();
     activeKeyRef.current = null;
@@ -102,7 +192,7 @@ export function useTrackPreview() {
     setElapsed(0);
     setDuration(SPOTIFY_PREVIEW_SECONDS);
     setDiagHint(null);
-  }, [detachAudio, detachYouTube]);
+  }, [clearCacheConfirmTimer, clearStallWatch, detachAudio, detachYouTube]);
 
   const tick = useCallback(() => {
     const key = activeKeyRef.current;
@@ -207,11 +297,16 @@ export function useTrackPreview() {
       });
 
       setStatus('ready');
+      schedulePlaybackCache(key, {
+        source: 'spotify',
+        previewUrl,
+        durationSec: SPOTIFY_PREVIEW_SECONDS,
+      });
       if (opts?.autoplay) {
         playCurrent({ enableSound: opts.enableSound === true });
       }
     },
-    [detachAudio, detachYouTube, playCurrent, startProgress, stopRaf]
+    [detachAudio, detachYouTube, playCurrent, schedulePlaybackCache, startProgress, stopRaf]
   );
 
   const attachYouTube = useCallback(
@@ -260,14 +355,17 @@ export function useTrackPreview() {
             setStatus('playing');
             setDiagHint(null);
             startProgress();
+            startStallWatch(key, videoId);
           },
           onPaused: () => {
             if (activeKeyRef.current !== key) return;
+            clearStallWatch();
             stopRaf();
             setStatus('paused');
           },
           onEnded: () => {
             if (activeKeyRef.current !== key) return;
+            clearStallWatch();
             stopRaf();
             setStatus('ended');
             setProgress(1);
@@ -289,7 +387,7 @@ export function useTrackPreview() {
         { autoplay, enableSound }
       );
     },
-    [detachAudio, detachYouTube, duration, playCurrent, startProgress, stopRaf]
+    [clearStallWatch, detachAudio, detachYouTube, duration, playCurrent, startProgress, stopRaf, startStallWatch]
   );
 
   const applyPlayback = useCallback(
@@ -363,7 +461,11 @@ export function useTrackPreview() {
           continue;
         }
 
-        rememberPlayback(key, result.data);
+        if (result.data.source === 'youtube') {
+          schedulePlaybackCache(key, result.data);
+        } else {
+          rememberPlayback(key, result.data);
+        }
         applyPlayback(result.data, key, autoplay, enableSoundOnAutoplay);
         return true;
       }
@@ -374,7 +476,7 @@ export function useTrackPreview() {
       }
       return false;
     },
-    [applyPlayback]
+    [applyPlayback, schedulePlaybackCache]
   );
 
   const retryYouTubeAfterEmbedBlock = useCallback(
@@ -386,6 +488,9 @@ export function useTrackPreview() {
 
       failedVideoIdsRef.current.add(failedVideoId);
       playbackCache.delete(key);
+      clearCacheConfirmTimer();
+      clearStallWatch();
+      pendingCacheRef.current = null;
       detachYouTube();
 
       playbackDiag('youtube_embed_blocked_retry', {
@@ -417,7 +522,7 @@ export function useTrackPreview() {
         retryInFlightRef.current = false;
       }
     },
-    [detachYouTube, fetchAndApplyPlayback]
+    [clearCacheConfirmTimer, clearStallWatch, detachYouTube, fetchAndApplyPlayback]
   );
 
   useEffect(() => {
@@ -509,7 +614,7 @@ export function useTrackPreview() {
           spotifyTrackId: track.spotifyTrackId,
           durationSec: SPOTIFY_PREVIEW_SECONDS,
         };
-        rememberPlayback(key, data);
+        schedulePlaybackCache(key, data);
         applyPlayback(data, key, autoplay, enableSoundOnAutoplay);
         return;
       }
@@ -536,7 +641,7 @@ export function useTrackPreview() {
         }
       }
     },
-    [applyPlayback, fetchAndApplyPlayback, playCurrent]
+    [applyPlayback, fetchAndApplyPlayback, playCurrent, schedulePlaybackCache]
   );
 
   const seekTo = useCallback(

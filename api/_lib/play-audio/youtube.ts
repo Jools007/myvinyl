@@ -302,13 +302,17 @@ async function pickEmbeddable(
   maxTry = 10
 ): Promise<YouTubeVideoMatch | null> {
   const slice = ranked.filter((row) => !excludeVideoIds.has(row.videoId)).slice(0, maxTry);
+  let fallback: YouTubeVideoMatch | null = null;
   for (const row of slice) {
-    if (await isYouTubeEmbeddable(row.videoId, apiKey)) {
-      return row;
-    }
+    const ok = await isYouTubeEmbeddable(row.videoId, apiKey);
+    if (ok) return row;
+    if (!fallback) fallback = row;
   }
-  // Prefer next candidate over giving up — client auto-retries on embed error 150
-  return slice[0] ?? null;
+  // oEmbed can pass while IFrame still returns 150 — return a different candidate when possible
+  if (slice.length > 1) {
+    return slice.find((row) => row.videoId !== fallback?.videoId) ?? slice[1] ?? null;
+  }
+  return fallback;
 }
 
 /**

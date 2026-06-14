@@ -185,6 +185,11 @@ export function apiPlugin(env: Env): Plugin {
             const albumIndexRaw = url.searchParams.get('albumIndex');
             const albumIndex = albumIndexRaw ? parseInt(albumIndexRaw, 10) : undefined;
             const spotifyTrackId = url.searchParams.get('spotifyTrackId')?.trim();
+            const excludeRaw = url.searchParams.get('excludeVideoIds') ?? '';
+            const excludeVideoIds = excludeRaw
+              .split(',')
+              .map((id) => id.trim())
+              .filter((id) => id.length === 11);
 
             const result = await handlePlayAudio({
               artist,
@@ -198,6 +203,7 @@ export function apiPlugin(env: Env): Plugin {
               spotifyId,
               spotifySecret,
               youtubeApiKey,
+              excludeVideoIds: excludeVideoIds.length ? excludeVideoIds : undefined,
             });
 
             if (result.ok) return json(res, 200, result.data);
