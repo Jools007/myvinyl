@@ -1,7 +1,5 @@
 /** YouTube preview playback — IFrame API for reliable play/pause/sound; simple embed as fallback. */
 
-import { isIOSDevice } from './playbackDevice';
-
 const YT_SCRIPT = 'https://www.youtube.com/iframe_api';
 const YT_EMBED_HOST = 'https://www.youtube.com';
 
@@ -59,9 +57,10 @@ function pageOrigin(): string {
   return window.location.origin || `${window.location.protocol}//${window.location.host}`;
 }
 
-/** iOS WebKit: dumb embed + postMessage. Desktop (incl. localhost) uses IFrame API. */
+/** IFrame API postMessage requires an exact origin match — skip on local dev hosts. */
 function preferSimpleIframe(): boolean {
-  return isIOSDevice();
+  const host = window.location.hostname;
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
 }
 
 function loadYouTubeIframeApi(): Promise<void> {
@@ -108,7 +107,6 @@ function createHostElement(): { id: string; el: HTMLElement } {
   const el = document.createElement('div');
   el.id = id;
   el.className = 'play-dj__yt-host';
-  if (isIOSDevice()) el.classList.add('play-dj__yt-host--touch');
   el.setAttribute('aria-hidden', 'true');
   getHostParent().appendChild(el);
   return { id, el };
@@ -118,8 +116,7 @@ function buildEmbedSrc(
   videoId: string,
   autoplay: boolean,
   muted: boolean,
-  startSec = 0,
-  jsApi = false
+  startSec = 0
 ): string {
   const params = new URLSearchParams({
     autoplay: autoplay ? '1' : '0',
@@ -129,24 +126,12 @@ function buildEmbedSrc(
     modestbranding: '1',
     iv_load_policy: '3',
   });
-  if (jsApi) {
-    params.set('enablejsapi', '1');
-    params.set('origin', pageOrigin());
-  }
   if (startSec > 0) params.set('start', String(Math.floor(startSec)));
   return `${YT_EMBED_HOST}/embed/${videoId}?${params}`;
 }
 
 const YT_IFRAME_ALLOW =
   'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; compute-pressure *';
-
-const YT_STATE = {
-  ENDED: 0,
-  PLAYING: 1,
-  PAUSED: 2,
-  BUFFERING: 3,
-  CUED: 5,
-} as const;
 
 export type YouTubePlayerHandlers = {
   onReady?: () => void;
@@ -175,8 +160,6 @@ export class YouTubePreviewPlayer {
   private soundEnabled = false;
   private iframeStartSec = 0;
   private iframePlayStartedAt = 0;
-  private iframePlaying = false;
-  private messageListener: ((e: MessageEvent) => void) | null = null;
 
   constructor(videoId: string, handlers: YouTubePlayerHandlers, opts?: YouTubePlayerOptions) {
     this.videoId = videoId;
@@ -203,88 +186,10 @@ export class YouTubePreviewPlayer {
     this.handlers.onMutedChange?.(!this.soundEnabled);
   }
 
-  private postCommand(func: string, args = ''): void {
-    this.iframe?.contentWindow?.postMessage(
-      JSON.stringify({ event: 'command', func, args }),
-      '*'
-    );
-  }
-
-  private handleIframeStateChange(state: number): void {
-    if (state === YT_STATE.PLAYING || state === YT_STATE.BUFFERING) {
-      if (!this.iframePlaying) {
-        this.iframePlaying = true;
-        this.iframePlayStartedAt = Date.now();
-        this.handlers.onPlaying?.();
-        this.notifyMuted();
-      }
-      return;
-    }
-
-    if (state === YT_STATE.PAUSED) {
-      if (this.iframePlaying) {
-        this.iframePlaying = false;
-        this.handlers.onPaused?.();
-      }
-      return;
-    }
-
-    if (state === YT_STATE.ENDED) {
-      this.iframePlaying = false;
-      this.handlers.onEnded?.();
-    }
-  }
-
-  private parseIframeMessage(data: unknown): void {
-    if (!data || typeof data !== 'object') return;
-    const evt = data as Record<string, unknown>;
-
-    if (evt.event === 'onReady') {
-      this.markReady();
-      this.notifyMuted();
-      return;
-    }
-
-    if (evt.event === 'onStateChange') {
-      this.handleIframeStateChange(Number(evt.info));
-      return;
-    }
-
-    if (evt.event === 'infoDelivery' && evt.info && typeof evt.info === 'object') {
-      const info = evt.info as Record<string, unknown>;
-      if (typeof info.playerState === 'number') {
-        this.handleIframeStateChange(info.playerState);
-      }
-    }
-  }
-
-  private setupIframeMessaging(): void {
-    this.teardownIframeMessaging();
-    this.messageListener = (e: MessageEvent) => {
-      if (e.source !== this.iframe?.contentWindow) return;
-      try {
-        const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-        this.parseIframeMessage(data);
-      } catch {
-        /* ignore non-JSON messages */
-      }
-    };
-    window.addEventListener('message', this.messageListener);
-  }
-
-  private teardownIframeMessaging(): void {
-    if (this.messageListener) {
-      window.removeEventListener('message', this.messageListener);
-      this.messageListener = null;
-    }
-  }
-
   private mountIframeFallback(autoplay: boolean): void {
     this.abandoned = false;
     this.mode = 'iframe';
     this.player = null;
-    this.iframePlaying = false;
-    this.iframePlayStartedAt = 0;
 
     const { el } = createHostElement();
     this.hostEl = el;
@@ -294,21 +199,23 @@ export class YouTubePreviewPlayer {
     iframe.allow = YT_IFRAME_ALLOW;
     iframe.allowFullscreen = true;
     const muted = !this.soundEnabled;
-    iframe.src = buildEmbedSrc(this.videoId, autoplay, muted, 0, true);
+    iframe.src = buildEmbedSrc(this.videoId, autoplay, muted);
     el.appendChild(iframe);
     this.iframe = iframe;
-    this.setupIframeMessaging();
+
+    iframe.addEventListener('load', () => {
+      this.markReady();
+    });
   }
 
   private startIframePlayback(startSec = this.iframeStartSec): void {
-    if (!this.iframe || !this.readyFired) return;
+    if (!this.iframe) return;
+    const muted = !this.soundEnabled;
     this.iframeStartSec = Math.max(0, startSec);
-    if (startSec > 0) {
-      this.postCommand('seekTo', `[${Math.floor(startSec)},true]`);
-    }
-    if (!this.soundEnabled) this.postCommand('mute');
-    else this.postCommand('unMute');
-    this.postCommand('playVideo');
+    this.iframePlayStartedAt = Date.now();
+    const next = buildEmbedSrc(this.videoId, true, muted, this.iframeStartSec);
+    if (this.iframe.src !== next) this.iframe.src = next;
+    this.handlers.onPlaying?.();
     this.notifyMuted();
   }
 
@@ -400,7 +307,6 @@ export class YouTubePreviewPlayer {
   }
 
   private destroyHostOnly(): void {
-    this.teardownIframeMessaging();
     try {
       this.player?.stopVideo?.();
       this.player?.destroy?.();
@@ -409,8 +315,6 @@ export class YouTubePreviewPlayer {
     }
     this.player = null;
     this.iframe = null;
-    this.iframePlaying = false;
-    this.iframePlayStartedAt = 0;
     if (this.hostEl?.parentNode) {
       this.hostEl.parentNode.removeChild(this.hostEl);
     }
@@ -419,17 +323,6 @@ export class YouTubePreviewPlayer {
 
   isSoundEnabled(): boolean {
     return this.soundEnabled;
-  }
-
-  isActivelyPlaying(): boolean {
-    if (this.mode === 'iframe') return this.iframePlaying;
-    return this.isApiPlaying();
-  }
-
-  /** Prime play from a user-gesture handler (iOS / loading state). */
-  armPlay(enableSound = true): void {
-    if (enableSound) this.soundEnabled = true;
-    if (this.readyFired) this.play(enableSound);
   }
 
   private isApiPlaying(): boolean {
@@ -481,7 +374,9 @@ export class YouTubePreviewPlayer {
 
   pause(): void {
     if (this.mode === 'iframe' && this.iframe) {
-      this.postCommand('pauseVideo');
+      const muted = !this.soundEnabled;
+      this.iframe.src = buildEmbedSrc(this.videoId, false, muted);
+      this.handlers.onPaused?.();
       return;
     }
     try {
@@ -498,9 +393,7 @@ export class YouTubePreviewPlayer {
   seekTo(seconds: number): void {
     const t = Math.max(0, seconds);
     if (this.mode === 'iframe') {
-      this.iframeStartSec = t;
-      if (this.iframePlaying) this.iframePlayStartedAt = Date.now();
-      this.postCommand('seekTo', `[${Math.floor(t)},true]`);
+      this.startIframePlayback(t);
       return;
     }
     try {
@@ -511,8 +404,7 @@ export class YouTubePreviewPlayer {
   }
 
   getCurrentTime(): number {
-    if (this.mode === 'iframe') {
-      if (!this.iframePlaying || this.iframePlayStartedAt <= 0) return this.iframeStartSec;
+    if (this.mode === 'iframe' && this.iframePlayStartedAt > 0) {
       return this.iframeStartSec + (Date.now() - this.iframePlayStartedAt) / 1000;
     }
     try {

@@ -15,16 +15,17 @@ export const PLAYBACK_BASELINE = {
     soundOnAutoplay: false,
   },
   youtube: {
-    /** Desktop + localhost: IFrame API. iOS only: enablejsapi embed + postMessage */
-    localhostMode: 'iframe-api',
-    iosMode: 'enablejsapi-embed',
-    desktopHostPosition: 'right-bottom-clip' as const,
+    /** Desktop prod: IFrame API. Localhost: simple embed (preferSimpleIframe) */
+    localhostMode: 'simple-iframe',
+    desktopHostPosition: 'right-bottom-in-viewport' as const,
   },
   css: {
     /**
-     * Desktop .play-dj__yt-host must stay in viewport (right:0 bottom:0 + clip).
-     * left:-9999px causes Chrome to pause embed audio after ~2 seconds.
+     * .play-dj__yt-root must have a real render surface (320×180, overflow:visible).
+     * 0×0 overflow:hidden on the root clips embed audio after ~2 seconds.
+     * Never use left:-9999px on the host.
      */
+    ytRootRequired: { width: '320px', height: '180px', overflow: 'visible' },
     desktopHostForbidden: ['left: -9999px', 'left:-9999px'],
   },
 } as const;

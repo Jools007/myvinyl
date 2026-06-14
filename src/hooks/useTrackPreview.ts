@@ -103,7 +103,7 @@ export function useTrackPreview() {
       t = Math.min(audio.currentTime, dur);
     } else if (sourceRef.current === 'youtube') {
       const yt = youtubeRef.current;
-      if (!yt || !yt.isActivelyPlaying()) return;
+      if (!yt) return;
       dur = yt.getDuration() || DEFAULT_YOUTUBE_SECONDS;
       t = Math.min(yt.getCurrentTime(), dur);
     } else {

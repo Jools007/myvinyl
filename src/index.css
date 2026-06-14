@@ -5063,28 +5063,26 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   opacity: 0.001;
 }
 
+/* Real render surface in viewport — 0×0 overflow:hidden clips embed audio ~2s (same as iOS audio fix) */
 .play-dj__yt-root {
   position: fixed;
   right: 0;
   bottom: 0;
-  width: 0;
-  height: 0;
-  overflow: hidden;
+  width: 320px;
+  height: 180px;
+  overflow: visible;
   z-index: 0;
   pointer-events: none;
 }
 
-/* Desktop: stay in viewport — left:-9999px makes Chrome pause embed audio ~2s (see docs/PLAYBACK_BASELINE.md) */
+/* Desktop: in viewport, nearly invisible — never left:-9999px (Chrome pauses off-screen embeds) */
 .play-dj__yt-host {
-  position: fixed;
-  width: 320px;
-  height: 180px;
-  right: 0;
-  bottom: 0;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.01;
   overflow: hidden;
-  clip: rect(0 0 0 0);
-  clip-path: inset(50%);
-  white-space: nowrap;
   border: 0;
   pointer-events: none;
 }

@@ -27,29 +27,31 @@ Reference when preview audio stutters, stops after ~2s, or regresses after Play 
 |------|------|
 | `src/components/PlayNextPanel.tsx` | Owns preview hook + load effect |
 | `src/hooks/useTrackPreview.ts` | Spotify + YouTube attach (match `adfecc2` sound logic) |
-| `src/lib/youtubePlayer.ts` | IFrame API on desktop/localhost; iOS uses `enablejsapi` embed |
+| `src/lib/youtubePlayer.ts` | `preferSimpleIframe()` on localhost; IFrame API on prod |
 | `src/index.css` | `.play-dj__yt-host` desktop positioning (see below) |
 | `src/lib/playbackConfig.ts` | Frozen rules (this doc's source of truth) |
 
 ## Desktop YouTube CSS (root cause of ~2s stop)
 
-**Working (`adfecc2`):** iframe in viewport, visually hidden via clip:
+**Working:** root has a real in-viewport render surface; host is nearly invisible inside it:
 
 ```css
-.play-dj__yt-host {
+.play-dj__yt-root {
   position: fixed;
-  width: 320px;
-  height: 180px;
   right: 0;
   bottom: 0;
-  clip: rect(0 0 0 0);
-  clip-path: inset(50%);
-  overflow: hidden;
-  pointer-events: none;
+  width: 320px;
+  height: 180px;
+  overflow: visible;
+}
+.play-dj__yt-host {
+  position: absolute;
+  inset: 0;
+  opacity: 0.01;
 }
 ```
 
-**Broken (`9d1e21c`):** `left: -9999px` — Chrome pauses off-screen embed media after ~2 seconds.
+**Broken:** `0×0` + `overflow:hidden` on `.play-dj__yt-root`, or `left: -9999px` on the host — Chrome pauses clipped/off-screen embed media after ~2 seconds.
 
 iOS uses `.play-dj__yt-host--touch` (off-screen is OK for WebKit gesture path).
 

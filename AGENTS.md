@@ -118,7 +118,7 @@ Bundled routes log `[route] env configured: { SPOTIFY_CLIENT_ID: true, ... }` in
 
 - Known-good: commit `adfecc2` · Broken by: `9d1e21c` (routing + `left:-9999px` YouTube CSS)
 - `useTrackPreview()` **only** in `PlayNextPanel` — never `App.tsx`
-- Desktop `.play-dj__yt-host` must use `right:0; bottom:0; clip` — **never** `left:-9999px`
+- `.play-dj__yt-root` must be **320×180 in-viewport** (`overflow:visible`) — **never** `0×0 overflow:hidden` or `left:-9999px` on the host
 
 ## Docs map
 
