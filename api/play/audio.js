@@ -688,7 +688,31 @@ function rankCandidates(artist, title, album, candidates, minScore) {
   ranked.sort((a, b) => b.score - a.score);
   return ranked;
 }
-async function isYouTubeEmbeddable(videoId) {
+async function isYouTubeEmbeddableViaDataApi(videoId, apiKey) {
+  try {
+    const params = new URLSearchParams({
+      part: "status",
+      id: videoId,
+      key: apiKey
+    });
+    const res = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos?${params}`,
+      { signal: AbortSignal.timeout(3500) }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const embeddable = data.items?.[0]?.status?.embeddable;
+    return typeof embeddable === "boolean" ? embeddable : null;
+  } catch {
+    return null;
+  }
+}
+async function isYouTubeEmbeddable(videoId, apiKey) {
+  if (apiKey) {
+    const viaApi = await isYouTubeEmbeddableViaDataApi(videoId, apiKey);
+    if (viaApi === false) return false;
+    if (viaApi === true) return true;
+  }
   try {
     const url = `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(
       `https://www.youtube.com/watch?v=${videoId}`
@@ -699,18 +723,16 @@ async function isYouTubeEmbeddable(videoId) {
     return false;
   }
 }
-async function pickEmbeddable(ranked, maxTry = 2) {
-  const slice = ranked.slice(0, maxTry);
-  const checks = await Promise.all(
-    slice.map(async (row) => ({
-      row,
-      ok: await isYouTubeEmbeddable(row.videoId)
-    }))
-  );
-  const hit = checks.find((c) => c.ok);
-  return hit?.row ?? slice[0] ?? null;
+async function pickEmbeddable(ranked, apiKey, excludeVideoIds = /* @__PURE__ */ new Set(), maxTry = 10) {
+  const slice = ranked.filter((row) => !excludeVideoIds.has(row.videoId)).slice(0, maxTry);
+  for (const row of slice) {
+    if (await isYouTubeEmbeddable(row.videoId, apiKey)) {
+      return row;
+    }
+  }
+  return slice[0] ?? null;
 }
-async function searchYouTubeForTrack(artist, title, album, apiKey) {
+async function searchYouTubeForTrack(artist, title, album, apiKey, excludeVideoIds = []) {
   const a = artist.trim();
   const t = title.trim();
   const al = album?.trim();
@@ -723,26 +745,28 @@ async function searchYouTubeForTrack(artist, title, album, apiKey) {
     queryCount: queries.length,
     queries: queries.slice(0, 10)
   });
+  const excluded = new Set(excludeVideoIds.map((id) => id.trim()).filter(Boolean));
   const seenIds = /* @__PURE__ */ new Set();
   const all = [];
   const ingestBatch = (batch) => {
     for (const row of batch) {
-      if (seenIds.has(row.videoId)) continue;
+      if (seenIds.has(row.videoId) || excluded.has(row.videoId)) continue;
       seenIds.add(row.videoId);
       all.push(row);
     }
   };
   const tryReturnHit = async (minScore, phase, query) => {
     const picks = rankCandidates(a, t, al, all, minScore);
-    const top = picks[0];
-    if (!top || top.score < 0.45) return null;
-    const pick = top.score >= 0.72 ? top : await pickEmbeddable(picks) ?? top;
+    if (!picks.length || picks[0].score < 0.45) return null;
+    const pick = await pickEmbeddable(picks, apiKey, excluded);
+    if (!pick) return null;
     playAudioLog("youtube-hit", {
       videoId: pick.videoId,
       title: pick.title,
       score: pick.score,
       phase,
-      query: query ?? null
+      query: query ?? null,
+      excluded: excluded.size ? [...excluded] : void 0
     });
     return pick;
   };
@@ -763,15 +787,16 @@ async function searchYouTubeForTrack(artist, title, album, apiKey) {
     if (hit) return hit;
   }
   const relaxedList = rankCandidates(a, t, al, all, 0.22);
-  const relaxed = relaxedList[0];
-  if (relaxed) {
-    const pick = await pickEmbeddable(relaxedList) ?? relaxed;
-    playAudioLog("youtube-hit-relaxed", {
-      videoId: pick.videoId,
-      title: pick.title,
-      score: pick.score
-    });
-    return pick;
+  if (relaxedList.length) {
+    const pick = await pickEmbeddable(relaxedList, apiKey, excluded, 12);
+    if (pick) {
+      playAudioLog("youtube-hit-relaxed", {
+        videoId: pick.videoId,
+        title: pick.title,
+        score: pick.score
+      });
+      return pick;
+    }
   }
   playAudioLog("youtube-miss", { artist: a, title: t, album: al });
   return null;
@@ -827,7 +852,13 @@ async function trySpotify(ctx, artist, title, album, mode = "loose") {
 }
 async function tryYouTube(ctx, artist, title) {
   return withTimeout(
-    searchYouTubeForTrack(artist, title, ctx.album, ctx.youtubeApiKey),
+    searchYouTubeForTrack(
+      artist,
+      title,
+      ctx.album,
+      ctx.youtubeApiKey,
+      ctx.excludeVideoIds ?? []
+    ),
     YOUTUBE_PASS_MS,
     null
   );
@@ -971,7 +1002,8 @@ async function handlePlayAudio(input) {
     spotifyTrackId: input.spotifyTrackId?.trim() || void 0,
     spotifyId: input.spotifyId,
     spotifySecret: input.spotifySecret,
-    youtubeApiKey: input.youtubeApiKey
+    youtubeApiKey: input.youtubeApiKey,
+    excludeVideoIds: input.excludeVideoIds
   });
   if (playback) {
     return { ok: true, status: 200, data: playback };
@@ -980,7 +1012,7 @@ async function handlePlayAudio(input) {
     return {
       ok: false,
       status: 503,
-      error: "Spotify is temporarily rate-limited \u2014 try again in a few seconds",
+      error: "No playable audio found right now (Spotify rate-limited). Try again in a few seconds.",
       retryAfterSec: getSpotifyRateLimitRetrySec()
     };
   }
@@ -1116,6 +1148,8 @@ async function handler(req, res) {
     const albumIndexRaw = typeof query.albumIndex === "string" ? query.albumIndex : void 0;
     const albumIndex = albumIndexRaw ? parseInt(albumIndexRaw, 10) : void 0;
     const spotifyTrackId = typeof query.spotifyTrackId === "string" ? query.spotifyTrackId.trim() : void 0;
+    const excludeRaw = typeof query.excludeVideoIds === "string" ? query.excludeVideoIds : "";
+    const excludeVideoIds = excludeRaw.split(",").map((id) => id.trim()).filter((id) => id.length === 11);
     if (!artist || !title) {
       return json(res, ROUTE, 400, { error: "artist and title required" });
     }
@@ -1127,7 +1161,8 @@ async function handler(req, res) {
       spotifyTrackId: spotifyTrackId || void 0,
       spotifyId,
       spotifySecret,
-      youtubeApiKey
+      youtubeApiKey,
+      excludeVideoIds: excludeVideoIds.length ? excludeVideoIds : void 0
     });
     if (result.ok) {
       return json(res, ROUTE, 200, result.data);

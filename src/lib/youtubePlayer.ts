@@ -470,7 +470,14 @@ export class YouTubePreviewPlayer {
           },
           onError: (e) => {
             playbackDiag('yt_error', { videoId: this.videoId, code: e.data });
-            if (e.data === 101 || e.data === 150 || e.data === 2 || e.data === 100) {
+            // 101/150 = owner blocks embed — iframe fallback cannot work; client must pick another video
+            if (e.data === 101 || e.data === 150) {
+              this.clearInitTimeout();
+              this.clearStallTimer();
+              this.handlers.onError?.(e.data);
+              return;
+            }
+            if (e.data === 2 || e.data === 100) {
               this.clearInitTimeout();
               this.destroyHostOnly();
               this.mountIframeEmbed(false);

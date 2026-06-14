@@ -10,6 +10,7 @@ export type PlayAudioHandlerInput = {
   spotifyId?: string;
   spotifySecret?: string;
   youtubeApiKey?: string;
+  excludeVideoIds?: string[];
 };
 
 export type PlayAudioHandlerSuccess = {
@@ -48,6 +49,7 @@ export async function handlePlayAudio(
     spotifyId: input.spotifyId,
     spotifySecret: input.spotifySecret,
     youtubeApiKey: input.youtubeApiKey,
+    excludeVideoIds: input.excludeVideoIds,
   });
 
   if (playback) {
@@ -58,7 +60,8 @@ export async function handlePlayAudio(
     return {
       ok: false,
       status: 503,
-      error: 'Spotify is temporarily rate-limited — try again in a few seconds',
+      error:
+        'No playable audio found right now (Spotify rate-limited). Try again in a few seconds.',
       retryAfterSec: getSpotifyRateLimitRetrySec(),
     };
   }

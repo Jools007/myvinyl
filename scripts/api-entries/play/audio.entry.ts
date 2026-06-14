@@ -26,6 +26,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     const albumIndex = albumIndexRaw ? parseInt(albumIndexRaw, 10) : undefined;
     const spotifyTrackId =
       typeof query.spotifyTrackId === 'string' ? query.spotifyTrackId.trim() : undefined;
+    const excludeRaw =
+      typeof query.excludeVideoIds === 'string' ? query.excludeVideoIds : '';
+    const excludeVideoIds = excludeRaw
+      .split(',')
+      .map((id) => id.trim())
+      .filter((id) => id.length === 11);
 
     if (!artist || !title) {
       return json(res, ROUTE, 400, { error: 'artist and title required' });
@@ -41,6 +47,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       spotifyId,
       spotifySecret,
       youtubeApiKey,
+      excludeVideoIds: excludeVideoIds.length ? excludeVideoIds : undefined,
     });
 
     if (result.ok) {

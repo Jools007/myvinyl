@@ -39,6 +39,7 @@ export type PlayAudioContext = {
   spotifyId?: string;
   spotifySecret?: string;
   youtubeApiKey?: string;
+  excludeVideoIds?: string[];
 };
 
 function albumsForSpotifyLookup(ctx: PlayAudioContext): (string | undefined)[] {
@@ -105,7 +106,13 @@ async function tryYouTube(
   title: string
 ): Promise<YouTubeVideoMatch | null> {
   return withTimeout(
-    searchYouTubeForTrack(artist, title, ctx.album, ctx.youtubeApiKey),
+    searchYouTubeForTrack(
+      artist,
+      title,
+      ctx.album,
+      ctx.youtubeApiKey,
+      ctx.excludeVideoIds ?? []
+    ),
     YOUTUBE_PASS_MS,
     null
   );

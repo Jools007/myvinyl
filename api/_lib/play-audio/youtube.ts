@@ -247,7 +247,43 @@ function rankCandidates(
   return ranked;
 }
 
-async function isYouTubeEmbeddable(videoId: string): Promise<boolean> {
+async function isYouTubeEmbeddableViaDataApi(
+  videoId: string,
+  apiKey: string
+): Promise<boolean | null> {
+  try {
+    const params = new URLSearchParams({
+      part: 'status',
+      id: videoId,
+      key: apiKey,
+    });
+    const res = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos?${params}`,
+      { signal: AbortSignal.timeout(3500) }
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      items?: { status?: { embeddable?: boolean } }[];
+    };
+    const embeddable = data.items?.[0]?.status?.embeddable;
+    return typeof embeddable === 'boolean' ? embeddable : null;
+  } catch {
+    return null;
+  }
+}
+
+async function isYouTubeEmbeddable(
+  videoId: string,
+  apiKey?: string
+): Promise<boolean> {
+  if (apiKey) {
+    const viaApi = await isYouTubeEmbeddableViaDataApi(videoId, apiKey);
+    if (viaApi === false) return false;
+    if (viaApi === true) return true;
+  }
+
+  // InnerTube player checks from server IPs false-negative most videos; browser may still play
+  // until IFrame error 150 — client retries with excludeVideoIds when that happens.
   try {
     const url = `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(
       `https://www.youtube.com/watch?v=${videoId}`
@@ -261,17 +297,18 @@ async function isYouTubeEmbeddable(videoId: string): Promise<boolean> {
 
 async function pickEmbeddable(
   ranked: YouTubeVideoMatch[],
-  maxTry = 2
+  apiKey?: string,
+  excludeVideoIds: Set<string> = new Set(),
+  maxTry = 10
 ): Promise<YouTubeVideoMatch | null> {
-  const slice = ranked.slice(0, maxTry);
-  const checks = await Promise.all(
-    slice.map(async (row) => ({
-      row,
-      ok: await isYouTubeEmbeddable(row.videoId),
-    }))
-  );
-  const hit = checks.find((c) => c.ok);
-  return hit?.row ?? slice[0] ?? null;
+  const slice = ranked.filter((row) => !excludeVideoIds.has(row.videoId)).slice(0, maxTry);
+  for (const row of slice) {
+    if (await isYouTubeEmbeddable(row.videoId, apiKey)) {
+      return row;
+    }
+  }
+  // Prefer next candidate over giving up — client auto-retries on embed error 150
+  return slice[0] ?? null;
 }
 
 /**
@@ -281,7 +318,8 @@ export async function searchYouTubeForTrack(
   artist: string,
   title: string,
   album?: string,
-  apiKey?: string
+  apiKey?: string,
+  excludeVideoIds: string[] = []
 ): Promise<YouTubeVideoMatch | null> {
   const a = artist.trim();
   const t = title.trim();
@@ -297,12 +335,13 @@ export async function searchYouTubeForTrack(
     queries: queries.slice(0, 10),
   });
 
+  const excluded = new Set(excludeVideoIds.map((id) => id.trim()).filter(Boolean));
   const seenIds = new Set<string>();
   const all: YouTubeVideoMatch[] = [];
 
   const ingestBatch = (batch: YouTubeVideoMatch[]) => {
     for (const row of batch) {
-      if (seenIds.has(row.videoId)) continue;
+      if (seenIds.has(row.videoId) || excluded.has(row.videoId)) continue;
       seenIds.add(row.videoId);
       all.push(row);
     }
@@ -314,16 +353,16 @@ export async function searchYouTubeForTrack(
     query?: string
   ): Promise<YouTubeVideoMatch | null> => {
     const picks = rankCandidates(a, t, al, all, minScore);
-    const top = picks[0];
-    if (!top || top.score < 0.45) return null;
-    const pick =
-      top.score >= 0.72 ? top : (await pickEmbeddable(picks)) ?? top;
+    if (!picks.length || picks[0].score < 0.45) return null;
+    const pick = await pickEmbeddable(picks, apiKey, excluded);
+    if (!pick) return null;
     playAudioLog('youtube-hit', {
       videoId: pick.videoId,
       title: pick.title,
       score: pick.score,
       phase,
       query: query ?? null,
+      excluded: excluded.size ? [...excluded] : undefined,
     });
     return pick;
   };
@@ -347,15 +386,16 @@ export async function searchYouTubeForTrack(
   }
 
   const relaxedList = rankCandidates(a, t, al, all, 0.22);
-  const relaxed = relaxedList[0];
-  if (relaxed) {
-    const pick = (await pickEmbeddable(relaxedList)) ?? relaxed;
-    playAudioLog('youtube-hit-relaxed', {
-      videoId: pick.videoId,
-      title: pick.title,
-      score: pick.score,
-    });
-    return pick;
+  if (relaxedList.length) {
+    const pick = await pickEmbeddable(relaxedList, apiKey, excluded, 12);
+    if (pick) {
+      playAudioLog('youtube-hit-relaxed', {
+        videoId: pick.videoId,
+        title: pick.title,
+        score: pick.score,
+      });
+      return pick;
+    }
   }
 
   playAudioLog('youtube-miss', { artist: a, title: t, album: al });

@@ -143,7 +143,11 @@ export async function fetchTrackPlayback(
   artist: string,
   trackTitle: string,
   albumTitle?: string,
-  opts?: { albumIndex?: number; spotifyTrackId?: string }
+  opts?: {
+    albumIndex?: number;
+    spotifyTrackId?: string;
+    excludeVideoIds?: string[];
+  }
 ): Promise<TrackPlaybackFetchResult> {
   const params = new URLSearchParams({
     artist: artist.trim(),
@@ -155,6 +159,9 @@ export async function fetchTrackPlayback(
   }
   if (opts?.spotifyTrackId?.trim()) {
     params.set('spotifyTrackId', opts.spotifyTrackId.trim());
+  }
+  if (opts?.excludeVideoIds?.length) {
+    params.set('excludeVideoIds', opts.excludeVideoIds.join(','));
   }
   try {
     const res = await fetch(`/api/play/audio?${params}`, {
