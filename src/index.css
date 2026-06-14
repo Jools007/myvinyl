@@ -4599,27 +4599,44 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 }
 
 /* ─── Play mode (compact DJ) ─── */
+/* Breakpoints: phone ≤639 · tablet 640–899 · desktop ≥900 */
 .play-dj {
   --play-sticky-top: 4rem;
-  --play-cover-size: 6.25rem;
+  --play-cover-size: 6.5rem;
   --play-art-col: var(--play-cover-size);
-  --play-disc-spin: 3.4s;
+  --play-disc-spin: 3.35s;
+  --play-deck-gap: 0.7rem;
+  --play-deck-pad-block: 0.85rem;
+  --play-deck-pad-inline: 0.95rem;
+  --play-now-top-gap: 0.875rem;
   --play-disc-groove: rgba(0, 0, 0, 0.14);
   --play-disc-groove-light: rgba(255, 255, 255, 0.06);
   --play-disc-spindle: var(--bg-elevated);
   --play-disc-spindle-ring: color-mix(in srgb, var(--border-strong) 85%, transparent);
 }
 
-@media (min-width: 640px) {
-  .play-dj {
-    --play-cover-size: 8rem;
-    --play-disc-spin: 3.1s;
-  }
-}
-
 @media (max-width: 639px) {
   .play-dj {
     --play-sticky-top: calc(2.75rem + var(--safe-top));
+  }
+}
+
+@media (min-width: 640px) and (max-width: 899px) {
+  .play-dj {
+    --play-cover-size: 7rem;
+    --play-disc-spin: 3.15s;
+    --play-deck-gap: 0.65rem;
+    --play-deck-pad-block: 0.8rem;
+    --play-deck-pad-inline: 0.9rem;
+    --play-now-top-gap: 1rem;
+  }
+
+  .play-dj__now-body {
+    gap: 0.45rem;
+  }
+
+  .play-dj__now-mix {
+    padding-top: 0.55rem;
   }
 }
 
@@ -4685,8 +4702,8 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 .play-dj__now:not(.play-dj__now--hint) {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  padding: 0.9rem 1rem;
+  gap: var(--play-deck-gap);
+  padding: var(--play-deck-pad-block) var(--play-deck-pad-inline);
   border-radius: 0.875rem;
   border: 1px solid color-mix(in srgb, var(--teal) 28%, var(--border));
   background:
@@ -4705,7 +4722,7 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 .play-dj__now-top {
   display: grid;
   grid-template-columns: var(--play-art-col) minmax(0, 1fr);
-  gap: 1rem 1.25rem;
+  gap: var(--play-now-top-gap);
   align-items: start;
 }
 
@@ -5254,7 +5271,7 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 
 .play-dj__now-title {
   margin: 0;
-  font-size: 1.1875rem;
+  font-size: 1.125rem;
   font-weight: 600;
   line-height: 1.25;
   letter-spacing: -0.02em;
@@ -5266,9 +5283,9 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   -webkit-box-orient: vertical;
 }
 
-@media (min-width: 640px) {
+@media (min-width: 640px) and (max-width: 899px) {
   .play-dj__now-title {
-    font-size: 1.3125rem;
+    font-size: 1.2rem;
   }
 }
 
@@ -6841,8 +6858,12 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 
 @media (min-width: 900px) {
   .play-dj {
-    --play-cover-size: 7.75rem;
-    --play-disc-spin: 3s;
+    --play-cover-size: 8.25rem;
+    --play-disc-spin: 2.95s;
+    --play-deck-gap: 0;
+    --play-deck-pad-block: 0.65rem;
+    --play-deck-pad-inline: 0.85rem;
+    --play-now-top-gap: 0;
   }
 
   .play-dj__page-sub {
@@ -6858,11 +6879,11 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 
   .play-dj__now:not(.play-dj__now--hint) {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) minmax(11.5rem, 16rem);
+    grid-template-columns: auto minmax(0, 1fr) clamp(11.5rem, 18vw, 16rem);
     grid-template-areas: 'disc body mix';
     align-items: center;
-    gap: 0 0.85rem;
-    padding: 0.6rem 0.8rem;
+    column-gap: 0.85rem;
+    row-gap: 0;
   }
 
   .play-dj__now-top {
@@ -6956,11 +6977,6 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 
   .play-dj__now-mix .play-dj__mix-strip--now .play-dj__mix-value {
     font-size: 0.8125rem;
-  }
-
-  .play-dj__preview {
-    padding: 0.45rem 0.6rem;
-    gap: 0.65rem;
   }
 
   .play-dj__tap-row {
@@ -12257,8 +12273,10 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   }
 
   .play-dj {
-    --play-cover-size: 6.25rem;
     --play-sticky-top: var(--mobile-header-height);
+    --play-deck-pad-block: 0.9rem;
+    --play-deck-pad-inline: 0.9rem;
+    --play-now-top-gap: 0.75rem;
   }
 
   .play-dj__page-head {
@@ -12284,13 +12302,11 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   }
 
   .play-dj__now:not(.play-dj__now--hint) {
-    padding: 1rem;
     border-radius: 1rem;
   }
 
   .play-dj__now-top {
     grid-template-columns: 1fr;
-    gap: 0.875rem;
   }
 
   .play-dj__now-stage {
