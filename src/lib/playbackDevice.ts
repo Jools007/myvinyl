@@ -12,9 +12,15 @@ export function isMobilePlaybackDevice(): boolean {
   return isIOSDevice() || /Android/i.test(navigator.userAgent);
 }
 
-/** iOS only — desktop (incl. localhost) uses the YouTube IFrame API. */
+export function isLocalDevHost(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+}
+
+/** Localhost + iOS — avoid YT.Player (postMessage origin break on http://localhost). */
 export function shouldUseSimpleYouTubeEmbed(): boolean {
-  return isIOSDevice();
+  return isIOSDevice() || isLocalDevHost();
 }
 
 export function canAutoplayFromLoad(immediate: { source: string; previewUrl?: string } | null): boolean {

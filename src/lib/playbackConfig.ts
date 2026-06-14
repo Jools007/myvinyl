@@ -15,9 +15,10 @@ export const PLAYBACK_BASELINE = {
     soundOnAutoplay: false,
   },
   youtube: {
-    /** Desktop + localhost: IFrame API with origin. iOS: enablejsapi embed + postMessage */
-    localhostMode: 'iframe-api',
+    /** Localhost: src-reload embed (no YT.Player — postMessage origin break). Prod: IFrame API. */
+    localhostMode: 'src-reload-embed',
     iosMode: 'enablejsapi-embed',
+    productionMode: 'iframe-api',
     desktopHostMount: 'document.body-with-inline-styles' as const,
   },
   css: {

@@ -65,6 +65,7 @@ export function useTrackPreview() {
   const retryEmbedBlockRef = useRef<
     (key: string, videoId: string, code: number) => void
   >(() => {});
+  const retryInFlightRef = useRef(false);
 
   useEffect(() => {
     statusRef.current = status;
@@ -120,18 +121,7 @@ export function useTrackPreview() {
       t = Math.min(audio.currentTime, dur);
     } else if (sourceRef.current === 'youtube') {
       const yt = youtubeRef.current;
-      if (!yt) return;
-      if (!yt.isActivelyPlaying()) {
-        if (statusRef.current === 'playing') {
-          stopRaf();
-          setStatus('paused');
-          playbackDiag('preview_sync_paused', { reason: 'not_actively_playing' });
-          if (import.meta.env.DEV) {
-            setDiagHint('Playback paused (embed stopped) — press play');
-          }
-        }
-        return;
-      }
+      if (!yt || !yt.isActivelyPlaying()) return;
       dur = yt.getDuration() || DEFAULT_YOUTUBE_SECONDS;
       t = Math.min(yt.getCurrentTime(), dur);
     } else {
@@ -283,14 +273,6 @@ export function useTrackPreview() {
             setProgress(1);
             setElapsed(youtubeRef.current?.getDuration() || duration);
           },
-          onStall: (reason) => {
-            if (activeKeyRef.current !== key) return;
-            stopRaf();
-            setStatus('paused');
-            if (import.meta.env.DEV) {
-              setDiagHint(`Stalled (${reason}) — press play`);
-            }
-          },
           onError: (code) => {
             playbackDiag('preview_error', { key, code, videoId });
             if (activeKeyRef.current !== key) return;
@@ -351,36 +333,54 @@ export function useTrackPreview() {
       enableSoundOnAutoplay: boolean,
       loadSeq: number
     ) => {
-      const result = await fetchTrackPlayback(
-        ctx.artist,
-        ctx.track.title,
-        ctx.albumTitle || undefined,
-        {
-          albumIndex: ctx.albumIndex,
-          spotifyTrackId: ctx.track.spotifyTrackId,
-          excludeVideoIds: [...failedVideoIdsRef.current],
-        }
-      );
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const result = await fetchTrackPlayback(
+          ctx.artist,
+          ctx.track.title,
+          ctx.albumTitle || undefined,
+          {
+            albumIndex: ctx.albumIndex,
+            spotifyTrackId: ctx.track.spotifyTrackId,
+            excludeVideoIds: [...failedVideoIdsRef.current],
+          }
+        );
 
-      if (loadSeqRef.current !== loadSeq || activeKeyRef.current !== key) return false;
+        if (loadSeqRef.current !== loadSeq || activeKeyRef.current !== key) return false;
 
-      if (!result.ok) {
-        setStatus(result.reason === 'rate_limited' ? 'rate_limited' : 'unavailable');
-        if (import.meta.env.DEV && result.reason === 'not_found') {
-          setDiagHint('No embeddable YouTube audio found');
+        if (!result.ok) {
+          setStatus(result.reason === 'rate_limited' ? 'rate_limited' : 'unavailable');
+          if (import.meta.env.DEV && result.reason === 'not_found') {
+            setDiagHint('No embeddable YouTube audio found');
+          }
+          return false;
         }
-        return false;
+
+        if (
+          result.data.source === 'youtube' &&
+          failedVideoIdsRef.current.has(result.data.videoId)
+        ) {
+          playbackDiag('youtube_skip_duplicate', { videoId: result.data.videoId, attempt });
+          continue;
+        }
+
+        rememberPlayback(key, result.data);
+        applyPlayback(result.data, key, autoplay, enableSoundOnAutoplay);
+        return true;
       }
 
-      rememberPlayback(key, result.data);
-      applyPlayback(result.data, key, autoplay, enableSoundOnAutoplay);
-      return true;
+      setStatus('unavailable');
+      if (import.meta.env.DEV) {
+        setDiagHint('No alternate embeddable video found');
+      }
+      return false;
     },
     [applyPlayback]
   );
 
   const retryYouTubeAfterEmbedBlock = useCallback(
     async (key: string, failedVideoId: string, code: number) => {
+      if (retryInFlightRef.current) return;
+
       const ctx = loadCtxRef.current;
       if (!ctx || ctx.key !== key) return;
 
@@ -394,7 +394,7 @@ export function useTrackPreview() {
         excludes: [...failedVideoIdsRef.current],
       });
 
-      if (failedVideoIdsRef.current.size > 5) {
+      if (failedVideoIdsRef.current.size > 6) {
         setStatus('unavailable');
         if (import.meta.env.DEV) {
           setDiagHint(`No embeddable video after ${failedVideoIdsRef.current.size} tries`);
@@ -402,12 +402,20 @@ export function useTrackPreview() {
         return;
       }
 
+      retryInFlightRef.current = true;
       setStatus('loading');
       setDiagHint(import.meta.env.DEV ? `Trying alternate video (blocked ${failedVideoId})…` : null);
 
-      const wasPlaying = statusRef.current === 'playing' || statusRef.current === 'paused';
-      const loadSeq = ++loadSeqRef.current;
-      await fetchAndApplyPlayback(key, ctx, wasPlaying, wasPlaying, loadSeq);
+      try {
+        const wasPlaying =
+          statusRef.current === 'playing' ||
+          statusRef.current === 'paused' ||
+          statusRef.current === 'loading';
+        const loadSeq = ++loadSeqRef.current;
+        await fetchAndApplyPlayback(key, ctx, wasPlaying, wasPlaying, loadSeq);
+      } finally {
+        retryInFlightRef.current = false;
+      }
     },
     [detachYouTube, fetchAndApplyPlayback]
   );
