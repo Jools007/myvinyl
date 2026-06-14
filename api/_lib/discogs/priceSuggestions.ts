@@ -67,6 +67,7 @@ export async function fetchDiscogsPriceSuggestions(
   }
 
   let lastError = 'Discogs price suggestions failed';
+  let saw404 = false;
 
   for (const attempt of attempts) {
     const res = await fetch(url, { headers: attempt.headers });
@@ -78,14 +79,18 @@ export async function fetchDiscogsPriceSuggestions(
     const text = await res.text();
     lastError = `Discogs price suggestions failed (${attempt.label}): ${res.status} ${text}`;
 
-    if (res.status === 401 || res.status === 403) continue;
-    if (res.status === 404) {
-      throw new Error('Release not found on Discogs marketplace');
+    if (res.status === 401 || res.status === 403 || res.status === 404) {
+      if (res.status === 404) saw404 = true;
+      continue;
     }
     if (res.status === 429) {
       throw new Error('Discogs rate limit — try again shortly');
     }
     throw new Error(lastError);
+  }
+
+  if (saw404) {
+    throw new Error('Release not found on Discogs marketplace');
   }
 
   throw new Error(lastError);
