@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { ChevronRight, Disc3, ListPlus, Loader2, Pencil, Play, Sparkles, Trash2 } from 'lucide-react';
 import { resolveDiscogsCoverUrl } from '../lib/discogsCover';
 import { resolveTrackCamelot } from '../lib/camelot';
@@ -806,6 +806,8 @@ function ReleaseListRow({
   );
 }
 
+const LARGE_LIST_THRESHOLD = 80;
+
 export function CollectionListView({
   records,
   liveEnrich = null,
@@ -818,6 +820,7 @@ export function CollectionListView({
 }: CollectionListViewProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [enrichingId, setEnrichingId] = useState<string | null>(null);
+  const useHeavyMotion = records.length <= LARGE_LIST_THRESHOLD;
 
   useEffect(() => {
     const activeId = liveEnrich?.recordId ?? enrichingId;
@@ -843,79 +846,144 @@ export function CollectionListView({
     });
   };
 
+  const enrichRecord = useCallback(
+    async (recordId: string) => {
+      setEnrichingId(recordId);
+      try {
+        await onEnrichRelease(recordId);
+      } finally {
+        setEnrichingId((id) => (id === recordId ? null : id));
+      }
+    },
+    [onEnrichRelease]
+  );
+
+  const buildRecordRow = (record: VinylRecord) => {
+    const expanded = expandedIds.has(record.id);
+    const showTracks = expanded && record.tracks.length > 0;
+    const enriching = enrichingId === record.id || liveEnrich?.recordId === record.id;
+    const enrichingTrackId = liveEnrich?.recordId === record.id ? liveEnrich.trackId : null;
+
+    const rowClassName = `collection-list-row group overflow-hidden rounded-md transition-[background,box-shadow] duration-200 hover:bg-[var(--bg-hover)] ${
+      expanded ? 'bg-[color-mix(in_srgb,var(--bg-hover)_65%,transparent)]' : ''
+    } ${enriching ? 'ring-1 ring-inset ring-[var(--violet)]/15' : ''}`;
+
+    const trackPanel = showTracks ? (
+      <div
+        className={`collection-list-tracks overflow-hidden border-t border-[var(--border)]/50 bg-[color-mix(in_srgb,var(--bg-subtle)_55%,transparent)] py-0.5 ${
+          enriching ? 'opacity-90' : ''
+        }`}
+      >
+        <TracklistSubheader />
+        {record.tracks.map((track, index) => (
+          <TrackListRow
+            key={track.id}
+            track={track}
+            index={index}
+            enriching={enrichingTrackId === track.id}
+            stopRow={stopRow}
+            onPlayNow={() => onPlayNow(record, track)}
+            onAddToQueue={() => onAddToQueue(record, track)}
+            onSaveCutRating={
+              onSaveCutRating
+                ? (rating) => onSaveCutRating(record.id, track.id, rating)
+                : undefined
+            }
+          />
+        ))}
+      </div>
+    ) : null;
+
+    const releaseRow = (
+      <ReleaseListRow
+        record={record}
+        expanded={expanded}
+        enriching={enriching}
+        readOnly={readOnly}
+        onToggle={() => toggleExpanded(record.id)}
+        onDelete={() => onDelete(record.id)}
+        stopRow={stopRow}
+        onEnrich={() => enrichRecord(record.id)}
+      />
+    );
+
+    if (!useHeavyMotion) {
+      return {
+        rowClassName,
+        content: (
+          <>
+            {releaseRow}
+            {trackPanel}
+          </>
+        ),
+      };
+    }
+
+    return {
+      rowClassName,
+      content: (
+        <>
+          {releaseRow}
+          <AnimatePresence initial={false}>
+            {showTracks ? (
+              <motion.div
+                key="tracks"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                className={`collection-list-tracks overflow-hidden border-t border-[var(--border)]/50 bg-[color-mix(in_srgb,var(--bg-subtle)_55%,transparent)] py-0.5 ${
+                  enriching ? 'opacity-90' : ''
+                }`}
+              >
+                <TracklistSubheader />
+                {record.tracks.map((track, index) => (
+                  <TrackListRow
+                    key={track.id}
+                    track={track}
+                    index={index}
+                    enriching={enrichingTrackId === track.id}
+                    stopRow={stopRow}
+                    onPlayNow={() => onPlayNow(record, track)}
+                    onAddToQueue={() => onAddToQueue(record, track)}
+                    onSaveCutRating={
+                      onSaveCutRating
+                        ? (rating) => onSaveCutRating(record.id, track.id, rating)
+                        : undefined
+                    }
+                  />
+                ))}
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+        </>
+      ),
+      motionWrap: true,
+    };
+  };
+
   return (
     <ul className="collection-list flex min-w-0 flex-col overflow-x-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-0.5 shadow-[var(--shadow)] sm:gap-1 sm:p-1.5">
       <CollectionListHeader />
       {records.map((record) => {
-        const expanded = expandedIds.has(record.id);
-        const showTracks = expanded && record.tracks.length > 0;
-        const enriching =
-          enrichingId === record.id || liveEnrich?.recordId === record.id;
-        const enrichingTrackId =
-          liveEnrich?.recordId === record.id ? liveEnrich.trackId : null;
-
+        const { rowClassName, content, motionWrap } = buildRecordRow(record);
+        if (motionWrap) {
+          return (
+            <motion.li
+              key={record.id}
+              initial={false}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.2 }}
+              className={rowClassName}
+            >
+              {content}
+            </motion.li>
+          );
+        }
         return (
-          <motion.li
-            key={record.id}
-            layout
-            initial={false}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.2 }}
-            className={`collection-list-row group overflow-hidden rounded-md transition-[background,box-shadow] duration-200 hover:bg-[var(--bg-hover)] ${
-              expanded ? 'bg-[color-mix(in_srgb,var(--bg-hover)_65%,transparent)]' : ''
-            } ${enriching ? 'ring-1 ring-inset ring-[var(--violet)]/15' : ''}`}
-          >
-            <ReleaseListRow
-              record={record}
-              expanded={expanded}
-              enriching={enriching}
-              readOnly={readOnly}
-              onToggle={() => toggleExpanded(record.id)}
-              onDelete={() => onDelete(record.id)}
-              stopRow={stopRow}
-              onEnrich={async () => {
-                setEnrichingId(record.id);
-                try {
-                  await onEnrichRelease(record.id);
-                } finally {
-                  setEnrichingId((id) => (id === record.id ? null : id));
-                }
-              }}
-            />
-
-            <AnimatePresence initial={false}>
-              {showTracks ? (
-                <motion.div
-                  key="tracks"
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-                  className={`collection-list-tracks overflow-hidden border-t border-[var(--border)]/50 bg-[color-mix(in_srgb,var(--bg-subtle)_55%,transparent)] py-0.5 ${
-                    enriching ? 'opacity-90' : ''
-                  }`}
-                >
-                  <TracklistSubheader />
-                  {record.tracks.map((track, index) => (
-                    <TrackListRow
-                      key={track.id}
-                      track={track}
-                      index={index}
-                      enriching={enrichingTrackId === track.id}
-                      stopRow={stopRow}
-                      onPlayNow={() => onPlayNow(record, track)}
-                      onAddToQueue={() => onAddToQueue(record, track)}
-                      onSaveCutRating={
-                        onSaveCutRating
-                          ? (rating) => onSaveCutRating(record.id, track.id, rating)
-                          : undefined
-                      }
-                    />
-                  ))}
-                </motion.div>
-              ) : null}
-            </AnimatePresence>
-          </motion.li>
+          <li key={record.id} className={rowClassName}>
+            {content}
+          </li>
         );
       })}
     </ul>

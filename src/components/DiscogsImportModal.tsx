@@ -2,7 +2,10 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Disc3, Loader2, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { fetchDiscogsCollectionPage } from '../lib/api';
-import { buildImportRecordsWithTracklists } from '../lib/discogsImport';
+import {
+  buildImportRecordsWithTracklists,
+  collectionReleaseToRecord,
+} from '../lib/discogsImport';
 import type { DiscogsCollectionReleasePayload } from '../lib/discogsImport';
 import { GUEST_CRATE_MAX_RECORDS } from '../lib/collectionContext';
 import type { VinylRecord } from '../lib/types';
@@ -136,21 +139,36 @@ export function DiscogsImportModal({
         }
       }
 
-      setProgress((p) => ({
-        ...p,
-        phase: 'tracklists',
-        tracklistsTotal: rowsToImport.length,
-        tracklistsDone: 0,
-      }));
+      let payloads: Omit<VinylRecord, 'id' | 'addedAt'>[];
 
-      const payloads = await buildImportRecordsWithTracklists(rowsToImport, (done, trackTotal) => {
+      if (isGuest) {
+        // Guest crates: skip per-release API calls (avoids 502 storms on large collections).
+        payloads = rowsToImport
+          .map((row) => collectionReleaseToRecord(row))
+          .filter((row): row is Omit<VinylRecord, 'id' | 'addedAt'> => row != null);
         setProgress((p) => ({
           ...p,
           phase: 'tracklists',
-          tracklistsDone: done,
-          tracklistsTotal: trackTotal,
+          tracklistsDone: payloads.length,
+          tracklistsTotal: payloads.length,
         }));
-      });
+      } else {
+        setProgress((p) => ({
+          ...p,
+          phase: 'tracklists',
+          tracklistsTotal: rowsToImport.length,
+          tracklistsDone: 0,
+        }));
+
+        payloads = await buildImportRecordsWithTracklists(rowsToImport, (done, trackTotal) => {
+          setProgress((p) => ({
+            ...p,
+            phase: 'tracklists',
+            tracklistsDone: done,
+            tracklistsTotal: trackTotal,
+          }));
+        });
+      }
 
       const { added, skipped } = await onImport(payloads, { discogsUsername: trimmed });
 
@@ -159,6 +177,10 @@ export function DiscogsImportModal({
         skipped,
         vinyl: payloads.length,
       });
+      if (added > 0) {
+        onClose();
+        return;
+      }
       setStep('done');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Import failed');

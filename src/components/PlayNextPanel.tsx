@@ -23,6 +23,8 @@ import { PreviewControls } from './play/PreviewControls';
 import { RecordArtwork } from './RecordArtwork';
 interface PlayNextPanelProps {
   collection: VinylRecord[];
+  crateName?: string;
+  isGuestCrate?: boolean;
   nowPlaying: ResolvedPlaySelection | null;
   queue: ResolvedPlaySelection[];
   onPlayNow: (record: VinylRecord, track: Track) => void;
@@ -79,6 +81,8 @@ function NowPlayingArtwork({
 
 export function PlayNextPanel({
   collection,
+  crateName,
+  isGuestCrate = false,
   nowPlaying,
   queue,
   onPlayNow,
@@ -256,11 +260,16 @@ export function PlayNextPanel({
   return (
     <div className="play-dj">
       <header className="play-dj__page-head">
+        <p className="play-dj__page-kicker">
+          {isGuestCrate ? 'Guest crate playback' : 'Crate playback'}
+        </p>
         <h1 className="play-dj__page-title" style={{ fontFamily: 'var(--font-display)' }}>
-          Play
+          {crateName ? `${crateName} play` : 'Play'}
         </h1>
         <p className="play-dj__page-sub">
-          Compatible picks from your crate — tap BPM on the deck to sharpen matches.
+          {isGuestCrate
+            ? 'Compatible picks from this guest crate — browse and queue tracks read-only.'
+            : 'Compatible picks from your crate — tap BPM on the deck to sharpen matches.'}
         </p>
       </header>
 

@@ -1,6 +1,7 @@
 import {
   fetchPriceSuggestionsCached,
   pickPriceForCondition,
+  sleep,
   type DiscogsPriceSuggestion,
   type DiscogsPriceSuggestions,
 } from './discogsPriceSuggestions';
@@ -82,69 +83,76 @@ export function buildValuationFromRows(rows: ValuedRecord[]): CollectionValuatio
 export type ValuationFetchProgress = {
   done: number;
   total: number;
-  current?: string;
+  label: string;
 };
+
+function progressLabel(index: number, total: number): string {
+  return `Fetching ${index} of ${total}…`;
+}
 
 export async function fetchCollectionValuation(
   records: VinylRecord[],
   opts?: {
-    concurrency?: number;
     delayMs?: number;
     onProgress?: (progress: ValuationFetchProgress) => void;
     signal?: AbortSignal;
   }
 ): Promise<CollectionValuation> {
   const linked = records.filter((r) => r.discogsId != null);
-  const concurrency = Math.max(1, Math.min(3, opts?.concurrency ?? 2));
-  const delayMs = opts?.delayMs ?? 1100;
+  const delayMs = opts?.delayMs ?? 1000;
   const valued: ValuedRecord[] = [];
-  let done = 0;
   let lastFetchError: string | null = null;
 
-  const queue = [...linked];
-  const workers = Array.from({ length: concurrency }, async () => {
-    while (queue.length > 0) {
-      if (opts?.signal?.aborted) return;
-      const record = queue.shift();
-      if (!record?.discogsId) continue;
-
-      opts?.onProgress?.({
-        done,
-        total: linked.length,
-        current: `${record.artist} — ${record.title}`,
-      });
-
-      try {
-        const response = await fetchPriceSuggestionsCached(record.discogsId);
-        const estimate = pickPriceForCondition(response.suggestions, record.condition);
-        if (estimate && estimate.value > 0) {
-          valued.push({
-            recordId: record.id,
-            discogsId: record.discogsId,
-            artist: record.artist,
-            title: record.title,
-            year: record.year,
-            condition: record.condition,
-            coverUrl: record.coverUrl,
-            primaryGenre: primaryGenre(record),
-            decade: decadeFromYear(record.year),
-            estimate,
-          });
-        }
-      } catch (error) {
-        lastFetchError = error instanceof Error ? error.message : 'Price lookup failed';
-        if (/seller settings|not configured|rate limit/i.test(lastFetchError)) {
-          throw error;
-        }
-      }
-
-      done += 1;
-      opts?.onProgress?.({ done, total: linked.length });
-      if (queue.length > 0) await new Promise((r) => setTimeout(r, delayMs));
+  for (let i = 0; i < linked.length; i++) {
+    if (opts?.signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
     }
-  });
 
-  await Promise.all(workers);
+    const record = linked[i];
+    const discogsId = record.discogsId;
+    if (discogsId == null) continue;
+
+    const index = i + 1;
+    opts?.onProgress?.({
+      done: i,
+      total: linked.length,
+      label: progressLabel(index, linked.length),
+    });
+
+    try {
+      const response = await fetchPriceSuggestionsCached(discogsId);
+      const estimate = pickPriceForCondition(response.suggestions, record.condition);
+      if (estimate && estimate.value > 0) {
+        valued.push({
+          recordId: record.id,
+          discogsId,
+          artist: record.artist,
+          title: record.title,
+          year: record.year,
+          condition: record.condition,
+          coverUrl: record.coverUrl,
+          primaryGenre: primaryGenre(record),
+          decade: decadeFromYear(record.year),
+          estimate,
+        });
+      }
+    } catch (error) {
+      lastFetchError = error instanceof Error ? error.message : 'Price lookup failed';
+      if (/seller settings|not configured|rate limit/i.test(lastFetchError)) {
+        throw error;
+      }
+    }
+
+    opts?.onProgress?.({
+      done: index,
+      total: linked.length,
+      label: progressLabel(index, linked.length),
+    });
+
+    if (i < linked.length - 1) {
+      await sleep(delayMs);
+    }
+  }
 
   if (valued.length === 0 && lastFetchError) {
     throw new Error(lastFetchError);

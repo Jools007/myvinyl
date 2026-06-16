@@ -17,6 +17,8 @@ export interface CollectionCrate {
 /** Max vinyl rows per crate (guest + personal imports). 1,500 leaves headroom above ~1,100 Discogs shelves. */
 export const GUEST_CRATE_MAX_RECORDS = 1500;
 export const GUEST_CRATE_MAX_COUNT = 5;
+/** Guest crates above this use lightweight list fetch (no tracklist JSON). Personal never does. */
+export const GUEST_SUMMARY_FETCH_THRESHOLD = 200;
 export const PERSONAL_CRATE_SLUG = 'my-crate';
 
 export function isGuestCrate(crate: Pick<CollectionCrate, 'kind'>): boolean {

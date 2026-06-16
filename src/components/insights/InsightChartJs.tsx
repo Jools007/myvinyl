@@ -54,9 +54,11 @@ export function ChartDoughnut({
   cutout?: string;
 }) {
   const theme = useChartTheme();
-  if (items.length === 0) return panelEmpty(title, subtitle);
-
-  const total = items.reduce((s, i) => s + i.count, 0);
+  const hasData = items.length > 0;
+  const total = useMemo(
+    () => items.reduce((s, i) => s + i.count, 0),
+    [items]
+  );
   const data = useMemo(
     () => ({
       labels: items.map((i) => i.label),
@@ -97,6 +99,8 @@ export function ChartDoughnut({
     }),
     [items, onSliceClick, theme, total, cutout]
   );
+
+  if (!hasData) return panelEmpty(title, subtitle);
 
   return (
     <InsightPanel title={title} subtitle={subtitle} className="insights-chart-panel">
@@ -145,8 +149,7 @@ export function ChartBar({
   large?: boolean;
 }) {
   const theme = useChartTheme();
-  if (items.length === 0) return panelEmpty(title, subtitle);
-
+  const hasData = items.length > 0;
   const accent = theme.palette[accentIndex % theme.palette.length];
 
   const data = useMemo(
@@ -164,7 +167,7 @@ export function ChartBar({
         },
       ],
     }),
-    [items, theme, horizontal, accentIndex]
+    [items, theme, horizontal, accentIndex, large]
   );
 
   const options = useMemo(
@@ -220,6 +223,8 @@ export function ChartBar({
     [horizontal, items, onBarClick, theme, accent]
   );
 
+  if (!hasData) return panelEmpty(title, subtitle);
+
   return (
     <InsightPanel title={title} subtitle={subtitle} className="insights-chart-panel">
       <div
@@ -254,7 +259,7 @@ export function ChartValueBar({
   accentIndex?: number;
 }) {
   const theme = useChartTheme();
-  if (items.length === 0) return panelEmpty(title, subtitle);
+  const hasData = items.length > 0;
 
   const formatMoney = (value: number) => {
     try {
@@ -344,6 +349,8 @@ export function ChartValueBar({
     [horizontal, theme, currency]
   );
 
+  if (!hasData) return panelEmpty(title, subtitle);
+
   return (
     <InsightPanel title={title} subtitle={subtitle} className="insights-chart-panel">
       <div
@@ -372,7 +379,7 @@ export function ChartDecadeLine({
   onPointClick?: ClickHandler<ChartItem>;
 }) {
   const theme = useChartTheme();
-  if (items.length === 0) return panelEmpty(title, subtitle);
+  const hasData = items.length > 0;
 
   const data = useMemo(
     () => ({
@@ -417,6 +424,8 @@ export function ChartDecadeLine({
     [items, onPointClick, theme]
   );
 
+  if (!hasData) return panelEmpty(title, subtitle);
+
   return (
     <InsightPanel title={title} subtitle={subtitle} className="insights-chart-panel">
       <div className="insights-chart-panel__canvas insights-chart-panel__canvas--line">
@@ -440,7 +449,7 @@ export function ChartScatterBpm({
   onPointSelect?: (point: ScatterPoint) => void;
 }) {
   const theme = useChartTheme();
-  if (points.length === 0) return panelEmpty(title, subtitle);
+  const hasData = points.length > 0;
 
   const data = useMemo(
     () => ({
@@ -492,6 +501,8 @@ export function ChartScatterBpm({
     [onPointSelect, points, theme]
   );
 
+  if (!hasData) return panelEmpty(title, subtitle);
+
   return (
     <InsightPanel title={title} subtitle={subtitle} className="insights-chart-panel">
       <div className="insights-chart-panel__canvas insights-chart-panel__canvas--scatter">
@@ -513,7 +524,7 @@ export function ChartVibeRadar({
   onAxisClick?: (axis: RadarAxis) => void;
 }) {
   const theme = useChartTheme();
-  if (axes.length < 3) return panelEmpty(title, subtitle);
+  const hasData = axes.length >= 3;
 
   const data = useMemo(
     () => ({
@@ -552,6 +563,8 @@ export function ChartVibeRadar({
     }),
     [axes, onAxisClick, theme]
   );
+
+  if (!hasData) return panelEmpty(title, subtitle);
 
   return (
     <InsightPanel title={title} subtitle={subtitle} className="insights-chart-panel">

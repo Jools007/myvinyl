@@ -1,7 +1,6 @@
 import { clientEnrichTrack } from './clientEnrichment';
 import {
   directFetchDiscogsCollectionPage,
-  directFetchDiscogsRelease,
   directSearchDiscogs,
   directSearchDiscogsByBarcode,
   getClientDiscogsToken,
@@ -243,8 +242,8 @@ async function fetchDiscogsApi<T>(path: string): Promise<DiscogsApiResult<T>> {
 }
 
 function shouldUseClientDiscogsFallback(status?: number): boolean {
-  // Only fall back when the server route is missing or explicitly unavailable.
-  return status === 404 || status === 503;
+  // Fall back when the dev proxy is down, overloaded, or missing.
+  return status === 404 || status === 500 || status === 502 || status === 503;
 }
 
 async function fetchDiscogsCollectionPageViaApi(
@@ -359,10 +358,9 @@ export async function fetchDiscogsCollectionPage(
 export async function fetchDiscogsRelease(id: number): Promise<DiscogsReleaseDetail> {
   const result = await fetchDiscogsApi<DiscogsReleaseDetail>(`/api/discogs/release/${id}`);
   if (result.ok) return result.data;
-  if (shouldUseClientDiscogsFallback(result.status) && hasClientDiscogsToken()) {
-    return directFetchDiscogsRelease(requireClientDiscogsToken(), id);
-  }
-  throw new Error(result.error);
+  // Never fall back to browser-direct Discogs — api.discogs.com blocks CORS and poisons batches.
+  const statusLabel = result.status != null ? ` (${result.status})` : '';
+  throw new Error(result.error ?? `Discogs release request failed${statusLabel}`);
 }
 
 /** Use cached release detail when it already has a tracklist; otherwise fetch from Discogs. */
@@ -384,13 +382,13 @@ type DiscogsEnrichHints = {
 const discogsEnrichCache = new Map<number, DiscogsEnrichHints>();
 
 async function getDiscogsEnrichHints(discogsId?: number): Promise<DiscogsEnrichHints | undefined> {
-  if (!discogsId || !hasClientDiscogsToken()) return undefined;
+  if (!discogsId) return undefined;
 
   const cached = discogsEnrichCache.get(discogsId);
   if (cached) return cached;
 
   try {
-    const release = await directFetchDiscogsRelease(getClientDiscogsToken()!, discogsId);
+    const release = await fetchDiscogsRelease(discogsId);
     const hints: DiscogsEnrichHints = {
       genres: release.genres,
       bpm: release.bpm,

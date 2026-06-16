@@ -25,13 +25,16 @@ import { LabelInspectModal } from './labels/LabelInspectModal';
 
 interface LabelPrintProps {
   records: VinylRecord[];
+  crateName?: string;
+  isGuestCrate?: boolean;
+  readOnly?: boolean;
   selectedIds: Set<string>;
   onToggle: (id: string) => void;
   onSelectAll: () => void;
   onClearSelection: () => void;
-  onSaveDescription: (recordId: string, notes: string) => void;
-  onSaveVibes: (recordId: string, vibeTags: string[]) => void;
-  onSaveLabelDisplay: (recordId: string, display: LabelDisplayPrefs) => void;
+  onSaveDescription?: (recordId: string, notes: string) => void;
+  onSaveVibes?: (recordId: string, vibeTags: string[]) => void;
+  onSaveLabelDisplay?: (recordId: string, display: LabelDisplayPrefs) => void;
   onEnrichRelease?: (recordId: string) => Promise<void>;
   enrichingRecordId?: string | null;
 }
@@ -49,6 +52,9 @@ function matchesSearch(record: VinylRecord, query: string): boolean {
 
 export function LabelPrint({
   records,
+  crateName,
+  isGuestCrate = false,
+  readOnly = false,
   selectedIds,
   onToggle,
   onSelectAll,
@@ -348,11 +354,16 @@ export function LabelPrint({
     <div className="labels-page">
       <header className="labels-page__head">
         <div>
+          <p className="labels-page__kicker">
+            {isGuestCrate ? 'Guest crate labels' : 'Crate labels'}
+          </p>
           <h1 className="labels-page__title" style={{ fontFamily: 'var(--font-display)' }}>
-            Crate labels
+            {crateName ? `${crateName} labels` : 'Crate labels'}
           </h1>
           <p className="labels-page__sub">
-            Print square stickers for your sleeves — BPM, key, and vibes at a glance in the crate.
+            {readOnly
+              ? 'Preview and print labels from this guest crate — edits stay in your personal crate only.'
+              : 'Print square stickers for your sleeves — BPM, key, and vibes at a glance in the crate.'}
           </p>
         </div>
         <div className="labels-page__actions labels-page__actions--desktop no-print">
@@ -426,6 +437,7 @@ export function LabelPrint({
       <LabelInspectModal
         record={inspectRecord}
         onClose={() => setInspectId(null)}
+        readOnly={readOnly}
         onSaveDescription={onSaveDescription}
         onSaveVibes={onSaveVibes}
         onSaveLabelDisplay={onSaveLabelDisplay}

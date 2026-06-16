@@ -47,16 +47,6 @@ export function CollectionHero({
 
       <div className="collection-hero__copy">
         <motion.div initial={false} animate={{ opacity: 1, y: 0 }} className="collection-hero__copy-inner">
-          {showCrateSwitcher && onSelectCrate ? (
-            <div className="collection-hero__switcher">
-              <CrateSwitcher
-                crates={crates}
-                activeCrate={activeCrate}
-                onSelect={onSelectCrate}
-                onImportGuest={onImportGuest}
-              />
-            </div>
-          ) : null}
           <p className="collection-hero__kicker">
             {guest ? 'Guest crate' : 'Personal crate'}
           </p>
@@ -71,6 +61,16 @@ export function CollectionHero({
                 : 'Search Discogs in the header, auto-fill BPM & Camelot keys, and build a crate that mixes itself.'}
           </p>
         </motion.div>
+        {showCrateSwitcher && onSelectCrate ? (
+          <div className="collection-hero__switcher">
+            <CrateSwitcher
+              crates={crates}
+              activeCrate={activeCrate}
+              onSelect={onSelectCrate}
+              onImportGuest={onImportGuest}
+            />
+          </div>
+        ) : null}
       </div>
     </section>
   );

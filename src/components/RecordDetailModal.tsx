@@ -13,6 +13,7 @@ import { RecordArtwork } from './RecordArtwork';
 interface RecordDetailModalProps {
   record: VinylRecord | null;
   initialEditing?: boolean;
+  readOnly?: boolean;
   onClose: () => void;
   onUpdate: (id: string, patch: Partial<VinylRecord>) => void;
   onDelete: (id: string) => void;
@@ -66,6 +67,7 @@ function buildEditDraft(record: VinylRecord): EditDraft {
 export function RecordDetailModal({
   record,
   initialEditing: _initialEditing = false,
+  readOnly = false,
   onClose,
   onUpdate,
   onDelete,
@@ -236,114 +238,117 @@ export function RecordDetailModal({
                 <div className="record-detail-modal__crate">
                   <h3 className="record-detail-modal__section-title">Crate details</h3>
 
-                  <div className="record-detail-modal__form">
-                    <div className="record-detail-modal__field">
-                      <label className="record-detail-modal__label">Format</label>
-                      <div className="add-modal__chips">
-                        {VINYL_FORMATS.map((f) => (
-                          <FormChip
-                            key={f}
-                            active={editDraft.format === f}
-                            onClick={() => setEditDraft({ ...editDraft, format: f })}
-                          >
-                            {f}
-                          </FormChip>
-                        ))}
+                  {readOnly ? (
+                    <p className="record-detail-modal__hint">
+                      Guest demo — crate edits and deletes are disabled. Enrich and play still work.
+                    </p>
+                  ) : (
+                    <div className="record-detail-modal__form">
+                      <div className="record-detail-modal__field">
+                        <label className="record-detail-modal__label">Format</label>
+                        <div className="add-modal__chips">
+                          {VINYL_FORMATS.map((f) => (
+                            <FormChip
+                              key={f}
+                              active={editDraft.format === f}
+                              onClick={() => setEditDraft({ ...editDraft, format: f })}
+                            >
+                              {f}
+                            </FormChip>
+                          ))}
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="record-detail-modal__mix-row">
-                      <div className="record-detail-modal__field record-detail-modal__field--bpm">
-                        <label className="record-detail-modal__label">BPM</label>
-                        <input
-                          type="number"
-                          className="input-field add-modal__input-compact text-center tabular-nums"
-                          value={editDraft.bpm ?? ''}
+                      <div className="record-detail-modal__mix-row">
+                        <div className="record-detail-modal__field record-detail-modal__field--bpm">
+                          <label className="record-detail-modal__label">BPM</label>
+                          <input
+                            type="number"
+                            className="input-field add-modal__input-compact text-center tabular-nums"
+                            value={editDraft.bpm ?? ''}
+                            onChange={(e) =>
+                              setEditDraft({
+                                ...editDraft,
+                                bpm: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                              })
+                            }
+                          />
+                        </div>
+                        <div className="record-detail-modal__field record-detail-modal__field--key">
+                          <label className="record-detail-modal__label">Key</label>
+                          <select
+                            className="input-field add-modal__input-compact"
+                            value={editDraft.camelotKey ?? ''}
+                            onChange={(e) =>
+                              setEditDraft({
+                                ...editDraft,
+                                camelotKey: e.target.value || undefined,
+                              })
+                            }
+                          >
+                            <option value="">—</option>
+                            {CAMELOT_KEYS.map((k) => (
+                              <option key={k} value={k}>
+                                {k}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="record-detail-modal__field">
+                        <label className="record-detail-modal__label">Condition</label>
+                        <div className="add-modal__chips">
+                          {CONDITIONS.map((c) => (
+                            <FormChip
+                              key={c}
+                              active={editDraft.condition === c}
+                              onClick={() => setEditDraft({ ...editDraft, condition: c })}
+                            >
+                              {c}
+                            </FormChip>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="record-detail-modal__field">
+                        <label className="record-detail-modal__label">Vibes</label>
+                        <div className="add-modal__chips add-modal__chips--vibes">
+                          {VIBE_TAG_SUGGESTIONS.map((t) => (
+                            <FormChip
+                              key={t}
+                              active={editDraft.vibeTags.includes(t)}
+                              onClick={() => toggleDraftVibe(t)}
+                            >
+                              {t}
+                            </FormChip>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="record-detail-modal__field">
+                        <label className="record-detail-modal__label">Your notes</label>
+                        <textarea
+                          className="input-field record-detail-modal__notes-input resize-none"
+                          placeholder="Crate slot, pressing notes…"
+                          value={editDraft.notes ?? ''}
                           onChange={(e) =>
-                            setEditDraft({
-                              ...editDraft,
-                              bpm: e.target.value ? parseInt(e.target.value, 10) : undefined,
-                            })
+                            setEditDraft({ ...editDraft, notes: e.target.value })
                           }
+                          rows={3}
                         />
                       </div>
-                      <div className="record-detail-modal__field record-detail-modal__field--key">
-                        <label className="record-detail-modal__label">Key</label>
-                        <select
-                          className="input-field add-modal__input-compact"
-                          value={editDraft.camelotKey ?? ''}
-                          onChange={(e) =>
-                            setEditDraft({
-                              ...editDraft,
-                              camelotKey: e.target.value || undefined,
-                            })
-                          }
-                        >
-                          <option value="">—</option>
-                          {CAMELOT_KEYS.map((k) => (
-                            <option key={k} value={k}>
-                              {k}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
 
-                    <div className="record-detail-modal__field">
-                      <label className="record-detail-modal__label">Condition</label>
-                      <div className="add-modal__chips">
-                        {CONDITIONS.map((c) => (
-                          <FormChip
-                            key={c}
-                            active={editDraft.condition === c}
-                            onClick={() => setEditDraft({ ...editDraft, condition: c })}
-                          >
-                            {c}
-                          </FormChip>
-                        ))}
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onDelete(record.id)}
+                        className="record-detail-modal__delete"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Remove from collection
+                      </button>
                     </div>
-
-                    <div className="record-detail-modal__field">
-                      <label className="record-detail-modal__label">Vibes</label>
-                      <div className="add-modal__chips add-modal__chips--vibes">
-                        {VIBE_TAG_SUGGESTIONS.map((t) => (
-                          <FormChip
-                            key={t}
-                            active={editDraft.vibeTags.includes(t)}
-                            onClick={() => toggleDraftVibe(t)}
-                          >
-                            {t}
-                          </FormChip>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="record-detail-modal__field">
-                      <label className="record-detail-modal__label">Your notes</label>
-                      <textarea
-                        className="input-field record-detail-modal__notes-input resize-none"
-                        placeholder="Crate slot, pressing notes…"
-                        value={editDraft.notes ?? ''}
-                        onChange={(e) =>
-                          setEditDraft({ ...editDraft, notes: e.target.value })
-                        }
-                        rows={3}
-                      />
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onDelete(record.id);
-                        onClose();
-                      }}
-                      className="record-detail-modal__delete"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      Remove from collection
-                    </button>
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -354,15 +359,17 @@ export function RecordDetailModal({
                 onClick={onClose}
                 className="btn-ghost record-detail-modal__cancel"
               >
-                Cancel
+                {readOnly ? 'Close' : 'Cancel'}
               </button>
-              <button
-                type="button"
-                onClick={saveEditing}
-                className="btn-primary record-detail-modal__save"
-              >
-                Save changes
-              </button>
+              {!readOnly ? (
+                <button
+                  type="button"
+                  onClick={saveEditing}
+                  className="btn-primary record-detail-modal__save"
+                >
+                  Save changes
+                </button>
+              ) : null}
             </footer>
           </motion.div>
         </>

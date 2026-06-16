@@ -6,9 +6,14 @@ import {
 } from './tracks';
 import type { Track, VinylRecord } from './types';
 
-const DISCOGS_FETCH_DELAY_MS = 300;
-const RATE_LIMIT_BACKOFF_MS = 5000;
-const MAX_FETCH_RETRIES = 2;
+/** Stay under Discogs ~60 req/min (server proxy shares one token). */
+const DISCOGS_FETCH_DELAY_MS = 1100;
+const RATE_LIMIT_BACKOFF_MS = 8000;
+const MAX_FETCH_RETRIES = 4;
+
+/** Large collections enrich in bounded batches so the browser stays responsive. */
+export const TRACKLIST_ENRICH_LARGE_THRESHOLD = 100;
+export const TRACKLIST_ENRICH_BATCH_SIZE = 12;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -101,14 +106,36 @@ export interface FullTracklistEnrichmentCallbacks {
  * One-time (re-runnable) batch: fetch full Discogs tracklists for every release with discogsId.
  * Idempotent — skips rows where the merged tracklist matches what is already stored.
  */
+export type FullTracklistEnrichmentOptions = {
+  /** Cap releases processed this run (large collections). Omit for no cap. */
+  maxPerRun?: number;
+  /** When true, only process releases that still look import-incomplete (≤1 track). */
+  incompleteOnly?: boolean;
+  /** Cumulative completed count from prior batches (large-crate auto-continue). */
+  progressOffset?: number;
+  /** Total linked releases in the collection (for stable progress denominator). */
+  progressTotal?: number;
+};
+
+export const BATCH_PAUSE_MS = 4000;
+
+export function countIncompleteTracklistTargets(records: VinylRecord[]): number {
+  return records.filter((r) => r.discogsId != null && r.tracks.length <= 1).length;
+}
+
 export async function runFullTracklistEnrichment(
   initialRecords: VinylRecord[],
-  callbacks: FullTracklistEnrichmentCallbacks
+  callbacks: FullTracklistEnrichmentCallbacks,
+  options?: FullTracklistEnrichmentOptions
 ): Promise<FullTracklistEnrichmentResult> {
   const { onRecordsChange, onProgress, onPersist, isCancelled } = callbacks;
 
   let records = initialRecords.map((r) => migrateRecord(r));
-  const targets = records.filter((r) => r.discogsId != null);
+  const targets = records.filter((r) => {
+    if (r.discogsId == null) return false;
+    if (options?.incompleteOnly) return r.tracks.length <= 1;
+    return true;
+  });
   const total = targets.length;
 
   let processed = 0;
@@ -116,12 +143,15 @@ export async function runFullTracklistEnrichment(
   let skipped = 0;
   let failed = 0;
 
+  const progressOffset = options?.progressOffset ?? 0;
+  const progressTotal = options?.progressTotal ?? total;
+
   const report = (message: string) => {
     onProgress({
       phase: 'running',
       message,
-      completed: processed,
-      total,
+      completed: progressOffset + processed,
+      total: progressTotal,
       updated,
       skipped,
       failed,
@@ -135,19 +165,30 @@ export async function runFullTracklistEnrichment(
     return { total: 0, processed: 0, updated: 0, skipped: 0, failed: 0 };
   }
 
-  report('Enriching tracklists from Discogs…');
+  const maxPerRun = options?.maxPerRun;
+  report(
+    maxPerRun != null && total > maxPerRun
+      ? `Enriching tracklists (batch of ${maxPerRun})…`
+      : 'Enriching tracklists from Discogs…'
+  );
 
   const working = [...records];
+
+  const targetIds = new Set(targets.map((r) => r.id));
 
   for (let i = 0; i < working.length; i++) {
     if (isCancelled()) {
       console.info('[tracklist-enrich] Cancelled by caller');
       break;
     }
+    if (maxPerRun != null && processed >= maxPerRun) {
+      console.info(`[tracklist-enrich] Batch cap reached (${maxPerRun})`);
+      break;
+    }
 
     const record = working[i];
     const discogsId = record.discogsId;
-    if (discogsId == null) continue;
+    if (discogsId == null || !targetIds.has(record.id)) continue;
 
     processed += 1;
     const label = `${record.artist} — ${record.title}`;
@@ -204,8 +245,8 @@ export async function runFullTracklistEnrichment(
   onProgress({
     phase: 'done',
     message: formatEnrichmentSummary(result),
-    completed: processed,
-    total,
+    completed: progressOffset + processed,
+    total: progressTotal,
     updated,
     skipped,
     failed,

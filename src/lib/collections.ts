@@ -1,3 +1,4 @@
+import { probeRecordsSchema } from './records';
 import { supabase } from './supabase';
 import {
   GUEST_CRATE_MAX_COUNT,
@@ -50,8 +51,17 @@ function isMissingTableError(message: string): boolean {
     lower.includes('does not exist') ||
     lower.includes('could not find the table') ||
     lower.includes('schema cache') ||
-    lower.includes('relation') && lower.includes('collections')
+    (lower.includes('relation') && lower.includes('collections'))
   );
+}
+
+function isMissingCollectionIdColumnError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes('collection_id') && lower.includes('does not exist');
+}
+
+async function recordsSchemaReady(): Promise<boolean> {
+  return probeRecordsSchema();
 }
 
 async function resolveUserId(): Promise<string> {
@@ -97,6 +107,11 @@ export async function fetchCollections(): Promise<
         return { available: false, crates: [], error: null };
       }
       return { available: false, crates: [], error: toError(error) };
+    }
+
+    const scoped = await recordsSchemaReady();
+    if (!scoped) {
+      return { available: false, crates: [], error: null };
     }
 
     return {
@@ -167,7 +182,11 @@ async function attachOrphanRecords(personalCollectionId: string): Promise<void> 
     .eq('user_id', uid)
     .is('collection_id', null);
 
-  if (error && !isMissingTableError(error.message)) {
+  if (
+    error &&
+    !isMissingTableError(error.message) &&
+    !isMissingCollectionIdColumnError(error.message)
+  ) {
     console.warn('[collections] attach orphan records:', error.message);
   }
 }

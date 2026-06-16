@@ -1,5 +1,6 @@
 import { ChevronDown, Disc3, Users } from 'lucide-react';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   isGuestCrate,
   isPersonalCrate,
@@ -21,7 +22,11 @@ export function CrateSwitcher({
 }: CrateSwitcherProps) {
   const menuId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLUListElement>(null);
   const [open, setOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState<{ top: number; left: number; minWidth: number } | null>(
+    null
+  );
 
   const sorted = [...crates].sort((a, b) => {
     if (isPersonalCrate(a)) return -1;
@@ -29,10 +34,36 @@ export function CrateSwitcher({
     return a.name.localeCompare(b.name);
   });
 
+  const updateMenuPosition = () => {
+    const root = rootRef.current;
+    if (!root) return;
+    const rect = root.getBoundingClientRect();
+    setMenuStyle({
+      top: rect.bottom + 6,
+      left: rect.right,
+      minWidth: Math.max(rect.width, 184),
+    });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuStyle(null);
+      return;
+    }
+    updateMenuPosition();
+    window.addEventListener('resize', updateMenuPosition);
+    window.addEventListener('scroll', updateMenuPosition, true);
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition);
+      window.removeEventListener('scroll', updateMenuPosition, true);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (event: PointerEvent) => {
-      if (rootRef.current?.contains(event.target as Node)) return;
+      const target = event.target as Node;
+      if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
       setOpen(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
@@ -77,42 +108,59 @@ export function CrateSwitcher({
         />
       </button>
 
-      {open ? (
-        <ul id={menuId} role="listbox" className="crate-switcher__menu">
-          {sorted.map((crate) => {
-            const selected = crate.id === activeCrate?.id;
-            return (
-              <li key={crate.id} role="none">
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={selected}
-                  className={`crate-switcher__option${selected ? ' crate-switcher__option--selected' : ''}`}
-                  onClick={() => {
-                    onSelect(crate);
-                    setOpen(false);
-                  }}
-                >
-                  <span className="crate-switcher__option-name">{crate.name}</span>
-                  <span className="crate-switcher__option-count tabular-nums">
-                    {crate.recordCount}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-          {onImportGuest ? (
-            <li role="none" className="crate-switcher__menu-footer">
-              <button type="button" className="crate-switcher__import" onClick={() => {
-                setOpen(false);
-                onImportGuest();
-              }}>
-                Import friend&apos;s Discogs
-              </button>
-            </li>
-          ) : null}
-        </ul>
-      ) : null}
+      {open && menuStyle
+        ? createPortal(
+            <ul
+              ref={menuRef}
+              id={menuId}
+              role="listbox"
+              className="crate-switcher__menu crate-switcher__menu--portal"
+              style={{
+                top: menuStyle.top,
+                left: menuStyle.left,
+                minWidth: menuStyle.minWidth,
+              }}
+            >
+              {sorted.map((crate) => {
+                const selected = crate.id === activeCrate?.id;
+                return (
+                  <li key={crate.id} role="none">
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      className={`crate-switcher__option${selected ? ' crate-switcher__option--selected' : ''}`}
+                      onClick={() => {
+                        onSelect(crate);
+                        setOpen(false);
+                      }}
+                    >
+                      <span className="crate-switcher__option-name">{crate.name}</span>
+                      <span className="crate-switcher__option-count tabular-nums">
+                        {crate.recordCount}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+              {onImportGuest ? (
+                <li role="none" className="crate-switcher__menu-footer">
+                  <button
+                    type="button"
+                    className="crate-switcher__import"
+                    onClick={() => {
+                      setOpen(false);
+                      onImportGuest();
+                    }}
+                  >
+                    Import friend&apos;s Discogs
+                  </button>
+                </li>
+              ) : null}
+            </ul>,
+            document.body
+          )
+        : null}
     </div>
   );
 }

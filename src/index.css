@@ -1055,6 +1055,11 @@ body::before {
   color: var(--text-muted);
 }
 
+.collection-loading__escape {
+  margin-top: 0.85rem;
+  font-size: 0.75rem;
+}
+
 @keyframes collection-loading-spin {
   to {
     transform: rotate(360deg);
@@ -1900,13 +1905,18 @@ body::before {
     inset: 0;
     z-index: 1;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1.25rem;
     padding: 0.85rem 1.25rem;
     pointer-events: none;
   }
 
   .collection-hero__copy-inner {
-    max-width: 28rem;
+    max-width: min(28rem, calc(100% - 12rem));
+    min-width: 0;
+    flex: 1 1 auto;
+    padding-top: 0.1rem;
   }
 
   .collection-hero__kicker {
@@ -3315,6 +3325,21 @@ body::before {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   text-align: center;
+}
+
+.enrich-guest-modal__stats {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  text-align: left;
+}
+
+.enrich-guest-modal__stats li + li {
+  margin-top: 0.35rem;
 }
 
 .clear-collection-modal__icon-wrap--danger {
@@ -4836,7 +4861,17 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   background: var(--bg-hover);
 }
 
+.play-dj__page-kicker,
+.labels-page__kicker {
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
 .play-dj__page-title {
+  margin-top: 0.2rem;
   font-size: 1.5rem;
   font-weight: 600;
   letter-spacing: -0.03em;
@@ -9234,6 +9269,7 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 }
 
 .labels-page__title {
+  margin-top: 0.2rem;
   font-size: clamp(1.25rem, 3vw, 1.875rem);
   font-weight: 600;
   letter-spacing: -0.03em;
@@ -14447,7 +14483,19 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 
 /* ─── Guest crates (Phase 1) ─── */
 .collection-hero__switcher {
-  margin-bottom: 0.65rem;
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin-top: 0;
+  pointer-events: auto;
+}
+
+@media (max-width: 639px) {
+  .collection-hero__switcher {
+    margin-bottom: 0.65rem;
+    align-self: stretch;
+  }
 }
 
 .crate-switcher {
@@ -14462,8 +14510,9 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   min-height: 1.75rem;
   padding: 0.25rem 0.55rem 0.25rem 0.45rem;
   border-radius: 0.5rem;
-  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
-  background: color-mix(in srgb, var(--bg-elevated) 82%, transparent);
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
   color: var(--text-secondary);
   font-size: 0.6875rem;
   font-weight: 600;
@@ -14523,9 +14572,17 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   list-style: none;
   border-radius: 0.65rem;
   border: 1px solid var(--border-strong);
-  background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+  background: var(--bg-elevated);
   box-shadow: var(--shadow-lg);
   backdrop-filter: blur(10px);
+}
+
+.crate-switcher__menu--portal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  transform: translateX(-100%);
+  z-index: 220;
 }
 
 .crate-switcher__option {
@@ -14622,7 +14679,7 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   color: var(--text-muted);
 }
 
-.guest-crate-banner__remove {
+.guest-crate-banner__dismiss {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -14636,8 +14693,25 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   cursor: pointer;
 }
 
-.guest-crate-banner__remove:hover {
-  background: color-mix(in srgb, var(--danger, #ef4444) 12%, transparent);
+.guest-crate-banner__dismiss:hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+}
+
+.guest-crate-banner__remove-link {
+  margin: 0.35rem 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 0.625rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+  cursor: pointer;
+}
+
+.guest-crate-banner__remove-link:hover {
   color: color-mix(in srgb, var(--danger, #ef4444) 80%, var(--text));
 }
 

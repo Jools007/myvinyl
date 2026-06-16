@@ -39,6 +39,7 @@ export function CollectionValueSection({
   onSelectRecord,
 }: CollectionValueSectionProps) {
   const isLoading = state.status === 'loading';
+  const canFetch = linkedCount > 0 && !isLoading;
 
   return (
     <section className="insights-value" aria-labelledby="insights-value-title">
@@ -54,14 +55,14 @@ export function CollectionValueSection({
           </h2>
           <p className="insights-value__lead">
             Discogs marketplace estimates for your linked releases — priced to your copy&apos;s
-            condition grade.
+            condition grade. Prices load only when you request them.
           </p>
         </div>
         <button
           type="button"
-          className="insights-value__refresh"
+          className="insights-value__refresh insights-value__refresh--primary"
           onClick={onRefresh}
-          disabled={isLoading || linkedCount === 0}
+          disabled={!canFetch}
           aria-busy={isLoading}
         >
           {isLoading ? (
@@ -69,7 +70,7 @@ export function CollectionValueSection({
           ) : (
             <RefreshCw className="h-4 w-4" aria-hidden />
           )}
-          Refresh
+          Refresh Collection Values
         </button>
       </header>
 
@@ -81,27 +82,42 @@ export function CollectionValueSection({
         </div>
       ) : null}
 
+      {state.status === 'idle' ? (
+        <div className="insights-value__idle">
+          <p className="insights-value__idle-copy">
+            {linkedCount} Discogs-linked {linkedCount === 1 ? 'release' : 'releases'} ready to
+            price. Tap the button above to fetch marketplace values one at a time.
+          </p>
+          <button
+            type="button"
+            className="insights-value__refresh insights-value__refresh--cta"
+            onClick={onRefresh}
+            disabled={!canFetch}
+          >
+            <RefreshCw className="h-4 w-4" aria-hidden />
+            Refresh Collection Values
+          </button>
+        </div>
+      ) : null}
+
       {state.status === 'error' ? (
         <div className="insights-value__empty insights-value__empty--error">
           <p className="insights-value__empty-title">Couldn&apos;t load prices</p>
           <p className="insights-value__empty-copy">{state.message}</p>
-          <button type="button" className="btn-ghost" onClick={onRefresh}>
-            Try again
+          <button type="button" className="btn-ghost" onClick={onRefresh} disabled={!canFetch}>
+            Refresh Collection Values
           </button>
         </div>
       ) : null}
 
       {state.status === 'loading' ? (
-        <div className="insights-value__loading">
+        <div className="insights-value__loading" aria-live="polite">
           <ProgressRing done={state.progress.done} total={state.progress.total} />
           <div className="insights-value__loading-copy">
-            <p className="insights-value__loading-title">Fetching Discogs prices</p>
-            <p className="insights-value__loading-sub tabular-nums">
-              {state.progress.done} / {state.progress.total} releases
+            <p className="insights-value__loading-title tabular-nums">{state.progress.label}</p>
+            <p className="insights-value__loading-sub">
+              One request per second to stay within Discogs rate limits.
             </p>
-            {state.progress.current ? (
-              <p className="insights-value__loading-current">{state.progress.current}</p>
-            ) : null}
           </div>
         </div>
       ) : null}

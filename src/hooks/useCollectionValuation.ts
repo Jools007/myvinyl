@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   fetchCollectionValuation,
   type CollectionValuation,
@@ -13,26 +13,21 @@ export type ValuationState =
   | { status: 'error'; message: string }
   | { status: 'unavailable'; message: string };
 
+const VALUATION_DELAY_MS = 1000;
+
 export function useCollectionValuation(records: VinylRecord[]) {
   const [state, setState] = useState<ValuationState>({ status: 'idle' });
   const abortRef = useRef<AbortController | null>(null);
+  const fetchingRef = useRef(false);
+  const recordsRef = useRef(records);
+  recordsRef.current = records;
+
   const linkedCount = records.filter((r) => r.discogsId != null).length;
-  const valuationKey = useMemo(
-    () =>
-      records
-        .filter((r) => r.discogsId != null)
-        .map((r) => `${r.id}:${r.discogsId}:${r.condition}`)
-        .sort()
-        .join('|'),
-    [records]
-  );
 
-  const load = useCallback(async () => {
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
+  useEffect(() => {
     if (linkedCount === 0) {
+      abortRef.current?.abort();
+      fetchingRef.current = false;
       setState({
         status: 'unavailable',
         message: 'Link releases to Discogs to estimate marketplace value.',
@@ -40,10 +35,42 @@ export function useCollectionValuation(records: VinylRecord[]) {
       return;
     }
 
-    setState({ status: 'loading', progress: { done: 0, total: linkedCount } });
+    setState((prev) => {
+      if (prev.status === 'unavailable') return { status: 'idle' };
+      return prev;
+    });
+  }, [linkedCount]);
+
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (fetchingRef.current) return;
+
+    const currentRecords = recordsRef.current;
+    const linked = currentRecords.filter((r) => r.discogsId != null);
+    if (linked.length === 0) {
+      setState({
+        status: 'unavailable',
+        message: 'Link releases to Discogs to estimate marketplace value.',
+      });
+      return;
+    }
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    fetchingRef.current = true;
+
+    setState({
+      status: 'loading',
+      progress: { done: 0, total: linked.length, label: `Fetching 1 of ${linked.length}…` },
+    });
 
     try {
-      const data = await fetchCollectionValuation(records, {
+      const data = await fetchCollectionValuation(currentRecords, {
+        delayMs: VALUATION_DELAY_MS,
         signal: controller.signal,
         onProgress: (progress) => {
           if (!controller.signal.aborted) {
@@ -56,8 +83,8 @@ export function useCollectionValuation(records: VinylRecord[]) {
 
       if (data.valuedCount === 0) {
         setState({
-          status: 'unavailable',
-          message: 'No Discogs price data returned for your linked releases yet.',
+          status: 'error',
+          message: 'No Discogs price data returned for your linked releases.',
         });
         return;
       }
@@ -67,24 +94,17 @@ export function useCollectionValuation(records: VinylRecord[]) {
       if (controller.signal.aborted) return;
       const message = error instanceof Error ? error.message : 'Valuation failed';
       setState({ status: 'error', message });
+    } finally {
+      if (abortRef.current === controller) {
+        fetchingRef.current = false;
+      }
     }
-  }, [linkedCount, records]);
-
-  useEffect(() => {
-    if (linkedCount === 0) {
-      setState({
-        status: 'unavailable',
-        message: 'Link releases to Discogs to estimate marketplace value.',
-      });
-      return;
-    }
-    void load();
-    return () => abortRef.current?.abort();
-  }, [valuationKey, linkedCount, load]);
+  }, []);
 
   return {
     state,
     linkedCount,
-    refresh: load,
+    refresh,
+    isFetching: fetchingRef.current || state.status === 'loading',
   };
 }

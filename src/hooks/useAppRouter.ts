@@ -80,7 +80,7 @@ export function useAppRouter() {
         playSelection: page === 'play' ? (playSelection ?? current.playSelection) : null,
         releaseId: null,
         releaseEdit: false,
-        crateSlug: page === 'collection' ? (options?.crateSlug ?? current.crateSlug) : null,
+        crateSlug: options?.crateSlug ?? current.crateSlug,
       });
     },
     [push]
@@ -88,13 +88,14 @@ export function useAppRouter() {
 
   const goToPlay = useCallback(
     (playSelection: AppLocation['playSelection'], options?: NavigateOptions) => {
+      const current = locationRef.current;
       commit(
         {
           page: 'play',
           playSelection,
           releaseId: null,
           releaseEdit: false,
-          crateSlug: null,
+          crateSlug: current.crateSlug,
         },
         options
       );

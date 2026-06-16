@@ -3,6 +3,11 @@ import type { PlaySelection } from './playSession';
 const PLAY_QUEUE_KEY = 'myvinyl:play-queue';
 const NOW_PLAYING_KEY = 'myvinyl:now-playing';
 
+function scopedKey(base: string, collectionId?: string | null): string {
+  if (!collectionId) return base;
+  return `${base}:${collectionId}`;
+}
+
 function isValidPlaySelection(item: unknown): item is PlaySelection {
   return (
     !!item &&
@@ -12,11 +17,9 @@ function isValidPlaySelection(item: unknown): item is PlaySelection {
   );
 }
 
-export function loadPlayQueue(): PlaySelection[] {
-  if (typeof sessionStorage === 'undefined') return [];
+function parsePlayQueue(raw: string | null): PlaySelection[] {
+  if (!raw) return [];
   try {
-    const raw = sessionStorage.getItem(PLAY_QUEUE_KEY);
-    if (!raw) return [];
     const parsed = JSON.parse(raw) as PlaySelection[];
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
@@ -30,57 +33,80 @@ export function loadPlayQueue(): PlaySelection[] {
   }
 }
 
-export function savePlayQueue(queue: PlaySelection[]): void {
+export function loadPlayQueue(collectionId?: string | null): PlaySelection[] {
+  if (typeof sessionStorage === 'undefined') return [];
+  try {
+    const scoped = parsePlayQueue(
+      sessionStorage.getItem(scopedKey(PLAY_QUEUE_KEY, collectionId))
+    );
+    if (scoped.length > 0 || collectionId) return scoped;
+    return parsePlayQueue(sessionStorage.getItem(PLAY_QUEUE_KEY));
+  } catch {
+    return [];
+  }
+}
+
+export function savePlayQueue(queue: PlaySelection[], collectionId?: string | null): void {
   if (typeof sessionStorage === 'undefined') return;
   try {
+    const key = scopedKey(PLAY_QUEUE_KEY, collectionId);
     if (queue.length === 0) {
-      sessionStorage.removeItem(PLAY_QUEUE_KEY);
+      sessionStorage.removeItem(key);
       return;
     }
-    sessionStorage.setItem(PLAY_QUEUE_KEY, JSON.stringify(queue));
+    sessionStorage.setItem(key, JSON.stringify(queue));
   } catch {
     /* quota or private mode */
   }
 }
 
-export function clearPlayQueueStorage(): void {
+export function clearPlayQueueStorage(collectionId?: string | null): void {
   if (typeof sessionStorage === 'undefined') return;
   try {
-    sessionStorage.removeItem(PLAY_QUEUE_KEY);
+    sessionStorage.removeItem(scopedKey(PLAY_QUEUE_KEY, collectionId));
+    if (!collectionId) sessionStorage.removeItem(PLAY_QUEUE_KEY);
   } catch {
     /* ignore */
   }
 }
 
-export function loadNowPlaying(): PlaySelection | null {
+export function loadNowPlaying(collectionId?: string | null): PlaySelection | null {
   if (typeof sessionStorage === 'undefined') return null;
   try {
-    const raw = sessionStorage.getItem(NOW_PLAYING_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as unknown;
+    const scopedRaw = sessionStorage.getItem(scopedKey(NOW_PLAYING_KEY, collectionId));
+    if (scopedRaw) {
+      const parsed = JSON.parse(scopedRaw) as unknown;
+      return isValidPlaySelection(parsed) ? parsed : null;
+    }
+    if (collectionId) return null;
+    const legacyRaw = sessionStorage.getItem(NOW_PLAYING_KEY);
+    if (!legacyRaw) return null;
+    const parsed = JSON.parse(legacyRaw) as unknown;
     return isValidPlaySelection(parsed) ? parsed : null;
   } catch {
     return null;
   }
 }
 
-export function saveNowPlaying(ref: PlaySelection | null): void {
+export function saveNowPlaying(ref: PlaySelection | null, collectionId?: string | null): void {
   if (typeof sessionStorage === 'undefined') return;
   try {
+    const key = scopedKey(NOW_PLAYING_KEY, collectionId);
     if (!ref) {
-      sessionStorage.removeItem(NOW_PLAYING_KEY);
+      sessionStorage.removeItem(key);
       return;
     }
-    sessionStorage.setItem(NOW_PLAYING_KEY, JSON.stringify(ref));
+    sessionStorage.setItem(key, JSON.stringify(ref));
   } catch {
     /* quota or private mode */
   }
 }
 
-export function clearNowPlayingStorage(): void {
+export function clearNowPlayingStorage(collectionId?: string | null): void {
   if (typeof sessionStorage === 'undefined') return;
   try {
-    sessionStorage.removeItem(NOW_PLAYING_KEY);
+    sessionStorage.removeItem(scopedKey(NOW_PLAYING_KEY, collectionId));
+    if (!collectionId) sessionStorage.removeItem(NOW_PLAYING_KEY);
   } catch {
     /* ignore */
   }

@@ -25,10 +25,12 @@ import { BackgroundSyncIndicator } from './components/BackgroundSyncIndicator';
 import { CollectionHero } from './components/CollectionHero';
 import { EmptyCollection } from './components/EmptyCollection';
 import { ClearCollectionModal } from './components/ClearCollectionModal';
+import { EnrichGuestCrateModal } from './components/EnrichGuestCrateModal';
 import { EnrichMetadataModal } from './components/EnrichMetadataModal';
 import { EnrichTracklistsModal } from './components/EnrichTracklistsModal';
 import { GuestCrateBanner } from './components/crates/GuestCrateBanner';
 import { ImportCrateModal } from './components/crates/ImportCrateModal';
+import { RemoveGuestCrateModal } from './components/crates/RemoveGuestCrateModal';
 import { DiscogsImportModal } from './components/DiscogsImportModal';
 import { DiscoverAddPanel } from './components/DiscoverAddPanel';
 import { InsightsDashboard } from './components/InsightsDashboard';
@@ -61,8 +63,29 @@ import { getLastPlayed } from './lib/recommendations';
 import { useAuth } from './contexts/AuthContext';
 import { useCollection } from './hooks/useCollection';
 import { useCollections } from './hooks/useCollections';
-import { GUEST_CRATE_MAX_RECORDS, isPersonalCrate } from './lib/collectionContext';
-import { fetchDiscogsIdsForCollection } from './lib/records';
+import {
+  GUEST_CRATE_MAX_RECORDS,
+  GUEST_SUMMARY_FETCH_THRESHOLD,
+  isPersonalCrate,
+} from './lib/collectionContext';
+import { loadActiveCrateSlug, saveActiveCrateSlug } from './lib/crateStorage';
+import { TRACKLIST_ENRICH_LARGE_THRESHOLD } from './lib/fullTracklistEnrichment';
+import {
+  dismissGuestCrateBanner,
+  isGuestCrateBannerDismissed,
+} from './lib/guestCrateBannerStorage';
+import {
+  isGuestCrateEnrichmentComplete,
+  isGuestCrateTracklistsComplete,
+  markGuestCrateEnrichmentComplete,
+  markGuestCrateTracklistsComplete,
+} from './lib/guestEnrichmentStorage';
+import {
+  fetchDiscogsIdsForCollection,
+  fetchRecords,
+  probeGuestTracklistsPersisted,
+} from './lib/records';
+import { migrateRecord } from './lib/tracks';
 
 import { normalizeGenre, normalizeVibe, parseFilterList } from './lib/filterLabels';
 import { collectGroupedGenreOptions, recordMatchesGroupedGenre } from './lib/genreGroups';
@@ -94,21 +117,41 @@ function collectionDisplayName(email?: string | null): string {
 function App() {
   const { user, loading: authLoading } = useAuth();
   const crates = useCollections();
-  const collectionScope = useMemo(
-    () =>
-      crates.available && crates.activeCrate
-        ? {
-            collectionId: crates.activeCrate.id,
-            personalCollectionId: crates.personalCrate?.id ?? null,
-            readOnly: crates.isGuestView,
-          }
-        : undefined,
-    [
-      crates.available,
-      crates.activeCrate,
-      crates.personalCrate?.id,
-      crates.isGuestView,
-    ]
+  const [guestEnrichmentRevision, setGuestEnrichmentRevision] = useState(0);
+  const [guestTracklistsProbeRevision, setGuestTracklistsProbeRevision] = useState(0);
+  const collectionScope = useMemo(() => {
+    const cratesPending = crates.loading || (crates.available && !crates.activeCrate);
+    if (cratesPending) {
+      return { suspended: true as const };
+    }
+    if (crates.available && crates.activeCrate) {
+      const guestSummaryOnly =
+        crates.isGuestView &&
+        (crates.activeCrate.recordCount ?? 0) > GUEST_SUMMARY_FETCH_THRESHOLD &&
+        !isGuestCrateTracklistsComplete(crates.activeCrate.id) &&
+        !isGuestCrateEnrichmentComplete(crates.activeCrate.id);
+      return {
+        collectionId: crates.activeCrate.id,
+        personalCollectionId: crates.personalCrate?.id ?? null,
+        readOnly: crates.isGuestView,
+        summaryOnly: guestSummaryOnly,
+        suspended: false as const,
+      };
+    }
+    return undefined;
+  }, [
+    crates.available,
+    crates.activeCrate,
+    crates.loading,
+    crates.personalCrate?.id,
+    crates.isGuestView,
+    guestEnrichmentRevision,
+    guestTracklistsProbeRevision,
+  ]);
+
+  const crateSlugKey = useMemo(
+    () => crates.crates.map((crate) => crate.slug).join('|'),
+    [crates.crates]
   );
 
   const {
@@ -121,6 +164,7 @@ function App() {
     isFullMetadataEnrichmentRunning,
     runFullTracklistEnrichmentJob,
     runFullMetadataEnrichmentJob,
+    runCrossCrateTransferFromPersonal,
     cancelMetadataEnrichmentJob,
     addRecord,
     importDiscogsCollection,
@@ -149,10 +193,16 @@ function App() {
   const [detailSession, setDetailSession] = useState(0);
   const [labelSelection, setLabelSelection] = useState<Set<string>>(new Set());
   const [discogsImportOpen, setDiscogsImportOpen] = useState(false);
+  const [removeGuestCrateOpen, setRemoveGuestCrateOpen] = useState(false);
+  const [guestBannerDismissed, setGuestBannerDismissed] = useState(false);
   const [personalDiscogsIds, setPersonalDiscogsIds] = useState<number[]>([]);
   const [clearCollectionOpen, setClearCollectionOpen] = useState(false);
   const [enrichTracklistsOpen, setEnrichTracklistsOpen] = useState(false);
   const [enrichMetadataOpen, setEnrichMetadataOpen] = useState(false);
+  const [enrichGuestOpen, setEnrichGuestOpen] = useState(false);
+  const [personalRecordsForEnrich, setPersonalRecordsForEnrich] = useState<VinylRecord[]>([]);
+  const [personalRecordsForEnrichLoading, setPersonalRecordsForEnrichLoading] = useState(false);
+  const [guestSmartEnrichRunning, setGuestSmartEnrichRunning] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [collectionFilters, setCollectionFilters] = useState<CollectionFilterState>(
     DEFAULT_COLLECTION_FILTERS
@@ -161,7 +211,9 @@ function App() {
   const [playQueue, setPlayQueue] = useState<PlaySelection[]>([]);
   const playHydratedRef = useRef<string | null>(null);
   const queueHydratedRef = useRef(false);
+  const playCrateIdRef = useRef<string | null>(null);
   const releaseRouteRef = useRef<string | null>(null);
+  const activeCollectionId = crates.activeCrate?.id ?? null;
 
   useEffect(() => {
     if (!detail) return;
@@ -196,21 +248,53 @@ function App() {
   );
 
   useEffect(() => {
-    if (!crates.personalCrate?.id) return;
+    if (!crates.personalCrate?.id || crates.isGuestView) return;
     void fetchDiscogsIdsForCollection(crates.personalCrate.id).then(setPersonalDiscogsIds);
-  }, [crates.personalCrate?.id, records.length, crates.isGuestView]);
+  }, [crates.personalCrate?.id, crates.isGuestView]);
 
   useEffect(() => {
-    if (!crates.available) return;
-    crates.selectCrateBySlug(router.location.crateSlug);
-  }, [router.location.crateSlug, crates.available]);
+    const crateId = crates.activeCrate?.id;
+    if (!crates.isGuestView || !crateId) return;
+    if (isGuestCrateTracklistsComplete(crateId)) return;
+
+    void probeGuestTracklistsPersisted(crateId).then((probe) => {
+      if (!probe.looksEnriched) return;
+      markGuestCrateTracklistsComplete(crateId);
+      setGuestTracklistsProbeRevision((n) => n + 1);
+      toast.message('Tracklists found in database', {
+        description: `Loading full data (${probe.multiTrack}/${probe.sampled} sampled releases have full tracklists).`,
+      });
+    });
+  }, [crates.isGuestView, crates.activeCrate?.id]);
 
   useEffect(() => {
-    if (!crates.available || !crates.activeCrate) return;
-    const slug = crates.isGuestView ? crates.activeCrate.slug : null;
-    if (router.location.crateSlug === slug) return;
-    router.goToCrate(slug, { replace: true });
-  }, [crates.activeCrate?.slug, crates.isGuestView, crates.available]);
+    if (!crates.available || crates.crates.length === 0) return;
+
+    const { crateSlug, page } = router.location;
+    if (crateSlug) {
+      crates.selectCrateBySlug(crateSlug);
+      return;
+    }
+
+    const onGuestCollectionPath =
+      typeof window !== 'undefined' && window.location.pathname.startsWith('/crates/');
+    if (page === 'collection' && !onGuestCollectionPath) {
+      crates.selectCrateBySlug(null);
+      return;
+    }
+
+    const savedSlug = loadActiveCrateSlug();
+    if (savedSlug) {
+      crates.selectCrateBySlug(savedSlug);
+    }
+  }, [
+    router.location.crateSlug,
+    router.location.page,
+    crates.available,
+    crateSlugKey,
+    crates.selectCrateBySlug,
+    crates.crates.length,
+  ]);
 
   const discogsLinkedCount = useMemo(() => countDiscogsLinkedRecords(records), [records]);
 
@@ -236,13 +320,95 @@ function App() {
     return backgroundSync;
   }, [tracklistEnrichment, metadataEnrichment, backgroundSync]);
 
+  const openGuestSmartEnrich = useCallback(() => {
+    const personalId = crates.personalCrate?.id;
+    if (!personalId) return;
+    setEnrichGuestOpen(true);
+    setPersonalRecordsForEnrichLoading(true);
+    void fetchRecords({
+      collectionId: personalId,
+      personalCollectionId: personalId,
+      summaryOnly: false,
+    })
+      .then((result) => {
+        setPersonalRecordsForEnrich((result.data ?? []).map((row) => migrateRecord(row)));
+      })
+      .finally(() => setPersonalRecordsForEnrichLoading(false));
+  }, [crates.personalCrate?.id]);
+
+  const handleGuestSmartEnrich = useCallback(async () => {
+    setGuestSmartEnrichRunning(true);
+    setEnrichGuestOpen(false);
+    toast.message('Smart enrich running', {
+      description: 'Tracklists first — watch progress bottom-right.',
+    });
+    try {
+      const stats = await runCrossCrateTransferFromPersonal(personalRecordsForEnrich);
+      await runFullTracklistEnrichmentJob();
+
+      const crateId = crates.activeCrate?.id;
+      if (crateId) {
+        markGuestCrateTracklistsComplete(crateId);
+        setGuestEnrichmentRevision((n) => n + 1);
+        toast.success('Tracklists imported', {
+          description: 'Loading full crate data — Insights will show all tracks shortly.',
+        });
+      }
+
+      void runFullMetadataEnrichmentJob().then(() => {
+        if (crateId) markGuestCrateEnrichmentComplete(crateId);
+        toast.message('Metadata enrich finished', {
+          description: 'BPM/key lookup complete for Keendigger\'s crate.',
+        });
+      });
+
+      if (stats.tracklistsCopied > 0 || stats.metadataTracksCopied > 0) {
+        toast.message('Copied from your crate', {
+          description: `${stats.tracklistsCopied} tracklists, ${stats.metadataTracksCopied} metadata rows`,
+        });
+      }
+    } catch (error) {
+      toast.error('Smart enrich failed', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setGuestSmartEnrichRunning(false);
+    }
+  }, [
+    crates.activeCrate?.id,
+    personalRecordsForEnrich,
+    runCrossCrateTransferFromPersonal,
+    runFullTracklistEnrichmentJob,
+    runFullMetadataEnrichmentJob,
+  ]);
+
+  const handleOpenTracklistEnrich = useCallback(() => {
+    if (crates.isGuestView) {
+      openGuestSmartEnrich();
+      return;
+    }
+    setEnrichTracklistsOpen(true);
+  }, [crates.isGuestView, openGuestSmartEnrich]);
+
+  const handleOpenMetadataEnrich = useCallback(() => {
+    if (crates.isGuestView) {
+      openGuestSmartEnrich();
+      return;
+    }
+    setEnrichMetadataOpen(true);
+  }, [crates.isGuestView, openGuestSmartEnrich]);
+
   const handleEnrichAllTracklists = useCallback(() => {
     void runFullTracklistEnrichmentJob().then((result) => {
       if (!result) return;
+      const linked = records.filter((r) => r.discogsId != null).length;
+      const batched = linked > TRACKLIST_ENRICH_LARGE_THRESHOLD;
       if (result.updated > 0) {
         toast.success(
-          result.updated === 1 ? '1 release updated' : `${result.updated} releases updated`,
-          { description: formatEnrichmentSummary(result) }
+          batched ? 'Tracklist enrichment finished' : result.updated === 1 ? '1 release updated' : `${result.updated} releases updated`,
+          {
+            description: formatEnrichmentSummary(result),
+          }
         );
       } else if (result.failed > 0 && result.updated === 0) {
         toast.error('Tracklist enrichment failed', {
@@ -254,7 +420,7 @@ function App() {
         });
       }
     });
-  }, [runFullTracklistEnrichmentJob]);
+  }, [records, runFullTracklistEnrichmentJob]);
 
   const handleEnrichAllMetadata = useCallback((options?: { force?: boolean }) => {
     void runFullMetadataEnrichmentJob(options).then((result) => {
@@ -422,20 +588,26 @@ function App() {
   }, [user, settings.onboardingComplete, updateSettings]);
 
   useEffect(() => {
-    if (collectionLoading) return;
-    if (!queueHydratedRef.current) {
-      queueHydratedRef.current = true;
-      const restored = loadPlayQueue();
-      if (restored.length > 0) {
-        setPlayQueue(restored);
-      }
-    }
-  }, [collectionLoading]);
+    if (collectionLoading || !activeCollectionId) return;
+
+    if (playCrateIdRef.current === activeCollectionId) return;
+    playCrateIdRef.current = activeCollectionId;
+
+    playHydratedRef.current = null;
+    queueHydratedRef.current = true;
+    setLabelSelection(new Set());
+
+    const restoredQueue = loadPlayQueue(activeCollectionId);
+    setPlayQueue(restoredQueue);
+
+    const restoredNow = loadNowPlaying(activeCollectionId);
+    setNowPlaying(restoredNow);
+  }, [collectionLoading, activeCollectionId]);
 
   useEffect(() => {
-    if (!queueHydratedRef.current) return;
-    savePlayQueue(playQueue);
-  }, [playQueue]);
+    if (!queueHydratedRef.current || !activeCollectionId) return;
+    savePlayQueue(playQueue, activeCollectionId);
+  }, [playQueue, activeCollectionId]);
 
   useEffect(() => {
     if (authLoading || collectionLoading || !collectionHydrated) return;
@@ -443,9 +615,14 @@ function App() {
 
     let routePlay = router.location.playSelection;
     if (!routePlay) {
-      const stored = loadNowPlaying();
+      const stored = loadNowPlaying(activeCollectionId ?? undefined);
       if (!stored) return;
-      const targetHref = buildAppHref(locationForPage('play', { playSelection: stored }));
+      const targetHref = buildAppHref(
+        locationForPage('play', {
+          playSelection: stored,
+          crateSlug: router.location.crateSlug,
+        })
+      );
       if (currentAppHref() !== targetHref) {
         router.goToPlay(stored, { replace: true });
         return;
@@ -459,7 +636,7 @@ function App() {
     const resolved = resolvePlaySelection(records, routePlay);
     if (!resolved) {
       playHydratedRef.current = null;
-      saveNowPlaying(null);
+      saveNowPlaying(null, activeCollectionId ?? undefined);
       setNowPlaying(null);
       toast.error('Track not found in your collection', {
         description: 'That link may be outdated or the release was removed.',
@@ -470,12 +647,14 @@ function App() {
 
     playHydratedRef.current = key;
     setNowPlaying(routePlay);
-    saveNowPlaying(routePlay);
+    saveNowPlaying(routePlay, activeCollectionId ?? undefined);
   }, [
+    activeCollectionId,
     authLoading,
     collectionHydrated,
     collectionLoading,
     records,
+    router.location.crateSlug,
     router.location.page,
     router.location.playSelection,
     router.goToPlay,
@@ -541,17 +720,27 @@ function App() {
       const ref: PlaySelection = { recordId: record.id, trackId: track.id };
       const key = playSelectionKey(ref);
       playHydratedRef.current = key;
-      saveNowPlaying(ref);
+      saveNowPlaying(ref, activeCollectionId ?? undefined);
       setNowPlaying(ref);
       markPlayed(record.id);
       setPlayQueue((q) => q.filter((item) => !isSamePlaySelection(item, ref)));
-      router.goToPlay(ref);
+      if (crates.isGuestView && crates.activeCrate?.slug) {
+        router.goToPage('play', ref, { crateSlug: crates.activeCrate.slug });
+      } else {
+        router.goToPlay(ref);
+      }
       const idx = record.tracks.findIndex((t) => t.id === track.id);
       toast.success(`Now playing: ${track.title}`, {
         description: `${trackPositionLabel(track, idx >= 0 ? idx : 0)} · ${record.artist}`,
       });
     },
-    [markPlayed, router]
+    [
+      activeCollectionId,
+      crates.activeCrate?.slug,
+      crates.isGuestView,
+      markPlayed,
+      router,
+    ]
   );
 
   const handleApplyInsightFilter = useCallback((patch: InsightFilterAction) => {
@@ -699,8 +888,7 @@ function App() {
     (nextPage: typeof page) => {
       const playSelection =
         nextPage === 'play' && nowPlaying ? nowPlaying : router.location.playSelection;
-      const crateSlug =
-        nextPage === 'collection' && crates.isGuestView ? crates.activeCrate?.slug ?? null : null;
+      const crateSlug = crates.isGuestView ? crates.activeCrate?.slug ?? null : null;
       router.goToPage(nextPage, playSelection, { crateSlug });
     },
     [crates.activeCrate?.slug, crates.isGuestView, nowPlaying, router]
@@ -714,21 +902,43 @@ function App() {
     [crates, router]
   );
 
-  const handleRemoveGuestCrate = useCallback(async () => {
-    if (!crates.activeCrate || !crates.isGuestView) return;
+  useEffect(() => {
+    if (!crates.isGuestView || !crates.activeCrate) {
+      setGuestBannerDismissed(false);
+      return;
+    }
+    setGuestBannerDismissed(isGuestCrateBannerDismissed(crates.activeCrate.slug));
+  }, [crates.activeCrate?.slug, crates.isGuestView]);
+
+  const handleDismissGuestBanner = useCallback(() => {
+    if (!crates.activeCrate) return;
+    dismissGuestCrateBanner(crates.activeCrate.slug);
+    setGuestBannerDismissed(true);
+  }, [crates.activeCrate]);
+
+  const handleRemoveGuestCrate = useCallback(async (): Promise<boolean> => {
+    if (!crates.activeCrate || !crates.isGuestView) return false;
     const name = crates.activeCrate.name;
     const result = await crates.removeGuestCrate(crates.activeCrate.id);
     if (result.error) {
       toast.error('Could not remove guest crate', { description: result.error.message });
-      return;
+      return false;
     }
     router.goToCrate(null);
     toast.success('Guest crate removed', { description: name });
+    return true;
   }, [crates, router]);
 
   const handleAddRecord = useCallback(() => {
     discogsSearchRef.current?.focus();
   }, []);
+
+  const handleOpenPersonalCrate = useCallback(() => {
+    saveActiveCrateSlug(null);
+    crates.setActiveSlug(null);
+    router.goToCrate(null);
+    void retryCollectionLoad();
+  }, [crates, router, retryCollectionLoad]);
 
   const toggleLabel = (id: string) => {
     setLabelSelection((prev) => {
@@ -774,7 +984,10 @@ function App() {
   if (collectionLoading || (crates.available && crates.loading)) {
     return (
       <>
-        <CollectionLoading />
+        <CollectionLoading
+          onSwitchToPersonal={crates.isGuestView ? handleOpenPersonalCrate : undefined}
+          switchLabel="Stuck? Open My Crate"
+        />
         <AppToaster />
       </>
     );
@@ -793,6 +1006,7 @@ function App() {
         page={page}
         onNavigate={handleNavigate}
         recordCount={records.length}
+        crateSlug={crates.isGuestView ? crates.activeCrate?.slug ?? null : null}
         playSelection={nowPlaying ?? router.location.playSelection}
         onScan={() => setScanOpen(true)}
         onAddRecord={handleAddRecord}
@@ -838,10 +1052,11 @@ function App() {
                 onImportGuest={() => setDiscogsImportOpen(true)}
               />
 
-              {crates.isGuestView && crates.activeCrate ? (
+              {crates.isGuestView && crates.activeCrate && !guestBannerDismissed ? (
                 <GuestCrateBanner
                   crate={crates.activeCrate}
-                  onDelete={() => void handleRemoveGuestCrate()}
+                  onDismiss={handleDismissGuestBanner}
+                  onRemoveRequest={() => setRemoveGuestCrateOpen(true)}
                 />
               ) : null}
 
@@ -862,9 +1077,11 @@ function App() {
                   onResetCollection={
                     crates.isGuestView ? undefined : () => setClearCollectionOpen(true)
                   }
-                  onEnrichTracklists={() => setEnrichTracklistsOpen(true)}
-                  enrichingTracklists={isFullTracklistEnrichmentRunning}
-                  onEnrichMetadata={() => setEnrichMetadataOpen(true)}
+                  onEnrichTracklists={handleOpenTracklistEnrich}
+                  enrichingTracklists={
+                    isFullTracklistEnrichmentRunning || guestSmartEnrichRunning
+                  }
+                  onEnrichMetadata={handleOpenMetadataEnrich}
                   enrichingMetadata={isFullMetadataEnrichmentRunning}
                   discogsLinkedCount={discogsLinkedCount}
                   onExportPdf={() => void handleExportPdf()}
@@ -905,7 +1122,7 @@ function App() {
                       );
                     }}
                     onDelete={(id) => {
-                      removeRecord(id);
+                      if (!removeRecord(id)) return;
                       if (detail?.id === id) closeRecordDetail();
                       toast.success('Removed from collection');
                     }}
@@ -932,10 +1149,18 @@ function App() {
             >
               <InsightsDashboard
                 records={records}
+                crateName={crates.activeCrate?.name}
+                isGuestCrate={crates.isGuestView}
                 onApplyFilter={handleApplyInsightFilter}
-                onOpenCollection={() => router.goToPage('collection')}
-                onEnrichTracklists={() => setEnrichTracklistsOpen(true)}
-                onEnrichMetadata={() => setEnrichMetadataOpen(true)}
+                onOpenCollection={() =>
+                  router.goToPage(
+                    'collection',
+                    undefined,
+                    { crateSlug: crates.isGuestView ? crates.activeCrate?.slug ?? null : null }
+                  )
+                }
+                onEnrichTracklists={handleOpenTracklistEnrich}
+                onEnrichMetadata={handleOpenMetadataEnrich}
                 onPlayNow={handlePlayNow}
                 onAddToQueue={handleAddToQueue}
                 onQueueMany={handleQueueMany}
@@ -953,62 +1178,80 @@ function App() {
             >
               <PlayNextPanel
                 collection={records}
+                crateName={crates.activeCrate?.name}
+                isGuestCrate={crates.isGuestView}
                 nowPlaying={playAnchor}
                 queue={resolvedQueue}
                 onPlayNow={handlePlayNow}
-                onSaveTapBpm={(recordId, trackId, bpm) => {
-                  updateRecord(
-                    recordId,
-                    (record) => ({
-                      tracks: patchTrack(record, trackId, {
-                        bpm,
-                        bpmEstimated: false,
-                        bpmTapped: true,
-                        bpmManual: false,
-                      }).tracks,
-                    }),
-                    { persistImmediately: true }
-                  );
-                  toast.success('BPM saved', {
-                    description: `${bpm} BPM — tap locked for this track`,
-                  });
-                }}
-                onSaveManualBpm={(recordId, trackId, bpm) => {
-                  updateRecord(
-                    recordId,
-                    (record) => ({
-                      tracks: patchTrack(record, trackId, {
-                        bpm,
-                        bpmEstimated: false,
-                        bpmTapped: false,
-                        bpmManual: true,
-                      }).tracks,
-                    }),
-                    { persistImmediately: true }
-                  );
-                  toast.success('BPM set', {
-                    description: `${bpm} BPM — your entry is locked for this track`,
-                  });
-                }}
-                onSaveCutRating={(recordId, trackId, rating) => {
-                  updateRecord(
-                    recordId,
-                    (record) => ({
-                      tracks: patchTrack(record, trackId, { cutRating: rating }).tracks,
-                    }),
-                    { persistImmediately: true }
-                  );
-                  if (rating) {
-                    toast.success('Rating saved', {
-                      description: CUT_RATING_LABELS[rating],
-                    });
-                  }
-                }}
+                onSaveTapBpm={
+                  crates.isGuestView
+                    ? undefined
+                    : (recordId, trackId, bpm) => {
+                        updateRecord(
+                          recordId,
+                          (record) => ({
+                            tracks: patchTrack(record, trackId, {
+                              bpm,
+                              bpmEstimated: false,
+                              bpmTapped: true,
+                              bpmManual: false,
+                            }).tracks,
+                          }),
+                          { persistImmediately: true }
+                        );
+                        toast.success('BPM saved', {
+                          description: `${bpm} BPM — tap locked for this track`,
+                        });
+                      }
+                }
+                onSaveManualBpm={
+                  crates.isGuestView
+                    ? undefined
+                    : (recordId, trackId, bpm) => {
+                        updateRecord(
+                          recordId,
+                          (record) => ({
+                            tracks: patchTrack(record, trackId, {
+                              bpm,
+                              bpmEstimated: false,
+                              bpmTapped: false,
+                              bpmManual: true,
+                            }).tracks,
+                          }),
+                          { persistImmediately: true }
+                        );
+                        toast.success('BPM set', {
+                          description: `${bpm} BPM — your entry is locked for this track`,
+                        });
+                      }
+                }
+                onSaveCutRating={
+                  crates.isGuestView
+                    ? undefined
+                    : (recordId, trackId, rating) => {
+                        updateRecord(
+                          recordId,
+                          (record) => ({
+                            tracks: patchTrack(record, trackId, { cutRating: rating }).tracks,
+                          }),
+                          { persistImmediately: true }
+                        );
+                        if (rating) {
+                          toast.success('Rating saved', {
+                            description: CUT_RATING_LABELS[rating],
+                          });
+                        }
+                      }
+                }
                 onEnrichRelease={
-                  playAnchor ? () => handleEnrichRelease(playAnchor.record.id) : undefined
+                  !crates.isGuestView && playAnchor
+                    ? () => handleEnrichRelease(playAnchor.record.id)
+                    : undefined
                 }
                 enrichingRelease={
-                  Boolean(playAnchor) && liveEnrich?.recordId === playAnchor?.record.id
+                  !crates.isGuestView &&
+                  Boolean(playAnchor) &&
+                  liveEnrich?.recordId === playAnchor?.record.id
                 }
               />
             </motion.div>
@@ -1023,21 +1266,31 @@ function App() {
             >
               <LabelPrint
                 records={records}
+                crateName={crates.activeCrate?.name}
+                isGuestCrate={crates.isGuestView}
+                readOnly={crates.isGuestView}
                 selectedIds={labelSelection}
                 onToggle={toggleLabel}
                 onSelectAll={() => setLabelSelection(new Set(records.map((r) => r.id)))}
                 onClearSelection={() => setLabelSelection(new Set())}
-                onSaveDescription={(id, notes) =>
-                  updateRecord(id, { notes: notes || undefined })
+                onSaveDescription={
+                  crates.isGuestView
+                    ? undefined
+                    : (id, notes) => updateRecord(id, { notes: notes || undefined })
                 }
-                onSaveVibes={(id, vibeTags) =>
-                  updateRecord(id, (r) => patchPrimaryTrack(r, { vibeTags }))
+                onSaveVibes={
+                  crates.isGuestView
+                    ? undefined
+                    : (id, vibeTags) =>
+                        updateRecord(id, (r) => patchPrimaryTrack(r, { vibeTags }))
                 }
-                onSaveLabelDisplay={(id, labelDisplay) =>
-                  updateRecord(id, { labelDisplay })
+                onSaveLabelDisplay={
+                  crates.isGuestView
+                    ? undefined
+                    : (id, labelDisplay) => updateRecord(id, { labelDisplay })
                 }
-                onEnrichRelease={handleEnrichRelease}
-                enrichingRecordId={liveEnrich?.recordId ?? null}
+                onEnrichRelease={crates.isGuestView ? undefined : handleEnrichRelease}
+                enrichingRecordId={crates.isGuestView ? null : liveEnrich?.recordId ?? null}
               />
             </motion.div>
           )}
@@ -1080,6 +1333,7 @@ function App() {
         }
         record={detail}
         initialEditing={detailEditOnOpen}
+        readOnly={crates.isGuestView}
         onClose={handleCloseRecordDetail}
         onUpdate={(id, patch) => {
           updateRecord(id, patch, { persistImmediately: true });
@@ -1088,7 +1342,11 @@ function App() {
             description: label ? `${label.artist} — ${label.title}` : undefined,
           });
         }}
-        onDelete={removeRecord}
+        onDelete={(id) => {
+          if (!removeRecord(id)) return;
+          handleCloseRecordDetail();
+          toast.success('Removed from collection');
+        }}
         onPlay={markPlayed}
       />
 
@@ -1112,6 +1370,21 @@ function App() {
           setEnrichMetadataOpen(false);
           handleEnrichAllMetadata(options);
         }}
+      />
+
+      <EnrichGuestCrateModal
+        open={enrichGuestOpen}
+        running={
+          guestSmartEnrichRunning ||
+          isFullTracklistEnrichmentRunning ||
+          isFullMetadataEnrichmentRunning
+        }
+        guestRecords={records}
+        personalRecords={personalRecordsForEnrich}
+        personalLoading={personalRecordsForEnrichLoading}
+        crateName={crates.activeCrate?.name ?? 'Guest crate'}
+        onClose={() => setEnrichGuestOpen(false)}
+        onConfirm={() => void handleGuestSmartEnrich()}
       />
 
       <ClearCollectionModal
@@ -1140,7 +1413,14 @@ function App() {
         }}
       />
 
-      {crates.available ? (
+      <RemoveGuestCrateModal
+        open={removeGuestCrateOpen}
+        crate={crates.isGuestView ? crates.activeCrate : null}
+        onClose={() => setRemoveGuestCrateOpen(false)}
+        onConfirm={handleRemoveGuestCrate}
+      />
+
+      {crates.available || discogsImportOpen ? (
         <ImportCrateModal
           open={discogsImportOpen}
           onClose={() => setDiscogsImportOpen(false)}
@@ -1175,6 +1455,10 @@ function App() {
             return { added, skipped };
           }}
           onImportGuest={async (incoming, { discogsUsername }) => {
+            const trimmedUsername = discogsUsername.trim();
+            const existingBefore = crates.guestCrates.find(
+              (c) => c.discogsUsername?.toLowerCase() === trimmedUsername.toLowerCase()
+            );
             const created = await crates.importGuestCrate(discogsUsername);
             if (created.error || !created.data) {
               return {
@@ -1183,25 +1467,72 @@ function App() {
                 error: created.error?.message ?? 'Could not create guest crate',
               };
             }
-            const { added, skipped, capped } = await importDiscogsCollection(incoming, {
-              collectionId: created.data.id,
-            });
-            await crates.bumpRecordCount(created.data.id);
-            router.goToCrate(created.data.slug);
-            if (added > 0) {
-              toast.success(
-                added === 1 ? '1 record imported' : `${added} records imported`,
-                {
-                  description:
-                    skipped > 0
-                      ? `${skipped} skipped${capped > 0 ? ` · capped at ${GUEST_CRATE_MAX_RECORDS.toLocaleString()} vinyl` : ''}`
-                      : capped > 0
-                        ? `Capped at ${GUEST_CRATE_MAX_RECORDS.toLocaleString()} vinyl records`
-                        : undefined,
-                }
+
+            const crateId = created.data.id;
+            const isNewEmptyCrate =
+              !existingBefore && (created.data.recordCount ?? 0) === 0;
+
+            const discardEmptyCrate = async () => {
+              if (!isNewEmptyCrate) return;
+              await crates.removeGuestCrate(crateId);
+            };
+
+            try {
+              const { added, skipped, capped, partial, error } = await importDiscogsCollection(
+                incoming,
+                { collectionId: crateId }
               );
+
+              if (added === 0) {
+                await discardEmptyCrate();
+                return {
+                  added: 0,
+                  skipped: incoming.length,
+                  error:
+                    error ??
+                    'No records could be imported. The guest crate was not saved.',
+                };
+              }
+
+              crates.selectCrateBySlug(created.data.slug);
+              router.goToCrate(created.data.slug);
+              setDiscogsImportOpen(false);
+              void crates.bumpRecordCount(crateId).then(() => crates.refreshCrates());
+              void retryCollectionLoad();
+
+              const capNote =
+                capped > 0
+                  ? ` · capped at ${GUEST_CRATE_MAX_RECORDS.toLocaleString()} vinyl`
+                  : '';
+              const skipNote = skipped > 0 ? `${skipped} skipped${capNote}` : capNote.slice(3);
+
+              if (partial) {
+                toast.warning(
+                  added === 1 ? '1 record imported (partial)' : `${added} records imported (partial)`,
+                  {
+                    description:
+                      [error, skipNote].filter(Boolean).join(' · ') ||
+                      'Some records could not be saved.',
+                  }
+                );
+              } else {
+                toast.success(
+                  added === 1 ? '1 record imported' : `${added} records imported`,
+                  { description: skipNote || undefined }
+                );
+              }
+
+              return { added, skipped };
+            } catch (e) {
+              await discardEmptyCrate();
+              const message = e instanceof Error ? e.message : 'Import failed';
+              toast.error('Guest import failed', {
+                description: isNewEmptyCrate
+                  ? `${message} Empty crate was discarded.`
+                  : message,
+              });
+              return { added: 0, skipped: incoming.length, error: message };
             }
-            return { added, skipped };
           }}
         />
       ) : (

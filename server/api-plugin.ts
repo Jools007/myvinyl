@@ -23,6 +23,13 @@ import {
   handleDiscogsRelease,
   handleDiscogsSearch,
 } from './handlers/discogs';
+import {
+  handleDiscogsPriceSuggestions,
+  parsePriceSuggestionsReleaseId,
+  PriceSuggestionsConfigError,
+  PriceSuggestionsValidationError,
+  priceSuggestionsErrorStatus,
+} from './handlers/discogs-price-suggestions';
 import { fetchProxiedImage, parseImageProxyUrl } from './handlers/image-proxy';
 
 type Env = Record<string, string>;
@@ -282,6 +289,23 @@ export function apiPlugin(env: Env): Plugin {
               perPage
             );
             return json(res, 200, payload);
+          }
+
+          if (path === '/api/discogs/price-suggestions' && req.method === 'GET') {
+            try {
+              const releaseId = parsePriceSuggestionsReleaseId(url.searchParams.get('releaseId'));
+              const payload = await handleDiscogsPriceSuggestions(env, releaseId);
+              return json(res, 200, payload);
+            } catch (e) {
+              if (e instanceof PriceSuggestionsValidationError) {
+                return json(res, 400, { error: e.message });
+              }
+              if (e instanceof PriceSuggestionsConfigError) {
+                return json(res, 503, { error: e.message });
+              }
+              const message = e instanceof Error ? e.message : 'Price suggestions failed';
+              return json(res, priceSuggestionsErrorStatus(message), { error: message });
+            }
           }
 
           // ── Last.fm similar ──

@@ -14,6 +14,11 @@ import {
 import {
   runFullTracklistEnrichment,
   idleTracklistEnrichment,
+  BATCH_PAUSE_MS,
+  countIncompleteTracklistTargets,
+  formatEnrichmentSummary,
+  TRACKLIST_ENRICH_BATCH_SIZE,
+  TRACKLIST_ENRICH_LARGE_THRESHOLD,
   type FullTracklistEnrichmentProgress,
   type FullTracklistEnrichmentResult,
 } from '../lib/fullTracklistEnrichment';
@@ -37,7 +42,12 @@ import {
 import { bulkImportCollectionRecords } from '../lib/discogsImport';
 import { GUEST_CRATE_MAX_RECORDS } from '../lib/collectionContext';
 import {
+  applyCrossCrateTransferToCollection,
+  type CrossCrateTransferStats,
+} from '../lib/crossCrateEnrichment';
+import {
   addRecord as addRecordToSupabase,
+  addRecordsBatch,
   deleteRecord as deleteRecordFromSupabase,
   fetchRecords,
   isPersistedRecordId,
@@ -53,6 +63,12 @@ function friendlyCollectionError(message: string): string {
   const lower = message.toLowerCase();
   if (lower.includes('not authenticated') || lower.includes('jwt')) {
     return 'Your session may have expired. Try again, or sign out and sign back in.';
+  }
+  if (
+    lower.includes('insufficient_resources') ||
+    lower.includes('err_insufficient_resources')
+  ) {
+    return 'The browser was overwhelmed loading your collection. Close this tab, reopen MyVinyl, and try again.';
   }
   if (lower.includes('network') || lower.includes('fetch') || lower.includes('failed to fetch')) {
     return 'We could not reach the server. Check your internet connection and try again.';
@@ -76,12 +92,21 @@ export type UseCollectionScope = {
   personalCollectionId?: string | null;
   /** When true, new adds/imports are blocked (guest demo view). */
   readOnly?: boolean;
+  /** When true, defer fetch until crate context is ready (avoids duplicate/wrong-scope loads). */
+  suspended?: boolean;
+  /**
+   * Skip tracklist JSON on fetch — ONLY for large guest demo crates.
+   * Personal crates must always load full tracklists (BPM, ratings, vibes live there).
+   */
+  summaryOnly?: boolean;
 };
 
 export function useCollection(scope?: UseCollectionScope) {
   const collectionId = scope?.collectionId ?? null;
   const personalCollectionId = scope?.personalCollectionId ?? null;
   const readOnly = scope?.readOnly ?? false;
+  const suspended = scope?.suspended ?? false;
+  const summaryOnly = scope?.summaryOnly ?? false;
 
   const { user, loading: authLoading } = useAuth();
   const [records, setRecords] = useState<VinylRecord[]>([]);
@@ -104,6 +129,9 @@ export function useCollection(scope?: UseCollectionScope) {
   const persistTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   /** While set, background migrations must not overwrite this release (live per-track enrich). */
   const enrichActiveRecordIdRef = useRef<string | null>(null);
+  /** Blocks visibility sync / refresh while guest smart enrich or long batch jobs run. */
+  const bulkEnrichmentActiveRef = useRef(false);
+  const persistQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     recordsRef.current = records;
@@ -128,22 +156,33 @@ export function useCollection(scope?: UseCollectionScope) {
 
     const result = await fetchRecords(
       collectionId
-        ? { collectionId, personalCollectionId: personalCollectionId ?? undefined }
-        : undefined
+        ? {
+            collectionId,
+            personalCollectionId: personalCollectionId ?? undefined,
+            summaryOnly,
+            shouldContinue: () => generation === fetchGenerationRef.current,
+          }
+        : { summaryOnly, shouldContinue: () => generation === fetchGenerationRef.current }
     );
     if (generation !== fetchGenerationRef.current) return;
 
     if (result.error) {
+      if (result.error.message === 'Fetch cancelled') return;
       setCollectionError(friendlyCollectionError(result.error.message));
       setIsFetchingCollection(false);
       return;
     }
 
-    setRecords((result.data ?? []).map((record) => migrateRecord(record)));
+    const remote = (result.data ?? []).map((record) => migrateRecord(record));
+    setRecords((prev) => {
+      const merged = mergePreservingTrackEnrichment(prev, remote);
+      recordsRef.current = merged;
+      return merged;
+    });
     setCollectionError(null);
     setHydrated(true);
     setIsFetchingCollection(false);
-  }, [user?.id, collectionId, personalCollectionId]);
+  }, [user?.id, collectionId, personalCollectionId, summaryOnly]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -157,20 +196,27 @@ export function useCollection(scope?: UseCollectionScope) {
       return;
     }
 
+    if (suspended) {
+      setHydrated(false);
+      setIsFetchingCollection(true);
+      setCollectionError(null);
+      return;
+    }
+
     void loadCollection();
 
     return () => {
       fetchGenerationRef.current += 1;
     };
-  }, [user?.id, authLoading, loadCollection]);
+  }, [user?.id, authLoading, loadCollection, suspended]);
 
-  const persistRecordNow = useCallback(
-    (record: VinylRecord) => {
-      if (!isPersistedRecordId(record.id)) return;
-      void updateRecordInSupabase(record);
-    },
-    []
-  );
+  const persistRecordNow = useCallback((record: VinylRecord) => {
+    if (!isPersistedRecordId(record.id)) return;
+    persistQueueRef.current = persistQueueRef.current
+      .then(() => updateRecordInSupabase(record))
+      .then(() => undefined)
+      .catch(() => undefined);
+  }, []);
 
   const persistRecordImmediately = useCallback((record: VinylRecord) => {
     const pending = persistTimersRef.current.get(record.id);
@@ -231,6 +277,7 @@ export function useCollection(scope?: UseCollectionScope) {
 
   useEffect(() => {
     if (!hydrated) return;
+    if (readOnly) return;
     if (backgroundStarted.current || !needsBackgroundMigration()) return;
     backgroundStarted.current = true;
 
@@ -238,7 +285,7 @@ export function useCollection(scope?: UseCollectionScope) {
     const initial = recordsRef.current;
 
     void runBackgroundMigrations(initial, {
-      onRecordsChange: (next) => {
+      onRecordsChange: (next, changedRecordId) => {
         if (!cancelled) {
           setRecords((prev) => {
             const liveId = enrichActiveRecordIdRef.current;
@@ -251,8 +298,8 @@ export function useCollection(scope?: UseCollectionScope) {
               return p ? mergePreservingTrackEnrichment([p], [n])[0] : migrateRecord(n);
             });
           });
-          for (const record of next) {
-            schedulePersistRecord(record.id);
+          if (changedRecordId) {
+            schedulePersistRecord(changedRecordId);
           }
         }
       },
@@ -266,7 +313,7 @@ export function useCollection(scope?: UseCollectionScope) {
       cancelled = true;
       setBackgroundSync(idleSync);
     };
-  }, [hydrated, schedulePersistRecord]);
+  }, [hydrated, readOnly, schedulePersistRecord]);
 
   const addRecord = useCallback(
     (record: Omit<VinylRecord, 'id' | 'addedAt'>, targetCollectionId?: string) => {
@@ -318,21 +365,37 @@ export function useCollection(scope?: UseCollectionScope) {
       }));
 
       const next = bulkImportCollectionRecords(prev, stamped, generateId);
-      const addedEntries = next.records.slice(0, next.added);
+      const addedEntries = next.records
+        .slice(0, next.added)
+        .map((entry) => ({ ...entry, collectionId: targetCollectionId }));
 
-      for (const entry of addedEntries) {
-        persistNewRecord({ ...entry, collectionId: targetCollectionId });
+      const batch = await addRecordsBatch(addedEntries, {
+        collectionId: targetCollectionId,
+      });
+
+      const actuallyAdded = batch.data?.length ?? 0;
+      const persistFailed = batch.failed;
+
+      if (batch.error && actuallyAdded === 0) {
+        throw new Error(batch.error.message);
       }
 
       if (targetCollectionId === collectionId) {
-        setRecords(next.records);
-        recordsRef.current = next.records;
+        const refreshed = await fetchRecords({
+          collectionId: targetCollectionId,
+          personalCollectionId: personalCollectionId ?? undefined,
+        });
+        const merged = (refreshed.data ?? []).map((record) => migrateRecord(record));
+        setRecords(merged);
+        recordsRef.current = merged;
       }
 
       return {
-        added: next.added,
-        skipped: next.skipped + capped,
+        added: actuallyAdded,
+        skipped: next.skipped + capped + persistFailed,
         capped,
+        partial: Boolean(batch.error && actuallyAdded > 0),
+        error: batch.error?.message,
       };
     },
     [collectionId, personalCollectionId, persistNewRecord]
@@ -344,6 +407,7 @@ export function useCollection(scope?: UseCollectionScope) {
       patch: Partial<VinylRecord> | ((record: VinylRecord) => Partial<VinylRecord>),
       options?: UpdateRecordOptions
     ) => {
+      if (readOnly) return;
       flushSync(() => {
         setRecords((prev) => {
           const next = prev.map((record) => {
@@ -362,7 +426,7 @@ export function useCollection(scope?: UseCollectionScope) {
         });
       });
     },
-    [persistRecordImmediately, schedulePersistRecord]
+    [persistRecordImmediately, readOnly, schedulePersistRecord]
   );
 
   const applyEnrichedTrack = useCallback(
@@ -449,12 +513,13 @@ export function useCollection(scope?: UseCollectionScope) {
   );
 
   const removeRecord = useCallback(
-    (id: string) => {
-      if (readOnly) return;
+    (id: string): boolean => {
+      if (readOnly) return false;
       setRecords((prev) => prev.filter((record) => record.id !== id));
       if (isPersistedRecordId(id)) {
         void deleteRecordFromSupabase(id);
       }
+      return true;
     },
     [readOnly]
   );
@@ -499,39 +564,50 @@ export function useCollection(scope?: UseCollectionScope) {
   const isRefreshingRef = useRef(false);
 
   const refreshRecords = useCallback(async () => {
+    if (bulkEnrichmentActiveRef.current) return;
     if (isRefreshingRef.current) return;
     isRefreshingRef.current = true;
     try {
       const result = await fetchRecords(
         collectionId
-          ? { collectionId, personalCollectionId: personalCollectionId ?? undefined }
-          : undefined
+          ? {
+              collectionId,
+              personalCollectionId: personalCollectionId ?? undefined,
+              summaryOnly,
+            }
+          : { summaryOnly }
       );
       if (result.error) {
+        if (result.error.message === 'Fetch cancelled') return;
         setCollectionError(friendlyCollectionError(result.error.message));
         return;
       }
       const remote = (result.data ?? []).map((record) => migrateRecord(record));
-      setRecords(remote);
-      recordsRef.current = remote;
+      setRecords((prev) => {
+        const merged = mergePreservingTrackEnrichment(prev, remote);
+        recordsRef.current = merged;
+        return merged;
+      });
       setCollectionError(null);
       setHydrated(true);
     } finally {
       isRefreshingRef.current = false;
     }
-  }, [collectionId, personalCollectionId]);
+  }, [collectionId, personalCollectionId, summaryOnly]);
 
   useEffect(() => {
-    if (!hydrated || !user) return;
+    if (!hydrated || !user || suspended) return;
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let lastSyncAt = 0;
     const MIN_SYNC_INTERVAL_MS = 15_000;
 
     const syncFromServer = () => {
+      if (bulkEnrichmentActiveRef.current) return;
       if (isScannerSessionActive()) return;
       if (enrichActiveRecordIdRef.current) return;
       if (metadataEnrichment.phase === 'running') return;
+      if (tracklistEnrichment.phase === 'running') return;
       if (isRefreshingRef.current) return;
       if (Date.now() - lastSyncAt < MIN_SYNC_INTERVAL_MS) return;
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -552,31 +628,89 @@ export function useCollection(scope?: UseCollectionScope) {
       if (debounceTimer) clearTimeout(debounceTimer);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [hydrated, user?.id, metadataEnrichment.phase, refreshRecords]);
+  }, [hydrated, user?.id, metadataEnrichment.phase, tracklistEnrichment.phase, refreshRecords, suspended]);
 
   const retryCollectionLoad = useCallback(() => {
     void loadCollection();
   }, [loadCollection]);
 
   const runFullTracklistEnrichmentJob = useCallback(async (): Promise<FullTracklistEnrichmentResult | null> => {
+    const ownsBulkLock = !bulkEnrichmentActiveRef.current;
+    if (ownsBulkLock) bulkEnrichmentActiveRef.current = true;
     const runId = ++tracklistEnrichmentRunRef.current;
+    const linked = recordsRef.current.filter((r) => r.discogsId != null).length;
+    const useAutoBatches = linked > TRACKLIST_ENRICH_LARGE_THRESHOLD;
 
-    const result = await runFullTracklistEnrichment(recordsRef.current, {
-      onRecordsChange: (next) => {
+    try {
+    const callbacks = {
+      onRecordsChange: (next: VinylRecord[]) => {
         if (tracklistEnrichmentRunRef.current !== runId) return;
-        setRecords((prev) => mergePreservingTrackEnrichment(prev, next));
+        setRecords((prev) => {
+          const merged = mergePreservingTrackEnrichment(prev, next);
+          recordsRef.current = merged;
+          return merged;
+        });
       },
-      onProgress: (progress) => {
+      onProgress: (progress: FullTracklistEnrichmentProgress) => {
         if (tracklistEnrichmentRunRef.current !== runId) return;
         setTracklistEnrichment(progress);
       },
-      onPersist: (record) => {
+      onPersist: (record: VinylRecord) => {
         persistRecordNow(record);
       },
       isCancelled: () => tracklistEnrichmentRunRef.current !== runId,
-    });
+    };
+
+    const aggregate: FullTracklistEnrichmentResult = {
+      total: linked,
+      processed: 0,
+      updated: 0,
+      skipped: 0,
+      failed: 0,
+    };
+
+    while (tracklistEnrichmentRunRef.current === runId) {
+      const result = await runFullTracklistEnrichment(recordsRef.current, callbacks, {
+        maxPerRun: useAutoBatches ? TRACKLIST_ENRICH_BATCH_SIZE : undefined,
+        incompleteOnly: useAutoBatches,
+        progressOffset: aggregate.processed,
+        progressTotal: linked,
+      });
+
+      if (!result || tracklistEnrichmentRunRef.current !== runId) return null;
+
+      aggregate.processed += result.processed;
+      aggregate.updated += result.updated;
+      aggregate.skipped += result.skipped;
+      aggregate.failed += result.failed;
+
+      if (!useAutoBatches || result.processed === 0) break;
+
+      const remaining = countIncompleteTracklistTargets(recordsRef.current);
+      if (remaining === 0) break;
+
+      setTracklistEnrichment({
+        phase: 'running',
+        message: `Batch complete — ${remaining} releases left. Continuing…`,
+        completed: aggregate.processed,
+        total: linked,
+        updated: aggregate.updated,
+        skipped: aggregate.skipped,
+        failed: aggregate.failed,
+      });
+      await new Promise((resolve) => setTimeout(resolve, BATCH_PAUSE_MS));
+    }
 
     if (tracklistEnrichmentRunRef.current === runId) {
+      setTracklistEnrichment({
+        phase: 'done',
+        message: formatEnrichmentSummary(aggregate),
+        completed: aggregate.processed,
+        total: linked,
+        updated: aggregate.updated,
+        skipped: aggregate.skipped,
+        failed: aggregate.failed,
+      });
       window.setTimeout(() => {
         if (tracklistEnrichmentRunRef.current === runId) {
           setTracklistEnrichment(idleTracklistEnrichment);
@@ -584,7 +718,10 @@ export function useCollection(scope?: UseCollectionScope) {
       }, 4000);
     }
 
-    return tracklistEnrichmentRunRef.current === runId ? result : null;
+    return tracklistEnrichmentRunRef.current === runId ? aggregate : null;
+    } finally {
+      if (ownsBulkLock) bulkEnrichmentActiveRef.current = false;
+    }
   }, [persistRecordNow]);
 
   const runFullMetadataEnrichmentJob = useCallback(async (
@@ -628,6 +765,53 @@ export function useCollection(scope?: UseCollectionScope) {
     setMetadataEnrichment(idleMetadataEnrichment);
   }, []);
 
+  const runCrossCrateTransferFromPersonal = useCallback(
+    async (personalRecords: VinylRecord[]): Promise<CrossCrateTransferStats> => {
+      const { records: next, stats, changedRecords } = applyCrossCrateTransferToCollection(
+        recordsRef.current,
+        personalRecords,
+        generateId
+      );
+
+      setRecords(next);
+      recordsRef.current = next;
+
+      const targetCollectionId = collectionId ?? undefined;
+      for (let i = 0; i < changedRecords.length; i += 12) {
+        const chunk = changedRecords.slice(i, i + 12);
+        await Promise.all(
+          chunk.map((record) =>
+            updateRecordInSupabase(record, {
+              collectionId: record.collectionId ?? targetCollectionId,
+            })
+          )
+        );
+      }
+
+      return stats;
+    },
+    [collectionId]
+  );
+
+  const runGuestSmartEnrichment = useCallback(
+    async (personalRecords: VinylRecord[]): Promise<CrossCrateTransferStats> => {
+      bulkEnrichmentActiveRef.current = true;
+      try {
+        const transferStats = await runCrossCrateTransferFromPersonal(personalRecords);
+        await runFullTracklistEnrichmentJob();
+        await runFullMetadataEnrichmentJob();
+        return transferStats;
+      } finally {
+        bulkEnrichmentActiveRef.current = false;
+      }
+    },
+    [
+      runCrossCrateTransferFromPersonal,
+      runFullTracklistEnrichmentJob,
+      runFullMetadataEnrichmentJob,
+    ]
+  );
+
   const collectionLoading = Boolean(user) && !authLoading && isFetchingCollection;
   const isFullTracklistEnrichmentRunning = tracklistEnrichment.phase === 'running';
   const isFullMetadataEnrichmentRunning = metadataEnrichment.phase === 'running';
@@ -647,6 +831,8 @@ export function useCollection(scope?: UseCollectionScope) {
     isFullMetadataEnrichmentRunning,
     runFullTracklistEnrichmentJob,
     runFullMetadataEnrichmentJob,
+    runGuestSmartEnrichment,
+    runCrossCrateTransferFromPersonal,
     cancelMetadataEnrichmentJob,
     liveEnrich,
     addRecord,

@@ -87,9 +87,10 @@ function useStickerPreviewLayout() {
 interface LabelInspectModalProps {
   record: VinylRecord | null;
   onClose: () => void;
-  onSaveDescription: (recordId: string, notes: string) => void;
-  onSaveVibes: (recordId: string, vibeTags: string[]) => void;
-  onSaveLabelDisplay: (recordId: string, display: LabelDisplayPrefs) => void;
+  readOnly?: boolean;
+  onSaveDescription?: (recordId: string, notes: string) => void;
+  onSaveVibes?: (recordId: string, vibeTags: string[]) => void;
+  onSaveLabelDisplay?: (recordId: string, display: LabelDisplayPrefs) => void;
   onEnrich?: (recordId: string) => Promise<void>;
   enriching?: boolean;
   onPrint?: () => void;
@@ -99,6 +100,7 @@ interface LabelInspectModalProps {
 export function LabelInspectModal({
   record,
   onClose,
+  readOnly = false,
   onSaveDescription,
   onSaveVibes,
   onSaveLabelDisplay,
@@ -134,18 +136,18 @@ export function LabelInspectModal({
 
   const persistDescription = useCallback(
     (text: string) => {
-      if (!recordId) return;
+      if (!recordId || readOnly || !onSaveDescription) return;
       onSaveDescription(recordId, text.trim());
     },
-    [onSaveDescription, recordId]
+    [onSaveDescription, readOnly, recordId]
   );
 
   const persistVibes = useCallback(
     (tags: string[]) => {
-      if (!recordId) return;
+      if (!recordId || readOnly || !onSaveVibes) return;
       onSaveVibes(recordId, tags);
     },
-    [onSaveVibes, recordId]
+    [onSaveVibes, readOnly, recordId]
   );
 
   const scheduleDescriptionSave = useCallback(
@@ -237,10 +239,10 @@ export function LabelInspectModal({
 
   const persistDisplay = useCallback(
     (display: Required<LabelDisplayPrefs>) => {
-      if (!recordId) return;
+      if (!recordId || readOnly || !onSaveLabelDisplay) return;
       onSaveLabelDisplay(recordId, display);
     },
-    [onSaveLabelDisplay, recordId]
+    [onSaveLabelDisplay, readOnly, recordId]
   );
 
   const setTitleLayout = useCallback(
@@ -349,10 +351,10 @@ export function LabelInspectModal({
               </p>
             </section>
 
-            <aside className="label-modal__edit" aria-label="Edit sticker">
+            <aside className="label-modal__edit" aria-label={readOnly ? 'Sticker details' : 'Edit sticker'}>
               <header className="label-modal__edit-head">
                 <h2 id="label-modal-heading" className="label-modal__edit-title">
-                  Edit sticker
+                  {readOnly ? 'Sticker preview' : 'Edit sticker'}
                 </h2>
                 <p className="label-modal__edit-sub">
                   {record.artist} · {record.title}
@@ -382,7 +384,7 @@ export function LabelInspectModal({
                     </span>
                   </div>
                 </div>
-                {needsEnrich || enriching ? (
+                {!readOnly && (needsEnrich || enriching) ? (
                   <button
                     type="button"
                     className="label-modal__enrich-btn"
@@ -399,7 +401,7 @@ export function LabelInspectModal({
                 ) : null}
               </section>
 
-              <fieldset className="label-modal__field label-modal__field--layout">
+              <fieldset className="label-modal__field label-modal__field--layout" disabled={readOnly}>
                 <legend className="label-modal__field-name">Title format</legend>
                 <div className="label-modal__segmented" role="group" aria-label="Title format">
                   {TITLE_LAYOUT_OPTIONS.map((opt) => {
@@ -410,6 +412,7 @@ export function LabelInspectModal({
                         type="button"
                         className={`label-modal__segment${active ? ' label-modal__segment--on' : ''}`}
                         aria-pressed={active}
+                        disabled={readOnly}
                         onClick={() => setTitleLayout(opt.value)}
                       >
                         {opt.label}
@@ -419,7 +422,7 @@ export function LabelInspectModal({
                 </div>
               </fieldset>
 
-              <fieldset className="label-modal__field label-modal__field--toggles">
+              <fieldset className="label-modal__field label-modal__field--toggles" disabled={readOnly}>
                 <legend className="label-modal__field-name">Show on sticker</legend>
                 <div className="label-modal__toggles">
                   {(
@@ -434,6 +437,7 @@ export function LabelInspectModal({
                       type="button"
                       className={`label-modal__toggle${displayDraft[key] ? ' label-modal__toggle--on' : ''}`}
                       aria-pressed={displayDraft[key]}
+                      disabled={readOnly}
                       onClick={() => toggleDisplayFlag(key)}
                     >
                       {label}
@@ -455,6 +459,8 @@ export function LabelInspectModal({
                   placeholder={placeholder}
                   rows={2}
                   maxLength={LABEL_DESCRIPTION_MAX}
+                  readOnly={readOnly}
+                  disabled={readOnly}
                 />
                 <div className="label-modal__field-foot">
                   <span className="label-modal__hint">
@@ -476,17 +482,17 @@ export function LabelInspectModal({
                 </div>
               </div>
 
-              <fieldset className="label-modal__field label-modal__field--vibes">
+              <fieldset className="label-modal__field label-modal__field--vibes" disabled={readOnly}>
                 <legend className="label-modal__field-name">
                   Vibes
                   <span className="label-modal__field-note">
                     Select up to {MAX_LABEL_VIBES}
                   </span>
                 </legend>
-                <div className="label-modal__chips" onBlur={handleVibesBlur}>
+                <div className="label-modal__chips" onBlur={readOnly ? undefined : handleVibesBlur}>
                   {VIBE_TAG_SUGGESTIONS.map((t) => {
                     const active = vibeDraft.includes(t);
-                    const disabled = !active && vibeDraft.length >= MAX_LABEL_VIBES;
+                    const disabled = readOnly || (!active && vibeDraft.length >= MAX_LABEL_VIBES);
                     return (
                       <button
                         key={t}

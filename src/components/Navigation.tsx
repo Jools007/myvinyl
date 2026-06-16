@@ -13,6 +13,7 @@ interface NavigationProps {
   page: NavPage;
   onNavigate: (page: NavPage) => void;
   recordCount: number;
+  crateSlug?: string | null;
   playSelection?: PlaySelection | null;
   onScan?: () => void;
   onAddRecord?: () => void;
@@ -26,9 +27,15 @@ const staticLinks: { id: NavPage; label: string; icon: typeof LayoutGrid }[] = [
   { id: 'labels', label: 'Labels', icon: Printer },
 ];
 
-function hrefForPage(page: NavPage, playSelection?: PlaySelection | null): string {
+function hrefForPage(
+  page: NavPage,
+  options?: { playSelection?: PlaySelection | null; crateSlug?: string | null }
+): string {
   return buildAppHref(
-    locationForPage(page, page === 'play' ? { playSelection: playSelection ?? null } : undefined)
+    locationForPage(page, {
+      playSelection: page === 'play' ? (options?.playSelection ?? null) : null,
+      crateSlug: options?.crateSlug ?? null,
+    })
   );
 }
 
@@ -36,6 +43,7 @@ export function Navigation({
   page,
   onNavigate,
   recordCount,
+  crateSlug = null,
   playSelection = null,
   onScan,
   onAddRecord,
@@ -43,7 +51,10 @@ export function Navigation({
 }: NavigationProps) {
   const links = staticLinks.map((link) => ({
     ...link,
-    href: hrefForPage(link.id, link.id === 'play' ? playSelection : null),
+    href: hrefForPage(link.id, {
+      playSelection: link.id === 'play' ? playSelection : null,
+      crateSlug,
+    }),
   }));
 
   const countLabel = recordCount === 1 ? 'record' : 'records';

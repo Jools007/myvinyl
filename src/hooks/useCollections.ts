@@ -13,14 +13,15 @@ import {
   fetchCollections,
   syncCollectionRecordCount,
 } from '../lib/collections';
-import { loadActiveCrateSlug, saveActiveCrateSlug } from '../lib/crateStorage';
+import { saveActiveCrateSlug } from '../lib/crateStorage';
 
 export function useCollections() {
   const { user, loading: authLoading } = useAuth();
   const [available, setAvailable] = useState(false);
   const [crates, setCrates] = useState<CollectionCrate[]>([]);
   const [personalCrate, setPersonalCrate] = useState<CollectionCrate | null>(null);
-  const [activeSlug, setActiveSlugState] = useState<string | null>(() => loadActiveCrateSlug());
+  /** URL is source of truth on boot — localStorage is write-only (see selectCrate). */
+  const [activeSlug, setActiveSlugState] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const loadGenRef = useRef(0);
@@ -58,7 +59,7 @@ export function useCollections() {
     const fetched = await fetchCollections();
     if (generation !== loadGenRef.current) return;
 
-    setAvailable(fetched.available);
+    setAvailable((prev) => fetched.available || prev);
     setCrates(fetched.crates);
     setPersonalCrate(ensured.crate);
     setLoading(false);
@@ -102,16 +103,19 @@ export function useCollections() {
     [setActiveSlug]
   );
 
+  const cratesRef = useRef(crates);
+  cratesRef.current = crates;
+
   const selectCrateBySlug = useCallback(
     (slug: string | null | undefined) => {
       if (!slug || slug === PERSONAL_CRATE_SLUG) {
         setActiveSlug(null);
         return;
       }
-      const match = crates.find((c) => c.slug === slug);
+      const match = cratesRef.current.find((c) => c.slug === slug);
       if (match) setActiveSlug(match.slug);
     },
-    [crates, setActiveSlug]
+    [setActiveSlug]
   );
 
   const importGuestCrate = useCallback(

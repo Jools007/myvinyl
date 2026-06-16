@@ -4,6 +4,8 @@ import { useEffect } from 'react';
 import {
   countDiscogsLinkedRecords,
   countLikelyIncompleteTracklists,
+  TRACKLIST_ENRICH_BATCH_SIZE,
+  TRACKLIST_ENRICH_LARGE_THRESHOLD,
 } from '../lib/fullTracklistEnrichment';
 import type { VinylRecord } from '../lib/types';
 
@@ -24,6 +26,8 @@ export function EnrichTracklistsModal({
 }: EnrichTracklistsModalProps) {
   const linked = countDiscogsLinkedRecords(records);
   const likelyIncomplete = countLikelyIncompleteTracklists(records);
+  const isLargeCrate = linked > TRACKLIST_ENRICH_LARGE_THRESHOLD;
+  const batchSize = isLargeCrate ? TRACKLIST_ENRICH_BATCH_SIZE : linked;
 
   useEffect(() => {
     if (!open || running) return;
@@ -99,10 +103,19 @@ export function EnrichTracklistsModal({
               ) : null}
             </p>
 
-            <p className="clear-collection-modal__lead" style={{ marginTop: '0.75rem' }}>
-              Requests are rate-limited (~{Math.ceil(linked * 0.3)}s for {linked} releases). You can
-              keep browsing while this runs.
-            </p>
+            {isLargeCrate ? (
+              <p className="clear-collection-modal__lead" style={{ marginTop: '0.75rem' }}>
+                Large crate — MyVinyl will enrich automatically in batches of{' '}
+                <span className="font-medium text-[var(--text)]">{batchSize}</span> (~
+                {Math.ceil((linked / batchSize) * batchSize * 0.3 / 60)} min total). You can keep
+                browsing; progress shows in the background sync bar.
+              </p>
+            ) : (
+              <p className="clear-collection-modal__lead" style={{ marginTop: '0.75rem' }}>
+                Requests are rate-limited (~{Math.ceil(linked * 0.3)}s for {linked} releases). You
+                can keep browsing while this runs.
+              </p>
+            )}
 
             <div className="clear-collection-modal__actions">
               <button

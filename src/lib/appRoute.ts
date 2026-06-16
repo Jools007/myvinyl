@@ -62,9 +62,17 @@ export function parseAppLocation(
   let playSelection: PlaySelection | null = null;
   let crateSlug: string | null = null;
 
+  const params = new URLSearchParams(
+    searchInput.startsWith('?') ? searchInput.slice(1) : searchInput
+  );
+  const crateFromQuery = params.get('crate')?.trim();
+
   if (segments[0] === 'crates' && segments[1]) {
     page = 'collection';
     const raw = decodeSegment(segments[1]);
+    crateSlug = raw === PERSONAL_CRATE_SLUG ? null : raw;
+  } else if (crateFromQuery) {
+    const raw = decodeSegment(crateFromQuery);
     crateSlug = raw === PERSONAL_CRATE_SLUG ? null : raw;
   } else if (segments[0] === 'play') {
     page = 'play';
@@ -79,9 +87,6 @@ export function parseAppLocation(
     page = 'collection';
   }
 
-  const params = new URLSearchParams(
-    searchInput.startsWith('?') ? searchInput.slice(1) : searchInput
-  );
   const releaseIdRaw = params.get('release')?.trim() ?? '';
   const releaseId = releaseIdRaw && isValidRecordId(releaseIdRaw) ? releaseIdRaw : null;
   const releaseEdit = releaseId != null && params.get('edit') === '1';
@@ -142,6 +147,10 @@ export function buildAppHref(location: AppLocation): string {
     if (location.releaseEdit) params.set('edit', '1');
   }
 
+  if (location.crateSlug && location.page !== 'collection') {
+    params.set('crate', location.crateSlug);
+  }
+
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;
 }
@@ -160,7 +169,7 @@ export function locationForPage(
     playSelection: page === 'play' ? (options?.playSelection ?? null) : null,
     releaseId: options?.releaseId ?? null,
     releaseEdit: options?.releaseEdit ?? false,
-    crateSlug: page === 'collection' ? (options?.crateSlug ?? null) : null,
+    crateSlug: options?.crateSlug ?? null,
   };
 }
 

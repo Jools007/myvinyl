@@ -7,12 +7,28 @@ interface GridViewProps {
   onPlay: (record: VinylRecord) => void;
 }
 
+const LARGE_GRID_THRESHOLD = 120;
+
 export function GridView({ records, onPlay }: GridViewProps) {
+  const useMotion = records.length <= LARGE_GRID_THRESHOLD;
+
   return (
     <div className="collection-grid-view min-w-0 overflow-x-hidden">
       <div className="collection-grid">
-        <AnimatePresence mode="popLayout">
-          {records.map((record, i) => (
+        {useMotion ? (
+          <AnimatePresence mode="popLayout">
+            {records.map((record, i) => (
+              <RecordCard
+                key={record.id}
+                record={record}
+                index={i}
+                dense
+                onPlay={() => onPlay(record)}
+              />
+            ))}
+          </AnimatePresence>
+        ) : (
+          records.map((record, i) => (
             <RecordCard
               key={record.id}
               record={record}
@@ -20,8 +36,8 @@ export function GridView({ records, onPlay }: GridViewProps) {
               dense
               onPlay={() => onPlay(record)}
             />
-          ))}
-        </AnimatePresence>
+          ))
+        )}
       </div>
     </div>
   );

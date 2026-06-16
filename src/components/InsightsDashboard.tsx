@@ -52,6 +52,8 @@ import { useCollectionValuation } from '../hooks/useCollectionValuation';
 
 type InsightsDashboardProps = {
   records: VinylRecord[];
+  crateName?: string;
+  isGuestCrate?: boolean;
   onApplyFilter?: (patch: InsightFilterAction) => void;
   onOpenCollection?: () => void;
   onEnrichTracklists?: () => void;
@@ -481,6 +483,8 @@ function NotableList({
 
 export function InsightsDashboard({
   records,
+  crateName,
+  isGuestCrate = false,
   onApplyFilter,
   onOpenCollection,
   onEnrichTracklists,
@@ -676,9 +680,11 @@ export function InsightsDashboard({
           <div>
             <p className="insights-v2-hero__kicker">
               <BarChart3 className="h-3.5 w-3.5" aria-hidden />
-              Collection intelligence
+              {isGuestCrate ? 'Guest crate intelligence' : 'Collection intelligence'}
             </p>
-            <h1 className="insights-v2-hero__title">Insights</h1>
+            <h1 className="insights-v2-hero__title">
+              {crateName ? `${crateName} insights` : 'Insights'}
+            </h1>
           </div>
           <div className="insights-v2-hero__actions">
             {onOpenCollection ? (
@@ -762,7 +768,7 @@ export function InsightsDashboard({
             <CollectionValueSection
               state={valuationState}
               linkedCount={valuationLinkedCount}
-              onRefresh={() => void refreshValuation()}
+              onRefresh={refreshValuation}
               onSelectRecord={(id, label) =>
                 setLensFromInsight({ kind: 'release', recordId: id, label })
               }

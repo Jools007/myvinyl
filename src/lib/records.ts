@@ -6,8 +6,68 @@ import type { RecordCondition, Track, VinylRecord } from './types';
 
 const TABLE = 'records';
 
-const RECORD_COLUMNS =
+const SCOPED_RECORD_COLUMNS =
   'id,user_id,collection_id,title,artist,year,format,genre,cover_image,tracklist,condition,discogs_id,bpm,barcode,created_at';
+
+const LEGACY_RECORD_COLUMNS =
+  'id,user_id,title,artist,year,format,genre,cover_image,tracklist,condition,discogs_id,bpm,barcode,created_at';
+
+/** List/grid load — omits heavy tracklist JSON (placeholder track synthesized client-side). */
+const SCOPED_SUMMARY_COLUMNS =
+  'id,user_id,collection_id,title,artist,year,format,genre,cover_image,condition,discogs_id,bpm,barcode,created_at';
+
+const LEGACY_SUMMARY_COLUMNS =
+  'id,user_id,title,artist,year,format,genre,cover_image,condition,discogs_id,bpm,barcode,created_at';
+
+type RecordsSchemaMode = 'unknown' | 'scoped' | 'legacy';
+
+let recordsSchemaMode: RecordsSchemaMode = 'unknown';
+let recordsSchemaProbe: Promise<RecordsSchemaMode> | null = null;
+
+function isMissingCollectionIdColumnError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes('collection_id') && lower.includes('does not exist');
+}
+
+function selectColumns(summaryOnly = false): string {
+  if (summaryOnly) {
+    return recordsSchemaMode === 'legacy' ? LEGACY_SUMMARY_COLUMNS : SCOPED_SUMMARY_COLUMNS;
+  }
+  return recordsSchemaMode === 'legacy' ? LEGACY_RECORD_COLUMNS : SCOPED_RECORD_COLUMNS;
+}
+
+function useLegacyRecordsSchema(): void {
+  recordsSchemaMode = 'legacy';
+}
+
+function supportsCollectionIdColumn(): boolean {
+  return recordsSchemaMode !== 'legacy';
+}
+
+/** Probe whether records.collection_id exists (cached). Legacy mode when migrations are not applied. */
+export async function probeRecordsSchema(): Promise<boolean> {
+  if (recordsSchemaMode === 'scoped') return true;
+  if (recordsSchemaMode === 'legacy') return false;
+
+  if (!recordsSchemaProbe) {
+    recordsSchemaProbe = (async () => {
+      const { error } = await supabase.from(TABLE).select('collection_id').limit(1);
+      if (error && isMissingCollectionIdColumnError(error.message)) {
+        useLegacyRecordsSchema();
+        return 'legacy' as const;
+      }
+      recordsSchemaMode = 'scoped';
+      return 'scoped' as const;
+    })();
+  }
+
+  const mode = await recordsSchemaProbe;
+  return mode === 'scoped';
+}
+
+async function ensureRecordsSchemaProbed(): Promise<void> {
+  await probeRecordsSchema();
+}
 
 export type FetchRecordsOptions = {
   userId?: string;
@@ -15,6 +75,10 @@ export type FetchRecordsOptions = {
   collectionId?: string;
   /** Personal crate id — used to include legacy rows with null collection_id. */
   personalCollectionId?: string;
+  /** Skip tracklist JSON — much faster for 1k+ record guest crates. */
+  summaryOnly?: boolean;
+  /** When this returns false, pagination stops (stale crate switch). */
+  shouldContinue?: () => boolean;
 };
 
 export type PersistRecordOptions = {
@@ -25,7 +89,7 @@ export type PersistRecordOptions = {
 export type RecordRow = {
   id: string;
   user_id: string;
-  collection_id: string | null;
+  collection_id?: string | null;
   title: string;
   artist: string;
   year: string | number | null;
@@ -52,6 +116,44 @@ export type FetchRecordsResult =
 export type AddRecordResult =
   | { data: VinylRecord; error: null }
   | { data: null; error: RecordsError };
+
+export type AddRecordsBatchResult =
+  | { data: VinylRecord[]; error: null; failed: number }
+  | { data: VinylRecord[] | null; error: RecordsError; failed: number };
+
+const INSERT_BATCH_SIZE = 15;
+/** PostgREST defaults to 1000 rows — paginate so large guest crates load fully. */
+const FETCH_PAGE_SIZE = 500;
+
+let inFlightFetch: Promise<FetchRecordsResult> | null = null;
+let inFlightFetchKey = '';
+
+type PageQueryResult = { data: unknown[] | null; error: { message: string } | null };
+
+async function fetchAllPages(
+  fetchPage: (from: number, to: number) => Promise<PageQueryResult>,
+  shouldContinue?: () => boolean
+): Promise<{ rows: RecordRow[]; error: RecordsError | null }> {
+  const rows: RecordRow[] = [];
+  let offset = 0;
+
+  while (true) {
+    if (shouldContinue && !shouldContinue()) {
+      return { rows: [], error: { message: 'Fetch cancelled' } };
+    }
+    const { data, error } = await fetchPage(offset, offset + FETCH_PAGE_SIZE - 1);
+    if (error) {
+      return { rows: [], error: toRecordsError(error) };
+    }
+
+    const page = (data ?? []) as RecordRow[];
+    rows.push(...page);
+    if (page.length < FETCH_PAGE_SIZE) break;
+    offset += FETCH_PAGE_SIZE;
+  }
+
+  return { rows, error: null };
+}
 
 export type DeleteRecordResult =
   | { data: true; error: null }
@@ -112,8 +214,8 @@ function primaryTrackBpm(tracks: Track[]): number | null {
   return primary?.bpm ?? null;
 }
 
-function rowToRecord(row: RecordRow): VinylRecord {
-  const tracks = parseTracklist(row.tracklist);
+function rowToRecord(row: RecordRow, summaryOnly = false): VinylRecord {
+  const tracks = summaryOnly ? [] : parseTracklist(row.tracklist);
   return migrateRecord({
     id: row.id,
     artist: row.artist,
@@ -130,15 +232,20 @@ function rowToRecord(row: RecordRow): VinylRecord {
   });
 }
 
+type RecordWriteRow = Omit<RecordRow, 'id' | 'created_at'> & {
+  id?: string;
+  created_at?: string;
+  collection_id?: string | null;
+};
+
 function recordToRow(
   record: VinylRecord,
   userId: string,
   collectionId?: string
-): Omit<RecordRow, 'id' | 'created_at'> & { id?: string; created_at?: string } {
+): RecordWriteRow {
   const tracks = record.tracks ?? [];
-  const row: Omit<RecordRow, 'id' | 'created_at'> & { id?: string; created_at?: string } = {
+  const row: RecordWriteRow = {
     user_id: userId,
-    collection_id: collectionId ?? record.collectionId ?? null,
     title: record.title,
     artist: record.artist,
     year: record.year ?? null,
@@ -153,6 +260,10 @@ function recordToRow(
     created_at: record.addedAt,
   };
 
+  if (supportsCollectionIdColumn()) {
+    row.collection_id = collectionId ?? record.collectionId ?? null;
+  }
+
   if (isPersistedRecordId(record.id)) {
     row.id = record.id;
   }
@@ -163,10 +274,9 @@ function recordToRow(
 function recordToUpdatePayload(
   record: VinylRecord,
   userId: string
-): Omit<RecordRow, 'id' | 'user_id' | 'created_at'> {
+): Partial<Omit<RecordRow, 'id' | 'user_id' | 'created_at'>> {
   const row = recordToRow(record, userId, record.collectionId);
-  return {
-    collection_id: row.collection_id,
+  const payload: Partial<Omit<RecordRow, 'id' | 'user_id' | 'created_at'>> = {
     title: row.title,
     artist: row.artist,
     year: row.year,
@@ -179,69 +289,154 @@ function recordToUpdatePayload(
     bpm: row.bpm,
     barcode: row.barcode,
   };
+
+  if (supportsCollectionIdColumn() && row.collection_id !== undefined) {
+    payload.collection_id = row.collection_id;
+  }
+
+  return payload;
+}
+
+async function fetchAllUserRecords(
+  uid: string,
+  options?: Pick<FetchRecordsOptions, 'summaryOnly' | 'shouldContinue'>
+): Promise<FetchRecordsResult> {
+  const summaryOnly = options?.summaryOnly ?? false;
+  const { rows, error } = await fetchAllPages(async (from, to) => {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select(selectColumns(summaryOnly))
+      .eq('user_id', uid)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+    return { data, error };
+  }, options?.shouldContinue);
+
+  if (error) {
+    if (recordsSchemaMode !== 'legacy' && isMissingCollectionIdColumnError(error.message)) {
+      useLegacyRecordsSchema();
+      return fetchAllUserRecords(uid);
+    }
+    return { data: null, error };
+  }
+
+  const records = rows.map((row) => rowToRecord(row, summaryOnly));
+  return { data: records, error: null };
+}
+
+async function fetchScopedRecords(
+  uid: string,
+  collectionId: string,
+  personalCollectionId?: string,
+  options?: Pick<FetchRecordsOptions, 'summaryOnly' | 'shouldContinue'>
+): Promise<FetchRecordsResult> {
+  const summaryOnly = options?.summaryOnly ?? false;
+  const scoped = await fetchAllPages(async (from, to) => {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select(selectColumns(summaryOnly))
+      .eq('user_id', uid)
+      .eq('collection_id', collectionId)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+    return { data, error };
+  }, options?.shouldContinue);
+
+  if (scoped.error) {
+    if (isMissingCollectionIdColumnError(scoped.error.message)) {
+      useLegacyRecordsSchema();
+      return fetchAllUserRecords(uid);
+    }
+    return { data: null, error: scoped.error };
+  }
+
+  let legacyRows: RecordRow[] = [];
+  if (personalCollectionId && collectionId === personalCollectionId) {
+    const legacy = await fetchAllPages(async (from, to) => {
+      const { data, error } = await supabase
+        .from(TABLE)
+        .select(selectColumns(summaryOnly))
+        .eq('user_id', uid)
+        .is('collection_id', null)
+        .order('created_at', { ascending: false })
+        .range(from, to);
+      return { data, error };
+    }, options?.shouldContinue);
+
+    if (legacy.error) {
+      if (isMissingCollectionIdColumnError(legacy.error.message)) {
+        useLegacyRecordsSchema();
+        return fetchAllUserRecords(uid);
+      }
+      return { data: null, error: legacy.error };
+    }
+    legacyRows = legacy.rows;
+  }
+
+  const merged = [...scoped.rows, ...legacyRows];
+  const seen = new Set<string>();
+  const records = merged
+    .filter((row) => {
+      if (seen.has(row.id)) return false;
+      seen.add(row.id);
+      return true;
+    })
+    .map((row) => rowToRecord(row, summaryOnly));
+
+  return { data: records, error: null };
+}
+
+function fetchKey(options?: FetchRecordsOptions | string): string {
+  if (typeof options === 'string') return `user:${options}`;
+  const o = options ?? {};
+  return [
+    o.userId ?? 'session',
+    o.collectionId ?? 'all',
+    o.personalCollectionId ?? '',
+    o.summaryOnly ? 'summary' : 'full',
+  ].join('|');
 }
 
 /** Fetch records for the current user, optionally scoped to a crate. */
 export async function fetchRecords(
   options?: FetchRecordsOptions | string
 ): Promise<FetchRecordsResult> {
-  const resolved: FetchRecordsOptions =
-    typeof options === 'string' ? { userId: options } : (options ?? {});
-
-  try {
-    const uid = await resolveUserId(resolved.userId);
-    const { collectionId, personalCollectionId } = resolved;
-
-    if (collectionId) {
-      const [scoped, legacy] = await Promise.all([
-        supabase
-          .from(TABLE)
-          .select(RECORD_COLUMNS)
-          .eq('user_id', uid)
-          .eq('collection_id', collectionId)
-          .order('created_at', { ascending: false }),
-        personalCollectionId && collectionId === personalCollectionId
-          ? supabase
-              .from(TABLE)
-              .select(RECORD_COLUMNS)
-              .eq('user_id', uid)
-              .is('collection_id', null)
-              .order('created_at', { ascending: false })
-          : Promise.resolve({ data: [], error: null }),
-      ]);
-
-      if (scoped.error) return { data: null, error: toRecordsError(scoped.error) };
-      if (legacy.error) return { data: null, error: toRecordsError(legacy.error) };
-
-      const merged = [...(scoped.data ?? []), ...(legacy.data ?? [])] as RecordRow[];
-      const seen = new Set<string>();
-      const records = merged
-        .filter((row) => {
-          if (seen.has(row.id)) return false;
-          seen.add(row.id);
-          return true;
-        })
-        .map((row) => rowToRecord(row));
-
-      return { data: records, error: null };
-    }
-
-    const { data, error } = await supabase
-      .from(TABLE)
-      .select(RECORD_COLUMNS)
-      .eq('user_id', uid)
-      .order('created_at', { ascending: false });
-
-    if (error) return { data: null, error: toRecordsError(error) };
-
-    const records = (data ?? []).map((row) => rowToRecord(row as RecordRow));
-    return { data: records, error: null };
-  } catch (err) {
-    return {
-      data: null,
-      error: { message: err instanceof Error ? err.message : 'Failed to fetch records' },
-    };
+  const key = fetchKey(options);
+  if (inFlightFetch && inFlightFetchKey === key) {
+    return inFlightFetch;
   }
+
+  const run = async (): Promise<FetchRecordsResult> => {
+    const resolved: FetchRecordsOptions =
+      typeof options === 'string' ? { userId: options } : (options ?? {});
+
+    try {
+      await ensureRecordsSchemaProbed();
+      const uid = await resolveUserId(resolved.userId);
+      const { collectionId, personalCollectionId, summaryOnly, shouldContinue } = resolved;
+      const pageOpts = { summaryOnly, shouldContinue };
+
+      if (collectionId && supportsCollectionIdColumn()) {
+        return fetchScopedRecords(uid, collectionId, personalCollectionId, pageOpts);
+      }
+
+      return fetchAllUserRecords(uid, pageOpts);
+    } catch (err) {
+      return {
+        data: null,
+        error: { message: err instanceof Error ? err.message : 'Failed to fetch records' },
+      };
+    }
+  };
+
+  inFlightFetchKey = key;
+  inFlightFetch = run().finally(() => {
+    if (inFlightFetchKey === key) {
+      inFlightFetch = null;
+      inFlightFetchKey = '';
+    }
+  });
+  return inFlightFetch;
 }
 
 /** Insert a record scoped to the current user (or an explicit user id). */
@@ -250,25 +445,88 @@ export async function addRecord(
   options?: PersistRecordOptions
 ): Promise<AddRecordResult> {
   try {
+    await ensureRecordsSchemaProbed();
     const uid = await resolveUserId(options?.userId);
     const payload = recordToRow(record, uid, options?.collectionId ?? record.collectionId);
 
     const { data, error } = await supabase
       .from(TABLE)
       .insert(payload)
-      .select(RECORD_COLUMNS)
+      .select(selectColumns())
       .single();
 
-    if (error) return { data: null, error: toRecordsError(error) };
+    if (error) {
+      if (recordsSchemaMode !== 'legacy' && isMissingCollectionIdColumnError(error.message)) {
+        useLegacyRecordsSchema();
+        return addRecord(record, options);
+      }
+      return { data: null, error: toRecordsError(error) };
+    }
 
     return {
-      data: rowToRecord(data as RecordRow),
+      data: rowToRecord(data as unknown as RecordRow),
       error: null,
     };
   } catch (err) {
     return {
       data: null,
       error: { message: err instanceof Error ? err.message : 'Failed to add record' },
+    };
+  }
+}
+
+/** Insert many records in bounded batches (bulk Discogs import). */
+export async function addRecordsBatch(
+  records: VinylRecord[],
+  options?: PersistRecordOptions
+): Promise<AddRecordsBatchResult> {
+  if (records.length === 0) {
+    return { data: [], error: null, failed: 0 };
+  }
+
+  try {
+    await ensureRecordsSchemaProbed();
+    const uid = await resolveUserId(options?.userId);
+    const targetCollectionId = options?.collectionId;
+    const saved: VinylRecord[] = [];
+    let failed = 0;
+
+    for (let i = 0; i < records.length; i += INSERT_BATCH_SIZE) {
+      const chunk = records.slice(i, i + INSERT_BATCH_SIZE);
+      const payloads = chunk.map((record) =>
+        recordToRow(record, uid, targetCollectionId ?? record.collectionId)
+      );
+
+      const { data, error } = await supabase
+        .from(TABLE)
+        .insert(payloads)
+        .select(selectColumns());
+
+      if (error) {
+        if (recordsSchemaMode !== 'legacy' && isMissingCollectionIdColumnError(error.message)) {
+          useLegacyRecordsSchema();
+          return addRecordsBatch(records, options);
+        }
+
+        for (const record of chunk) {
+          const single = await addRecord(record, options);
+          if (single.data) saved.push(single.data);
+          else failed += 1;
+        }
+        continue;
+      }
+
+      const rows = (data ?? []) as unknown as RecordRow[];
+      saved.push(...rows.map((row) => rowToRecord(row)));
+      failed += chunk.length - rows.length;
+    }
+
+    return { data: saved, error: null, failed };
+  } catch (err) {
+    return {
+      data: null,
+      error: { message: err instanceof Error ? err.message : 'Failed to add records' },
+      failed: records.length,
     };
   }
 }
@@ -286,18 +544,25 @@ export async function updateRecord(
     const uid = await resolveUserId(options?.userId);
     const payload = recordToUpdatePayload(record, uid);
 
+    await ensureRecordsSchemaProbed();
     const { data, error } = await supabase
       .from(TABLE)
       .update(payload)
       .eq('id', record.id)
       .eq('user_id', uid)
-      .select(RECORD_COLUMNS)
+      .select(selectColumns())
       .single();
 
-    if (error) return { data: null, error: toRecordsError(error) };
+    if (error) {
+      if (recordsSchemaMode !== 'legacy' && isMissingCollectionIdColumnError(error.message)) {
+        useLegacyRecordsSchema();
+        return updateRecord(record, options);
+      }
+      return { data: null, error: toRecordsError(error) };
+    }
 
     return {
-      data: rowToRecord(data as RecordRow),
+      data: rowToRecord(data as unknown as RecordRow),
       error: null,
     };
   } catch (err) {
@@ -313,18 +578,38 @@ export async function fetchDiscogsIdsForCollection(
   collectionId: string
 ): Promise<number[]> {
   try {
-    const uid = await resolveUserId();
-    const { data, error } = await supabase
-      .from(TABLE)
-      .select('discogs_id')
-      .eq('user_id', uid)
-      .eq('collection_id', collectionId)
-      .not('discogs_id', 'is', null);
+    await ensureRecordsSchemaProbed();
+    if (!supportsCollectionIdColumn()) {
+      const result = await fetchRecords();
+      if (result.error || !result.data) return [];
+      return result.data
+        .map((record) => record.discogsId)
+        .filter((id): id is number => id != null);
+    }
 
-    if (error) return [];
-    return (data ?? [])
-      .map((row) => (row as { discogs_id: number | null }).discogs_id)
-      .filter((id): id is number => id != null);
+    const uid = await resolveUserId();
+    const ids: number[] = [];
+    let offset = 0;
+
+    while (true) {
+      const { data, error } = await supabase
+        .from(TABLE)
+        .select('discogs_id')
+        .eq('user_id', uid)
+        .eq('collection_id', collectionId)
+        .not('discogs_id', 'is', null)
+        .range(offset, offset + FETCH_PAGE_SIZE - 1);
+
+      if (error) return ids;
+      const page = (data ?? [])
+        .map((row) => (row as { discogs_id: number | null }).discogs_id)
+        .filter((id): id is number => id != null);
+      ids.push(...page);
+      if (page.length < FETCH_PAGE_SIZE) break;
+      offset += FETCH_PAGE_SIZE;
+    }
+
+    return ids;
   } catch {
     return [];
   }
@@ -361,4 +646,42 @@ export async function deleteRecord(
       error: { message: err instanceof Error ? err.message : 'Failed to delete record' },
     };
   }
+}
+
+export type GuestTracklistProbeResult = {
+  sampled: number;
+  multiTrack: number;
+  looksEnriched: boolean;
+};
+
+/** Sample DB rows to see if guest tracklist enrich was persisted (uses auth session). */
+export async function probeGuestTracklistsPersisted(
+  collectionId: string,
+  sampleSize = 48
+): Promise<GuestTracklistProbeResult> {
+  await ensureRecordsSchemaProbed();
+  if (!supportsCollectionIdColumn()) {
+    return { sampled: 0, multiTrack: 0, looksEnriched: false };
+  }
+
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('tracklist')
+    .eq('collection_id', collectionId)
+    .not('discogs_id', 'is', null)
+    .limit(sampleSize);
+
+  if (error || !data?.length) {
+    return { sampled: 0, multiTrack: 0, looksEnriched: false };
+  }
+
+  let multiTrack = 0;
+  for (const row of data) {
+    const tracks = Array.isArray(row.tracklist) ? row.tracklist : [];
+    if (tracks.length > 1) multiTrack += 1;
+  }
+
+  const sampled = data.length;
+  const looksEnriched = sampled >= 8 && multiTrack / sampled >= 0.65;
+  return { sampled, multiTrack, looksEnriched };
 }

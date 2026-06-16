@@ -21,6 +21,10 @@ export function mergePreservingTrackEnrichment(
   return next.map((n) => {
     const p = prevById.get(n.id) ?? (n.discogsId != null ? prevByDiscogsId.get(n.discogsId) : undefined);
     if (!p) return migrateRecord(n);
+    // summaryOnly fetch returns tracks:[] — keep in-memory enrichment instead of wiping
+    if (n.tracks.length <= 1 && p.tracks.length > 1) {
+      return migrateRecord({ ...n, tracks: p.tracks });
+    }
     return migrateRecord(mergeEnrichedTracksIntoRelease(n, p.tracks));
   });
 }
@@ -84,10 +88,13 @@ async function enrichRecordPrimary(record: VinylRecord): Promise<VinylRecord> {
 }
 
 export interface BackgroundMigrationCallbacks {
-  onRecordsChange: (records: VinylRecord[]) => void;
+  onRecordsChange: (records: VinylRecord[], changedRecordId?: string) => void;
   onStatus: (status: BackgroundSyncState) => void;
   isCancelled: () => boolean;
 }
+
+/** Auto tracklist refresh on startup is only safe for small collections. */
+export const LARGE_COLLECTION_AUTO_MIGRATION_MAX = 80;
 
 /**
  * Runs after the UI is interactive. Updates records incrementally; never blocks first paint.
@@ -104,43 +111,48 @@ export async function runBackgroundMigrations(
 
     if (!isForceTracklistRefreshDone()) {
       const targets = records.filter((r) => r.discogsId != null);
-      let done = 0;
 
-      onStatus({
-        phase: 'tracklists',
-        message: 'Updating tracklists…',
-        completed: 0,
-        total: targets.length,
-      });
+      if (targets.length > LARGE_COLLECTION_AUTO_MIGRATION_MAX) {
+        markForceTracklistRefreshDone();
+      } else {
+        let done = 0;
 
-      const working = [...records];
-      for (let i = 0; i < working.length; i++) {
-        if (isCancelled()) return;
-
-        const record = working[i];
-        if (!record.discogsId) continue;
-
-        try {
-          const discogs = await fetchDiscogsRelease(record.discogsId);
-          working[i] = mergeDiscogsTracklistIntoRecord(record, discogs);
-        } catch {
-          /* keep existing row */
-        }
-
-        done += 1;
-        records = [...working];
-        onRecordsChange(records);
         onStatus({
           phase: 'tracklists',
           message: 'Updating tracklists…',
-          completed: done,
+          completed: 0,
           total: targets.length,
         });
 
-        if (done < targets.length) await sleep(DISCOGS_FETCH_DELAY_MS);
-      }
+        const working = [...records];
+        for (let i = 0; i < working.length; i++) {
+          if (isCancelled()) return;
 
-      markForceTracklistRefreshDone();
+          const record = working[i];
+          if (!record.discogsId) continue;
+
+          try {
+            const discogs = await fetchDiscogsRelease(record.discogsId);
+            working[i] = mergeDiscogsTracklistIntoRecord(record, discogs);
+          } catch {
+            /* keep existing row */
+          }
+
+          done += 1;
+          records = [...working];
+          onRecordsChange(records, record.id);
+          onStatus({
+            phase: 'tracklists',
+            message: 'Updating tracklists…',
+            completed: done,
+            total: targets.length,
+          });
+
+          if (done < targets.length) await sleep(DISCOGS_FETCH_DELAY_MS);
+        }
+
+        markForceTracklistRefreshDone();
+      }
     }
 
     if (!isTrackEnrichMigrationDone() && !isCancelled()) {
@@ -162,7 +174,7 @@ export async function runBackgroundMigrations(
           const record = batch[i];
           const updated = await enrichRecordPrimary(record);
           records = records.map((r) => (r.id === record.id ? updated : r));
-          onRecordsChange(records);
+          onRecordsChange(records, record.id);
           onStatus({
             phase: 'enriching',
             message: 'Enriching tracks…',

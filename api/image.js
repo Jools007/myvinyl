@@ -7,9 +7,21 @@ function readEnv(key) {
   const trimmed = value.trim();
   return trimmed || void 0;
 }
+function readDiscogsOAuth() {
+  const consumerKey = readEnv("DISCOGS_CONSUMER_KEY");
+  const consumerSecret = readEnv("DISCOGS_CONSUMER_SECRET");
+  if (!consumerKey || !consumerSecret) return void 0;
+  return {
+    consumerKey,
+    consumerSecret,
+    accessToken: readEnv("DISCOGS_OAUTH_ACCESS_TOKEN"),
+    accessTokenSecret: readEnv("DISCOGS_OAUTH_ACCESS_TOKEN_SECRET")
+  };
+}
 function getApiEnv() {
   return {
     discogsToken: readEnv("DISCOGS_TOKEN"),
+    discogsOAuth: readDiscogsOAuth(),
     spotifyId: readEnv("SPOTIFY_CLIENT_ID"),
     spotifySecret: readEnv("SPOTIFY_CLIENT_SECRET"),
     lastfmKey: readEnv("LASTFM_API_KEY"),
