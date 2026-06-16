@@ -27,6 +27,8 @@ import { EmptyCollection } from './components/EmptyCollection';
 import { ClearCollectionModal } from './components/ClearCollectionModal';
 import { EnrichMetadataModal } from './components/EnrichMetadataModal';
 import { EnrichTracklistsModal } from './components/EnrichTracklistsModal';
+import { GuestCrateBanner } from './components/crates/GuestCrateBanner';
+import { ImportCrateModal } from './components/crates/ImportCrateModal';
 import { DiscogsImportModal } from './components/DiscogsImportModal';
 import { DiscoverAddPanel } from './components/DiscoverAddPanel';
 import { InsightsDashboard } from './components/InsightsDashboard';
@@ -58,6 +60,9 @@ import { useAppRouter } from './hooks/useAppRouter';
 import { getLastPlayed } from './lib/recommendations';
 import { useAuth } from './contexts/AuthContext';
 import { useCollection } from './hooks/useCollection';
+import { useCollections } from './hooks/useCollections';
+import { isPersonalCrate } from './lib/collectionContext';
+import { fetchDiscogsIdsForCollection } from './lib/records';
 
 import { normalizeGenre, normalizeVibe, parseFilterList } from './lib/filterLabels';
 import { collectGroupedGenreOptions, recordMatchesGroupedGenre } from './lib/genreGroups';
@@ -88,6 +93,24 @@ function collectionDisplayName(email?: string | null): string {
 
 function App() {
   const { user, loading: authLoading } = useAuth();
+  const crates = useCollections();
+  const collectionScope = useMemo(
+    () =>
+      crates.available && crates.activeCrate
+        ? {
+            collectionId: crates.activeCrate.id,
+            personalCollectionId: crates.personalCrate?.id ?? null,
+            readOnly: crates.isGuestView,
+          }
+        : undefined,
+    [
+      crates.available,
+      crates.activeCrate,
+      crates.personalCrate?.id,
+      crates.isGuestView,
+    ]
+  );
+
   const {
     records,
     settings,
@@ -112,7 +135,7 @@ function App() {
     collectionError,
     collectionHydrated,
     retryCollectionLoad,
-  } = useCollection();
+  } = useCollection(collectionScope);
 
   const router = useAppRouter();
   const page = router.location.page;
@@ -126,6 +149,7 @@ function App() {
   const [detailSession, setDetailSession] = useState(0);
   const [labelSelection, setLabelSelection] = useState<Set<string>>(new Set());
   const [discogsImportOpen, setDiscogsImportOpen] = useState(false);
+  const [personalDiscogsIds, setPersonalDiscogsIds] = useState<number[]>([]);
   const [clearCollectionOpen, setClearCollectionOpen] = useState(false);
   const [enrichTracklistsOpen, setEnrichTracklistsOpen] = useState(false);
   const [enrichMetadataOpen, setEnrichMetadataOpen] = useState(false);
@@ -170,6 +194,23 @@ function App() {
     () => records.map((r) => r.discogsId).filter((id): id is number => id != null),
     [records]
   );
+
+  useEffect(() => {
+    if (!crates.personalCrate?.id) return;
+    void fetchDiscogsIdsForCollection(crates.personalCrate.id).then(setPersonalDiscogsIds);
+  }, [crates.personalCrate?.id, records.length, crates.isGuestView]);
+
+  useEffect(() => {
+    if (!crates.available) return;
+    crates.selectCrateBySlug(router.location.crateSlug);
+  }, [router.location.crateSlug, crates.available]);
+
+  useEffect(() => {
+    if (!crates.available || !crates.activeCrate) return;
+    const slug = crates.isGuestView ? crates.activeCrate.slug : null;
+    if (router.location.crateSlug === slug) return;
+    router.goToCrate(slug, { replace: true });
+  }, [crates.activeCrate?.slug, crates.isGuestView, crates.available]);
 
   const discogsLinkedCount = useMemo(() => countDiscogsLinkedRecords(records), [records]);
 
@@ -626,7 +667,8 @@ function App() {
 
   const handleDiscoverAdd = useCallback(
     (payload: DiscoverAddPayload) => {
-      const added = addRecord(payload.record);
+      const personalId = crates.personalCrate?.id;
+      const added = addRecord(payload.record, personalId);
       if (!added) return null;
 
       enqueueReleaseEnrichment(added);
@@ -639,8 +681,10 @@ function App() {
         return added;
       }
 
+      const guestNote =
+        crates.isGuestView ? ' Added to your personal crate.' : '';
       toast.success('Added to your crate', {
-        description: `${added.artist} — ${added.title}`,
+        description: `${added.artist} — ${added.title}${guestNote}`,
         action: {
           label: 'Load on deck',
           onClick: () => handlePlayNow(added, track),
@@ -648,17 +692,39 @@ function App() {
       });
       return added;
     },
-    [addRecord, enqueueReleaseEnrichment, handlePlayNow]
+    [addRecord, crates.isGuestView, crates.personalCrate?.id, enqueueReleaseEnrichment, handlePlayNow]
   );
 
   const handleNavigate = useCallback(
     (nextPage: typeof page) => {
       const playSelection =
         nextPage === 'play' && nowPlaying ? nowPlaying : router.location.playSelection;
-      router.goToPage(nextPage, playSelection);
+      const crateSlug =
+        nextPage === 'collection' && crates.isGuestView ? crates.activeCrate?.slug ?? null : null;
+      router.goToPage(nextPage, playSelection, { crateSlug });
     },
-    [nowPlaying, router]
+    [crates.activeCrate?.slug, crates.isGuestView, nowPlaying, router]
   );
+
+  const handleSelectCrate = useCallback(
+    (crate: (typeof crates.crates)[number]) => {
+      crates.selectCrate(crate);
+      router.goToCrate(isPersonalCrate(crate) ? null : crate.slug);
+    },
+    [crates, router]
+  );
+
+  const handleRemoveGuestCrate = useCallback(async () => {
+    if (!crates.activeCrate || !crates.isGuestView) return;
+    const name = crates.activeCrate.name;
+    const result = await crates.removeGuestCrate(crates.activeCrate.id);
+    if (result.error) {
+      toast.error('Could not remove guest crate', { description: result.error.message });
+      return;
+    }
+    router.goToCrate(null);
+    toast.success('Guest crate removed', { description: name });
+  }, [crates, router]);
 
   const handleAddRecord = useCallback(() => {
     discogsSearchRef.current?.focus();
@@ -705,7 +771,7 @@ function App() {
     );
   }
 
-  if (collectionLoading) {
+  if (collectionLoading || (crates.available && crates.loading)) {
     return (
       <>
         <CollectionLoading />
@@ -763,7 +829,21 @@ function App() {
               transition={{ duration: 0.15 }}
               className="collection-page"
             >
-              <CollectionHero recordCount={records.length} />
+              <CollectionHero
+                recordCount={records.length}
+                crates={crates.crates}
+                activeCrate={crates.activeCrate}
+                showCrateSwitcher={crates.available}
+                onSelectCrate={handleSelectCrate}
+                onImportGuest={() => setDiscogsImportOpen(true)}
+              />
+
+              {crates.isGuestView && crates.activeCrate ? (
+                <GuestCrateBanner
+                  crate={crates.activeCrate}
+                  onDelete={() => void handleRemoveGuestCrate()}
+                />
+              ) : null}
 
               <section id="collection-main" className="collection-main">
                 <CollectionFilters
@@ -779,7 +859,9 @@ function App() {
                   availableFormats={availableFormats}
                   availableGenres={availableGenres}
                   availableVibes={availableVibes}
-                  onResetCollection={() => setClearCollectionOpen(true)}
+                  onResetCollection={
+                    crates.isGuestView ? undefined : () => setClearCollectionOpen(true)
+                  }
                   onEnrichTracklists={() => setEnrichTracklistsOpen(true)}
                   enrichingTracklists={isFullTracklistEnrichmentRunning}
                   onEnrichMetadata={() => setEnrichMetadataOpen(true)}
@@ -809,6 +891,7 @@ function App() {
                   <CollectionListView
                     records={filtered}
                     liveEnrich={liveEnrich}
+                    readOnly={crates.isGuestView}
                     onPlayNow={handlePlayNow}
                     onAddToQueue={handleAddToQueue}
                     onEnrichRelease={handleEnrichRelease}
@@ -1057,25 +1140,91 @@ function App() {
         }}
       />
 
-      <DiscogsImportModal
-        open={discogsImportOpen}
-        onClose={() => setDiscogsImportOpen(false)}
-        existingDiscogsIds={discogsIds}
-        onImport={(incoming) => {
-          const { added, skipped } = importDiscogsCollection(incoming);
-          if (added > 0) {
-            toast.success(
-              added === 1 ? '1 record imported' : `${added} records imported`,
-              { description: skipped > 0 ? `${skipped} skipped (duplicate or CD)` : undefined }
+      {crates.available ? (
+        <ImportCrateModal
+          open={discogsImportOpen}
+          onClose={() => setDiscogsImportOpen(false)}
+          existingDiscogsIds={personalDiscogsIds}
+          resolveGuestExistingIds={async (discogsUsername) => {
+            const match = crates.guestCrates.find(
+              (c) => c.discogsUsername?.toLowerCase() === discogsUsername.trim().toLowerCase()
             );
-          } else {
-            toast.message('Nothing new to import', {
-              description: 'Your crate already has these releases, or they are CD-only.',
+            if (!match) return [];
+            return fetchDiscogsIdsForCollection(match.id);
+          }}
+          onImportPersonal={async (incoming) => {
+            const personalId = crates.personalCrate?.id;
+            if (!personalId) return { added: 0, skipped: incoming.length };
+            const { added, skipped } = await importDiscogsCollection(incoming, {
+              collectionId: personalId,
             });
-          }
-          return { added, skipped };
-        }}
-      />
+            if (added > 0) {
+              toast.success(
+                added === 1 ? '1 record imported' : `${added} records imported`,
+                { description: skipped > 0 ? `${skipped} skipped (duplicate or CD)` : undefined }
+              );
+              void fetchDiscogsIdsForCollection(personalId).then(setPersonalDiscogsIds);
+              if (!crates.isGuestView) {
+                void retryCollectionLoad();
+              }
+            } else {
+              toast.message('Nothing new to import', {
+                description: 'Your crate already has these releases, or they are CD-only.',
+              });
+            }
+            return { added, skipped };
+          }}
+          onImportGuest={async (incoming, { discogsUsername }) => {
+            const created = await crates.importGuestCrate(discogsUsername);
+            if (created.error || !created.data) {
+              return {
+                added: 0,
+                skipped: incoming.length,
+                error: created.error?.message ?? 'Could not create guest crate',
+              };
+            }
+            const { added, skipped, capped } = await importDiscogsCollection(incoming, {
+              collectionId: created.data.id,
+            });
+            await crates.bumpRecordCount(created.data.id);
+            router.goToCrate(created.data.slug);
+            if (added > 0) {
+              toast.success(
+                added === 1 ? '1 record imported' : `${added} records imported`,
+                {
+                  description:
+                    skipped > 0
+                      ? `${skipped} skipped${capped > 0 ? ` · capped at 1,000 vinyl` : ''}`
+                      : capped > 0
+                        ? 'Capped at 1,000 vinyl records'
+                        : undefined,
+                }
+              );
+            }
+            return { added, skipped };
+          }}
+        />
+      ) : (
+        <DiscogsImportModal
+          open={discogsImportOpen}
+          onClose={() => setDiscogsImportOpen(false)}
+          existingDiscogsIds={discogsIds}
+          onImport={async (incoming) => {
+            const { added, skipped } = await importDiscogsCollection(incoming);
+            if (added > 0) {
+              toast.success(
+                added === 1 ? '1 record imported' : `${added} records imported`,
+                { description: skipped > 0 ? `${skipped} skipped (duplicate or CD)` : undefined }
+              );
+            } else {
+              toast.message('Nothing new to import', {
+                description: 'Your crate already has these releases, or they are CD-only.',
+              });
+            }
+            return { added, skipped };
+          }}
+        />
+      )}
 
       <AppToaster />
     </div>

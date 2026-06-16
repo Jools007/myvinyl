@@ -1,10 +1,26 @@
 import { motion } from 'framer-motion';
+import { isGuestCrate, type CollectionCrate } from '../lib/collectionContext';
+import { CrateSwitcher } from './crates/CrateSwitcher';
 
 interface CollectionHeroProps {
   recordCount: number;
+  crates?: CollectionCrate[];
+  activeCrate?: CollectionCrate | null;
+  showCrateSwitcher?: boolean;
+  onSelectCrate?: (crate: CollectionCrate) => void;
+  onImportGuest?: () => void;
 }
 
-export function CollectionHero({ recordCount }: CollectionHeroProps) {
+export function CollectionHero({
+  recordCount,
+  crates = [],
+  activeCrate = null,
+  showCrateSwitcher = false,
+  onSelectCrate,
+  onImportGuest,
+}: CollectionHeroProps) {
+  const guest = activeCrate != null && isGuestCrate(activeCrate);
+
   return (
     <section
       id="collection-hero"
@@ -31,12 +47,28 @@ export function CollectionHero({ recordCount }: CollectionHeroProps) {
 
       <div className="collection-hero__copy">
         <motion.div initial={false} animate={{ opacity: 1, y: 0 }} className="collection-hero__copy-inner">
-          <p className="collection-hero__kicker">Personal crate</p>
-          <h1 className="collection-hero__title">Your collection</h1>
+          {showCrateSwitcher && onSelectCrate ? (
+            <div className="collection-hero__switcher">
+              <CrateSwitcher
+                crates={crates}
+                activeCrate={activeCrate}
+                onSelect={onSelectCrate}
+                onImportGuest={onImportGuest}
+              />
+            </div>
+          ) : null}
+          <p className="collection-hero__kicker">
+            {guest ? 'Guest crate' : 'Personal crate'}
+          </p>
+          <h1 className="collection-hero__title">
+            {guest ? activeCrate?.name ?? 'Guest crate' : 'Your collection'}
+          </h1>
           <p className="collection-hero__meta">
             {recordCount > 0
               ? `${recordCount} records — filter below or search Discogs in the header.`
-              : 'Search Discogs in the header, auto-fill BPM & Camelot keys, and build a crate that mixes itself.'}
+              : guest
+                ? 'Import a public Discogs collection to demo insights, play, PDF, and labels.'
+                : 'Search Discogs in the header, auto-fill BPM & Camelot keys, and build a crate that mixes itself.'}
           </p>
         </motion.div>
       </div>

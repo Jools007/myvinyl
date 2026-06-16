@@ -8,14 +8,21 @@ import type { VinylRecord } from '../lib/types';
 
 type Step = 'username' | 'confirm' | 'importing' | 'done';
 
+export type DiscogsImportCopyVariant = 'personal' | 'guest';
+
 interface DiscogsImportModalProps {
   open: boolean;
   onClose: () => void;
   existingDiscogsIds: number[];
-  onImport: (records: Omit<VinylRecord, 'id' | 'addedAt'>[]) => {
-    added: number;
-    skipped: number;
-  };
+  copyVariant?: DiscogsImportCopyVariant;
+  /** Guest imports: resolve existing Discogs ids for the target crate (by username). */
+  resolveExistingIds?: (discogsUsername: string) => Promise<number[]>;
+  onImport: (
+    records: Omit<VinylRecord, 'id' | 'addedAt'>[],
+    context: { discogsUsername: string }
+  ) =>
+    | Promise<{ added: number; skipped: number }>
+    | { added: number; skipped: number };
 }
 
 const USERNAME_RE = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -24,8 +31,11 @@ export function DiscogsImportModal({
   open,
   onClose,
   existingDiscogsIds,
+  copyVariant = 'personal',
+  resolveExistingIds,
   onImport,
 }: DiscogsImportModalProps) {
+  const isGuest = copyVariant === 'guest';
   const [step, setStep] = useState<Step>('username');
   const [username, setUsername] = useState('');
   const [error, setError] = useState('');
@@ -89,7 +99,10 @@ export function DiscogsImportModal({
     setStep('importing');
     setError('');
 
-    const existing = new Set(existingDiscogsIds);
+    const resolvedIds = resolveExistingIds
+      ? await resolveExistingIds(trimmed)
+      : existingDiscogsIds;
+    const existing = new Set(resolvedIds);
     const rowsToImport: DiscogsCollectionReleasePayload[] = [];
     let page = 1;
     let pages = 1;
@@ -138,7 +151,7 @@ export function DiscogsImportModal({
         }));
       });
 
-      const { added, skipped } = onImport(payloads);
+      const { added, skipped } = await onImport(payloads, { discogsUsername: trimmed });
 
       setResult({
         added,
@@ -190,14 +203,15 @@ export function DiscogsImportModal({
           {step === 'username' && (
             <>
               <h2 id="discogs-import-title" className="discogs-import-modal__title">
-                Import from Discogs
+                {isGuest ? "Import friend's Discogs" : 'Import from Discogs'}
               </h2>
               <p className="discogs-import-modal__lead">
-                Pull your public Discogs collection into MyVinyl — vinyl releases only, with
-                artwork and metadata.
+                {isGuest
+                  ? "Pull a friend's public Discogs collection into a separate guest crate — vinyl only, up to 1,000 records."
+                  : 'Pull your public Discogs collection into MyVinyl — vinyl releases only, with artwork and metadata.'}
               </p>
               <label htmlFor="discogs-username" className="discogs-import-modal__label">
-                Discogs username
+                {isGuest ? "Friend's Discogs username" : 'Discogs username'}
               </label>
               <input
                 id="discogs-username"
@@ -233,9 +247,18 @@ export function DiscogsImportModal({
                 Import collection?
               </h2>
               <p className="discogs-import-modal__lead">
-                This will import your entire Discogs collection for{' '}
-                <strong className="text-[var(--text)]">{username.trim()}</strong> into MyVinyl.
-                Records already in your crate will be skipped.
+                {isGuest ? (
+                  <>
+                    Import <strong className="text-[var(--text)]">{username.trim()}</strong> into a
+                    new guest crate. Duplicates in that crate will be skipped.
+                  </>
+                ) : (
+                  <>
+                    This will import your entire Discogs collection for{' '}
+                    <strong className="text-[var(--text)]">{username.trim()}</strong> into MyVinyl.
+                    Records already in your crate will be skipped.
+                  </>
+                )}
               </p>
               {error ? <p className="discogs-import-modal__error">{error}</p> : null}
               <div className="discogs-import-modal__actions">

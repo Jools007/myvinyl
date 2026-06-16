@@ -93,6 +93,8 @@ export interface VinylRecord {
   addedAt: string;
   /** `discogs-import` = bulk Discogs collection import; otherwise manual/search adds */
   addSource?: RecordAddSource;
+  /** Supabase collections scope — personal or guest crate */
+  collectionId?: string;
 }
 
 /** Track at id */

@@ -43,24 +43,33 @@ Track what shipped, when, and how to verify. Newest first.
 ---
 
 ### Phase 1 — Guest crates (demo mode)
-**Commit:** _pending_ · **Prod:** no · **DB migration:** no (uses Phase 0)
+**Commit:** _pending_ · **Prod:** no · **DB migration:** required (Phase 0 first)
 
 **Shipped**
-- Crate switcher (collection hero)
-- Guest crate banner
-- Import friend's Discogs → guest crate
+- `src/lib/collections.ts` + `useCollections` + scoped `useCollection`
+- Crate switcher in collection hero
+- Guest crate banner + remove guest crate
+- Import modal: personal vs friend's Discogs
+- URLs: `/crates/:slug` (personal stays `/collection`)
 - 1,000 vinyl cap · 5 guest crates cap
-- Scoped enrich, insights, play, PDF, labels
-- Add/barcode/clear guarded to personal crate
+- Guest mode: enrich/play/PDF/labels/insights OK; add/delete/clear blocked
+- Discogs adds from header go to personal crate while viewing guest
+- Graceful fallback if `collections` table missing (legacy behavior)
+
+**Deploy order**
+1. Run `supabase/migrations/20260616100000_guest_crates_phase0.sql`
+2. Run `supabase/migrations/20260616100001_backfill_personal_crates.sql`
+3. Verify prod still loads on **old** bundle (optional)
+4. `npm run build` → `vercel --prod`
 
 **Verify**
-- [ ] Personal crate byte-for-byte behavior vs pre-deploy
-- [ ] Guest import does not appear in personal crate
-- [ ] Switching crates updates insights + collection list
-- [ ] PDF/labels title uses guest crate name
+- [ ] Personal crate unchanged at `/collection`
+- [ ] Guest import → `/crates/:slug` isolated from personal
+- [ ] Switcher + insights scoped to active crate
+- [ ] Remove guest crate returns to personal
 
 **Rollback**
-- Redeploy previous Vercel build; guest data remains in DB
+- Redeploy previous Vercel build; guest rows remain in DB
 
 ---
 

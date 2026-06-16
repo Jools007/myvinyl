@@ -1,4 +1,5 @@
 import type { NavPage } from '../components/Navigation';
+import { PERSONAL_CRATE_SLUG } from './collectionContext';
 import { isPersistedRecordId } from './records';
 import type { PlaySelection } from './playSession';
 
@@ -7,6 +8,8 @@ export interface AppLocation {
   playSelection: PlaySelection | null;
   releaseId: string | null;
   releaseEdit: boolean;
+  /** Guest crate slug from /crates/:slug — null means personal crate. */
+  crateSlug: string | null;
 }
 
 const PAGE_PATHS: Record<NavPage, string> = {
@@ -57,8 +60,13 @@ export function parseAppLocation(
 
   let page: NavPage = PATH_TO_PAGE[pathname] ?? 'collection';
   let playSelection: PlaySelection | null = null;
+  let crateSlug: string | null = null;
 
-  if (segments[0] === 'play') {
+  if (segments[0] === 'crates' && segments[1]) {
+    page = 'collection';
+    const raw = decodeSegment(segments[1]);
+    crateSlug = raw === PERSONAL_CRATE_SLUG ? null : raw;
+  } else if (segments[0] === 'play') {
     page = 'play';
     if (segments.length >= 3) {
       const recordId = decodeSegment(segments[1]);
@@ -78,7 +86,7 @@ export function parseAppLocation(
   const releaseId = releaseIdRaw && isValidRecordId(releaseIdRaw) ? releaseIdRaw : null;
   const releaseEdit = releaseId != null && params.get('edit') === '1';
 
-  return { page, playSelection, releaseId, releaseEdit };
+  return { page, playSelection, releaseId, releaseEdit, crateSlug };
 }
 
 export function readAppLocation(): AppLocation {
@@ -88,6 +96,7 @@ export function readAppLocation(): AppLocation {
       playSelection: null,
       releaseId: null,
       releaseEdit: false,
+      crateSlug: null,
     };
   }
   return parseAppLocation(window.location.pathname, window.location.search);
@@ -112,6 +121,7 @@ export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
     a.page === b.page &&
     a.releaseId === b.releaseId &&
     a.releaseEdit === b.releaseEdit &&
+    a.crateSlug === b.crateSlug &&
     playSelectionsEqual(a.playSelection, b.playSelection)
   );
 }
@@ -119,7 +129,9 @@ export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
 export function buildAppHref(location: AppLocation): string {
   let pathname = PAGE_PATHS[location.page];
 
-  if (location.page === 'play' && location.playSelection) {
+  if (location.page === 'collection' && location.crateSlug) {
+    pathname = `/crates/${encodeURIComponent(location.crateSlug)}`;
+  } else if (location.page === 'play' && location.playSelection) {
     const { recordId, trackId } = location.playSelection;
     pathname = `/play/${encodeURIComponent(recordId)}/${encodeURIComponent(trackId)}`;
   }
@@ -140,6 +152,7 @@ export function locationForPage(
     playSelection?: PlaySelection | null;
     releaseId?: string | null;
     releaseEdit?: boolean;
+    crateSlug?: string | null;
   }
 ): AppLocation {
   return {
@@ -147,6 +160,7 @@ export function locationForPage(
     playSelection: page === 'play' ? (options?.playSelection ?? null) : null,
     releaseId: options?.releaseId ?? null,
     releaseEdit: options?.releaseEdit ?? false,
+    crateSlug: page === 'collection' ? (options?.crateSlug ?? null) : null,
   };
 }
 

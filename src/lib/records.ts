@@ -7,11 +7,25 @@ import type { RecordCondition, Track, VinylRecord } from './types';
 const TABLE = 'records';
 
 const RECORD_COLUMNS =
-  'id,user_id,title,artist,year,format,genre,cover_image,tracklist,condition,discogs_id,bpm,barcode,created_at';
+  'id,user_id,collection_id,title,artist,year,format,genre,cover_image,tracklist,condition,discogs_id,bpm,barcode,created_at';
+
+export type FetchRecordsOptions = {
+  userId?: string;
+  /** When set, returns records for this crate (plus legacy null rows for personal crate). */
+  collectionId?: string;
+  /** Personal crate id — used to include legacy rows with null collection_id. */
+  personalCollectionId?: string;
+};
+
+export type PersistRecordOptions = {
+  userId?: string;
+  collectionId?: string;
+};
 
 export type RecordRow = {
   id: string;
   user_id: string;
+  collection_id: string | null;
   title: string;
   artist: string;
   year: string | number | null;
@@ -112,16 +126,19 @@ function rowToRecord(row: RecordRow): VinylRecord {
     tracks,
     discogsId: row.discogs_id ?? undefined,
     addedAt: row.created_at,
+    collectionId: row.collection_id ?? undefined,
   });
 }
 
 function recordToRow(
   record: VinylRecord,
-  userId: string
+  userId: string,
+  collectionId?: string
 ): Omit<RecordRow, 'id' | 'created_at'> & { id?: string; created_at?: string } {
   const tracks = record.tracks ?? [];
   const row: Omit<RecordRow, 'id' | 'created_at'> & { id?: string; created_at?: string } = {
     user_id: userId,
+    collection_id: collectionId ?? record.collectionId ?? null,
     title: record.title,
     artist: record.artist,
     year: record.year ?? null,
@@ -147,8 +164,9 @@ function recordToUpdatePayload(
   record: VinylRecord,
   userId: string
 ): Omit<RecordRow, 'id' | 'user_id' | 'created_at'> {
-  const row = recordToRow(record, userId);
+  const row = recordToRow(record, userId, record.collectionId);
   return {
+    collection_id: row.collection_id,
     title: row.title,
     artist: row.artist,
     year: row.year,
@@ -163,10 +181,51 @@ function recordToUpdatePayload(
   };
 }
 
-/** Fetch all records for the current user (or an explicit user id). */
-export async function fetchRecords(userId?: string): Promise<FetchRecordsResult> {
+/** Fetch records for the current user, optionally scoped to a crate. */
+export async function fetchRecords(
+  options?: FetchRecordsOptions | string
+): Promise<FetchRecordsResult> {
+  const resolved: FetchRecordsOptions =
+    typeof options === 'string' ? { userId: options } : (options ?? {});
+
   try {
-    const uid = await resolveUserId(userId);
+    const uid = await resolveUserId(resolved.userId);
+    const { collectionId, personalCollectionId } = resolved;
+
+    if (collectionId) {
+      const [scoped, legacy] = await Promise.all([
+        supabase
+          .from(TABLE)
+          .select(RECORD_COLUMNS)
+          .eq('user_id', uid)
+          .eq('collection_id', collectionId)
+          .order('created_at', { ascending: false }),
+        personalCollectionId && collectionId === personalCollectionId
+          ? supabase
+              .from(TABLE)
+              .select(RECORD_COLUMNS)
+              .eq('user_id', uid)
+              .is('collection_id', null)
+              .order('created_at', { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+
+      if (scoped.error) return { data: null, error: toRecordsError(scoped.error) };
+      if (legacy.error) return { data: null, error: toRecordsError(legacy.error) };
+
+      const merged = [...(scoped.data ?? []), ...(legacy.data ?? [])] as RecordRow[];
+      const seen = new Set<string>();
+      const records = merged
+        .filter((row) => {
+          if (seen.has(row.id)) return false;
+          seen.add(row.id);
+          return true;
+        })
+        .map((row) => rowToRecord(row));
+
+      return { data: records, error: null };
+    }
+
     const { data, error } = await supabase
       .from(TABLE)
       .select(RECORD_COLUMNS)
@@ -188,11 +247,11 @@ export async function fetchRecords(userId?: string): Promise<FetchRecordsResult>
 /** Insert a record scoped to the current user (or an explicit user id). */
 export async function addRecord(
   record: VinylRecord,
-  userId?: string
+  options?: PersistRecordOptions
 ): Promise<AddRecordResult> {
   try {
-    const uid = await resolveUserId(userId);
-    const payload = recordToRow(record, uid);
+    const uid = await resolveUserId(options?.userId);
+    const payload = recordToRow(record, uid, options?.collectionId ?? record.collectionId);
 
     const { data, error } = await supabase
       .from(TABLE)
@@ -217,14 +276,14 @@ export async function addRecord(
 /** Update an existing record for the current user (or an explicit user id). */
 export async function updateRecord(
   record: VinylRecord,
-  userId?: string
+  options?: PersistRecordOptions
 ): Promise<UpdateRecordResult> {
   if (!isPersistedRecordId(record.id)) {
     return { data: null, error: { message: 'Record id is not a persisted UUID' } };
   }
 
   try {
-    const uid = await resolveUserId(userId);
+    const uid = await resolveUserId(options?.userId);
     const payload = recordToUpdatePayload(record, uid);
 
     const { data, error } = await supabase
@@ -246,6 +305,28 @@ export async function updateRecord(
       data: null,
       error: { message: err instanceof Error ? err.message : 'Failed to update record' },
     };
+  }
+}
+
+/** Discogs ids already in a crate (for import dedup). */
+export async function fetchDiscogsIdsForCollection(
+  collectionId: string
+): Promise<number[]> {
+  try {
+    const uid = await resolveUserId();
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select('discogs_id')
+      .eq('user_id', uid)
+      .eq('collection_id', collectionId)
+      .not('discogs_id', 'is', null);
+
+    if (error) return [];
+    return (data ?? [])
+      .map((row) => (row as { discogs_id: number | null }).discogs_id)
+      .filter((id): id is number => id != null);
+  } catch {
+    return [];
   }
 }
 

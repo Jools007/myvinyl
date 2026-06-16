@@ -35,6 +35,7 @@ import {
   type ClearCollectionMode,
 } from '../lib/collectionClear';
 import { bulkImportCollectionRecords } from '../lib/discogsImport';
+import { GUEST_CRATE_MAX_RECORDS } from '../lib/collectionContext';
 import {
   addRecord as addRecordToSupabase,
   deleteRecord as deleteRecordFromSupabase,
@@ -69,7 +70,19 @@ export type UpdateRecordOptions = {
   persistImmediately?: boolean;
 };
 
-export function useCollection() {
+export type UseCollectionScope = {
+  /** Active crate id — when omitted, legacy fetch (all user records). */
+  collectionId?: string | null;
+  personalCollectionId?: string | null;
+  /** When true, new adds/imports are blocked (guest demo view). */
+  readOnly?: boolean;
+};
+
+export function useCollection(scope?: UseCollectionScope) {
+  const collectionId = scope?.collectionId ?? null;
+  const personalCollectionId = scope?.personalCollectionId ?? null;
+  const readOnly = scope?.readOnly ?? false;
+
   const { user, loading: authLoading } = useAuth();
   const [records, setRecords] = useState<VinylRecord[]>([]);
   const recordsRef = useRef(records);
@@ -113,7 +126,11 @@ export function useCollection() {
     setCollectionError(null);
     setHydrated(false);
 
-    const result = await fetchRecords();
+    const result = await fetchRecords(
+      collectionId
+        ? { collectionId, personalCollectionId: personalCollectionId ?? undefined }
+        : undefined
+    );
     if (generation !== fetchGenerationRef.current) return;
 
     if (result.error) {
@@ -126,7 +143,7 @@ export function useCollection() {
     setCollectionError(null);
     setHydrated(true);
     setIsFetchingCollection(false);
-  }, [user?.id]);
+  }, [user?.id, collectionId, personalCollectionId]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -147,10 +164,13 @@ export function useCollection() {
     };
   }, [user?.id, authLoading, loadCollection]);
 
-  const persistRecordNow = useCallback((record: VinylRecord) => {
-    if (!isPersistedRecordId(record.id)) return;
-    void updateRecordInSupabase(record);
-  }, []);
+  const persistRecordNow = useCallback(
+    (record: VinylRecord) => {
+      if (!isPersistedRecordId(record.id)) return;
+      void updateRecordInSupabase(record);
+    },
+    []
+  );
 
   const persistRecordImmediately = useCallback((record: VinylRecord) => {
     const pending = persistTimersRef.current.get(record.id);
@@ -183,11 +203,13 @@ export function useCollection() {
 
   const persistNewRecord = useCallback(
     (entry: VinylRecord) => {
-      void addRecordToSupabase(entry).then((result) => {
+      void addRecordToSupabase(entry, {
+        collectionId: entry.collectionId ?? collectionId ?? undefined,
+      }).then((result) => {
         if (result.data) replaceSavedRecord(entry.id, result.data);
       });
     },
-    [replaceSavedRecord]
+    [collectionId, replaceSavedRecord]
   );
 
   const schedulePersistRecord = useCallback(
@@ -247,12 +269,15 @@ export function useCollection() {
   }, [hydrated, schedulePersistRecord]);
 
   const addRecord = useCallback(
-    (record: Omit<VinylRecord, 'id' | 'addedAt'>) => {
+    (record: Omit<VinylRecord, 'id' | 'addedAt'>, targetCollectionId?: string) => {
+      if (readOnly && !targetCollectionId) return null;
       if (isCdFormat(record.format)) return null;
+      const scopedCollectionId = targetCollectionId ?? collectionId ?? undefined;
       const entry = migrateRecord({
         ...record,
         format: sanitizeVinylFormat(record.format),
         addSource: record.addSource ?? 'manual',
+        collectionId: scopedCollectionId,
         id: generateId(),
         addedAt: new Date().toISOString(),
       });
@@ -264,28 +289,53 @@ export function useCollection() {
       persistNewRecord(entry);
       return entry;
     },
-    [persistNewRecord]
+    [collectionId, persistNewRecord, readOnly]
   );
 
   const importDiscogsCollection = useCallback(
-    (incoming: Omit<VinylRecord, 'id' | 'addedAt'>[]) => {
-      let summary = { added: 0, skipped: 0 };
-      let addedEntries: VinylRecord[] = [];
-
-      setRecords((prev) => {
-        const next = bulkImportCollectionRecords(prev, incoming, generateId);
-        summary = { added: next.added, skipped: next.skipped };
-        addedEntries = next.records.slice(0, next.added);
-        return next.records;
-      });
-
-      for (const entry of addedEntries) {
-        persistNewRecord(entry);
+    async (incoming: Omit<VinylRecord, 'id' | 'addedAt'>[], options?: { collectionId?: string }) => {
+      const targetCollectionId = options?.collectionId ?? collectionId ?? undefined;
+      if (!targetCollectionId) {
+        return { added: 0, skipped: incoming.length, capped: 0 };
       }
 
-      return summary;
+      const fetched = await fetchRecords({
+        collectionId: targetCollectionId,
+        personalCollectionId: personalCollectionId ?? undefined,
+      });
+      const prev = (fetched.data ?? []).map((record) => migrateRecord(record));
+
+      const headroom = Math.max(0, GUEST_CRATE_MAX_RECORDS - prev.length);
+      const vinylIncoming = incoming.filter((row) => !isCdFormat(row.format));
+      const cappedIncoming =
+        vinylIncoming.length > headroom ? vinylIncoming.slice(0, headroom) : vinylIncoming;
+      const capped = Math.max(0, vinylIncoming.length - cappedIncoming.length);
+
+      const stamped = cappedIncoming.map((row) => ({
+        ...row,
+        collectionId: targetCollectionId,
+        addSource: row.addSource ?? ('discogs-import' as const),
+      }));
+
+      const next = bulkImportCollectionRecords(prev, stamped, generateId);
+      const addedEntries = next.records.slice(0, next.added);
+
+      for (const entry of addedEntries) {
+        persistNewRecord({ ...entry, collectionId: targetCollectionId });
+      }
+
+      if (targetCollectionId === collectionId) {
+        setRecords(next.records);
+        recordsRef.current = next.records;
+      }
+
+      return {
+        added: next.added,
+        skipped: next.skipped + capped,
+        capped,
+      };
     },
-    [persistNewRecord]
+    [collectionId, personalCollectionId, persistNewRecord]
   );
 
   const updateRecord = useCallback(
@@ -398,14 +448,19 @@ export function useCollection() {
     [applyEnrichedTrack]
   );
 
-  const removeRecord = useCallback((id: string) => {
-    setRecords((prev) => prev.filter((record) => record.id !== id));
-    if (isPersistedRecordId(id)) {
-      void deleteRecordFromSupabase(id);
-    }
-  }, []);
+  const removeRecord = useCallback(
+    (id: string) => {
+      if (readOnly) return;
+      setRecords((prev) => prev.filter((record) => record.id !== id));
+      if (isPersistedRecordId(id)) {
+        void deleteRecordFromSupabase(id);
+      }
+    },
+    [readOnly]
+  );
 
   const clearCollection = useCallback((mode: ClearCollectionMode) => {
+    if (readOnly) return 0;
     let removed = 0;
     let removedIds: string[] = [];
 
@@ -424,7 +479,7 @@ export function useCollection() {
     }
 
     return removed;
-  }, []);
+  }, [readOnly]);
 
   const markPlayed = useCallback(
     (id: string) => {
@@ -447,7 +502,11 @@ export function useCollection() {
     if (isRefreshingRef.current) return;
     isRefreshingRef.current = true;
     try {
-      const result = await fetchRecords();
+      const result = await fetchRecords(
+        collectionId
+          ? { collectionId, personalCollectionId: personalCollectionId ?? undefined }
+          : undefined
+      );
       if (result.error) {
         setCollectionError(friendlyCollectionError(result.error.message));
         return;
@@ -460,7 +519,7 @@ export function useCollection() {
     } finally {
       isRefreshingRef.current = false;
     }
-  }, []);
+  }, [collectionId, personalCollectionId]);
 
   useEffect(() => {
     if (!hydrated || !user) return;
@@ -599,5 +658,7 @@ export function useCollection() {
     markPlayed,
     updateSettings,
     refreshRecords,
+    readOnly,
+    collectionId,
   };
 }

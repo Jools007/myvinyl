@@ -13,6 +13,7 @@ import { RecordArtworkButton } from './RecordArtworkButton';
 interface CollectionListViewProps {
   records: VinylRecord[];
   liveEnrich?: LiveEnrichState;
+  readOnly?: boolean;
   onPlayNow: (record: VinylRecord, track: Track) => void;
   onAddToQueue: (record: VinylRecord, track: Track) => void;
   onDelete: (id: string) => void;
@@ -575,6 +576,7 @@ interface ReleaseListRowProps {
   record: VinylRecord;
   expanded: boolean;
   enriching: boolean;
+  readOnly?: boolean;
   onToggle: () => void;
   onEnrich: () => void;
   onDelete: () => void;
@@ -585,6 +587,7 @@ function ReleaseListRow({
   record,
   expanded,
   enriching,
+  readOnly = false,
   onToggle,
   onEnrich,
   onDelete,
@@ -599,18 +602,20 @@ function ReleaseListRow({
         onEnrich={onEnrich}
         stopRow={stopRow}
       />
-      <ReleaseEditAction record={record} stopRow={stopRow} />
-      <button
-        type="button"
-        onClick={(e) => {
-          stopRow(e);
-          onDelete();
-        }}
-        className="collection-list-action-btn flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-red-500/10 hover:text-red-400/90 sm:h-7 sm:w-7"
-        aria-label="Remove from collection"
-      >
-        <Trash2 className="h-3.5 w-3.5 sm:h-3 sm:w-3" strokeWidth={2} />
-      </button>
+      {readOnly ? null : <ReleaseEditAction record={record} stopRow={stopRow} />}
+      {readOnly ? null : (
+        <button
+          type="button"
+          onClick={(e) => {
+            stopRow(e);
+            onDelete();
+          }}
+          className="collection-list-action-btn flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-red-500/10 hover:text-red-400/90 sm:h-7 sm:w-7"
+          aria-label="Remove from collection"
+        >
+          <Trash2 className="h-3.5 w-3.5 sm:h-3 sm:w-3" strokeWidth={2} />
+        </button>
+      )}
     </>
   );
 
@@ -804,6 +809,7 @@ function ReleaseListRow({
 export function CollectionListView({
   records,
   liveEnrich = null,
+  readOnly = false,
   onPlayNow,
   onAddToQueue,
   onDelete,
@@ -863,6 +869,7 @@ export function CollectionListView({
               record={record}
               expanded={expanded}
               enriching={enriching}
+              readOnly={readOnly}
               onToggle={() => toggleExpanded(record.id)}
               onDelete={() => onDelete(record.id)}
               stopRow={stopRow}

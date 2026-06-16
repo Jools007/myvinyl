@@ -69,13 +69,18 @@ export function useAppRouter() {
   );
 
   const goToPage = useCallback(
-    (page: NavPage, playSelection?: AppLocation['playSelection']) => {
+    (
+      page: NavPage,
+      playSelection?: AppLocation['playSelection'],
+      options?: { crateSlug?: string | null }
+    ) => {
       const current = locationRef.current;
       push({
         page,
         playSelection: page === 'play' ? (playSelection ?? current.playSelection) : null,
         releaseId: null,
         releaseEdit: false,
+        crateSlug: page === 'collection' ? (options?.crateSlug ?? current.crateSlug) : null,
       });
     },
     [push]
@@ -89,6 +94,7 @@ export function useAppRouter() {
           playSelection,
           releaseId: null,
           releaseEdit: false,
+          crateSlug: null,
         },
         options
       );
@@ -118,6 +124,22 @@ export function useAppRouter() {
     });
   }, [replace]);
 
+  const goToCrate = useCallback(
+    (crateSlug: string | null, options?: NavigateOptions) => {
+      commit(
+        {
+          page: 'collection',
+          playSelection: null,
+          releaseId: null,
+          releaseEdit: false,
+          crateSlug,
+        },
+        options
+      );
+    },
+    [commit]
+  );
+
   return {
     location,
     push,
@@ -126,5 +148,6 @@ export function useAppRouter() {
     goToPlay,
     openRelease,
     closeRelease,
+    goToCrate,
   };
 }
