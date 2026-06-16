@@ -129,6 +129,8 @@ Bundled routes log `[route] env configured: { SPOTIFY_CLIENT_ID: true, ... }` in
 | `CONTEXT.md` | Product + code orientation |
 | `PROJECT_SNAPSHOT.md` | Architecture deep-dive (may lag `api/`) |
 | `SERVERLESS_MIGRATION_PLAN.md` | API migration history |
+| `docs/guest-crates/2026-06-16-design.md` | Guest crates spec (import → demo → claim) |
+| `docs/guest-crates/CHANGELOG.md` | Phase ship log + verify checklist |
 | `docs/AGENTS.md` | Legacy short workflow pointer |
 
 ## Vercel bundling rule
