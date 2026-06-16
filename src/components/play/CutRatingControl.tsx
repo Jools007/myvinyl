@@ -104,7 +104,23 @@ export function CutRatingControl({
 
   if (!interactive) {
     if (!rating) {
-      return <span className={`track-rating__empty ${className}`.trim()}>—</span>;
+      return (
+        <span
+          className={`track-rating__empty${size === 'xs' ? ' track-rating__empty--xs' : ''} ${className}`.trim()}
+        >
+          —
+        </span>
+      );
+    }
+    if (size === 'xs') {
+      return (
+        <span
+          className={`track-rating-pill ${ratingTierClass(rating)} ${className}`.trim()}
+          title={CUT_RATING_LABELS[rating]}
+        >
+          {rating}
+        </span>
+      );
     }
     return (
       <span
@@ -173,6 +189,42 @@ export function CutRatingControl({
         document.body
       )
     : null;
+
+  if (size === 'xs') {
+    return (
+      <div
+        ref={rootRef}
+        className={`track-rating-field track-rating-field--xs${className ? ` ${className}` : ''}`}
+        onClick={stopBubble}
+        onPointerDown={stopBubble}
+      >
+        <button
+          ref={triggerRef}
+          type="button"
+          className={`track-rating-pill track-rating-pill--interactive ${ratingTierClass(rating)}${
+            open ? ' track-rating-pill--open' : ''
+          }${!rating ? ' track-rating-pill--none' : ''}`}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-controls={menuId}
+          aria-label={
+            rating
+              ? `Rating ${rating}, ${CUT_RATING_LABELS[rating]}`
+              : 'Rating not set'
+          }
+          onClick={() => setOpen((prev) => !prev)}
+        >
+          <span className="track-rating-pill__value">{selected.label}</span>
+          <ChevronDown
+            className={`track-rating-pill__chevron${open ? ' track-rating-pill__chevron--open' : ''}`}
+            strokeWidth={2.25}
+            aria-hidden
+          />
+        </button>
+        {menu}
+      </div>
+    );
+  }
 
   return (
     <div

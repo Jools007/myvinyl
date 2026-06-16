@@ -229,7 +229,7 @@ function RecordMetaFields({ record }: { record: VinylRecord }) {
       <MetaCell label="Key" mixCol>
         <CamelotBadge track={track} />
       </MetaCell>
-      <MetaCell label="Rating" mixCol>
+      <MetaCell label="Rating" mixCol className="collection-list-rating-col">
         <CutRatingControl rating={track?.cutRating} size="xs" readonly />
       </MetaCell>
       <MetaCell label="Vibe" vibeCol>
@@ -513,7 +513,7 @@ function TrackListRow({
         <MetaCell label="Key" mixCol>
           <CamelotBadge track={track} />
         </MetaCell>
-        <MetaCell label="Rating" mixCol>
+        <MetaCell label="Rating" mixCol className="collection-list-rating-col">
           {onSaveCutRating ? (
             <CutRatingControl
               rating={track.cutRating}
