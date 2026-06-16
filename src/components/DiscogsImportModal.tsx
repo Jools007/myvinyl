@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { fetchDiscogsCollectionPage } from '../lib/api';
 import { buildImportRecordsWithTracklists } from '../lib/discogsImport';
 import type { DiscogsCollectionReleasePayload } from '../lib/discogsImport';
+import { GUEST_CRATE_MAX_RECORDS } from '../lib/collectionContext';
 import type { VinylRecord } from '../lib/types';
 
 type Step = 'username' | 'confirm' | 'importing' | 'done';
@@ -207,7 +208,7 @@ export function DiscogsImportModal({
               </h2>
               <p className="discogs-import-modal__lead">
                 {isGuest
-                  ? "Pull a friend's public Discogs collection into a separate guest crate — vinyl only, up to 1,000 records."
+                  ? `Pull a friend's public Discogs collection into a separate guest crate — vinyl only, up to ${GUEST_CRATE_MAX_RECORDS.toLocaleString()} records.`
                   : 'Pull your public Discogs collection into MyVinyl — vinyl releases only, with artwork and metadata.'}
               </p>
               <label htmlFor="discogs-username" className="discogs-import-modal__label">

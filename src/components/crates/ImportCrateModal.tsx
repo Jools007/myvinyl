@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Disc3, Users, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { DiscogsImportModal } from '../DiscogsImportModal';
+import { GUEST_CRATE_MAX_RECORDS } from '../../lib/collectionContext';
 import type { VinylRecord } from '../../lib/types';
 
 export type ImportCrateTarget = 'personal' | 'guest';
@@ -104,7 +105,7 @@ export function ImportCrateModal({
                   <Users className="import-crate-modal__choice-icon" strokeWidth={1.5} />
                   <span className="import-crate-modal__choice-title">Friend&apos;s collection</span>
                   <span className="import-crate-modal__choice-hint">
-                    Separate guest crate for demos (up to 1,000 vinyl)
+                    Separate guest crate for demos (up to {GUEST_CRATE_MAX_RECORDS.toLocaleString()} vinyl)
                   </span>
                 </button>
               </div>

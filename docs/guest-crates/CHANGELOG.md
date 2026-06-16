@@ -51,7 +51,7 @@ Track what shipped, when, and how to verify. Newest first.
 - Guest crate banner + remove guest crate
 - Import modal: personal vs friend's Discogs
 - URLs: `/crates/:slug` (personal stays `/collection`)
-- 1,000 vinyl cap · 5 guest crates cap
+- 1,500 vinyl cap · 5 guest crates cap
 - Guest mode: enrich/play/PDF/labels/insights OK; add/delete/clear blocked
 - Discogs adds from header go to personal crate while viewing guest
 - Graceful fallback if `collections` table missing (legacy behavior)

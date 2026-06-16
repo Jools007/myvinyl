@@ -61,7 +61,7 @@ import { getLastPlayed } from './lib/recommendations';
 import { useAuth } from './contexts/AuthContext';
 import { useCollection } from './hooks/useCollection';
 import { useCollections } from './hooks/useCollections';
-import { isPersonalCrate } from './lib/collectionContext';
+import { GUEST_CRATE_MAX_RECORDS, isPersonalCrate } from './lib/collectionContext';
 import { fetchDiscogsIdsForCollection } from './lib/records';
 
 import { normalizeGenre, normalizeVibe, parseFilterList } from './lib/filterLabels';
@@ -1194,9 +1194,9 @@ function App() {
                 {
                   description:
                     skipped > 0
-                      ? `${skipped} skipped${capped > 0 ? ` · capped at 1,000 vinyl` : ''}`
+                      ? `${skipped} skipped${capped > 0 ? ` · capped at ${GUEST_CRATE_MAX_RECORDS.toLocaleString()} vinyl` : ''}`
                       : capped > 0
-                        ? 'Capped at 1,000 vinyl records'
+                        ? `Capped at ${GUEST_CRATE_MAX_RECORDS.toLocaleString()} vinyl records`
                         : undefined,
                 }
               );
