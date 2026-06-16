@@ -7,20 +7,32 @@ import {
   type CSSProperties,
 } from 'react';
 import {
+  Bluetooth,
   Check,
   CheckSquare,
   ChevronRight,
   GripVertical,
+  Loader2,
   Printer,
   Search,
   Square,
   X,
 } from 'lucide-react';
+import { toast } from 'sonner';
+import { usePhomemoPrinter } from '../hooks/usePhomemoPrinter';
 import { resolveTrackCamelot } from '../lib/camelot';
+import {
+  LABEL_PRINT_PROFILES,
+  loadLabelPrintProfile,
+  saveLabelPrintProfile,
+  type LabelPrintProfileId,
+} from '../lib/labelProfiles';
+
 import { getPrimaryTrack } from '../lib/types';
 import type { LabelDisplayPrefs, VinylRecord } from '../lib/types';
 import { RecordArtwork } from './RecordArtwork';
 import { CrateLabel } from './labels/CrateLabel';
+import { ThermalLabelPreview } from './labels/ThermalLabelPreview';
 import { LabelInspectModal } from './labels/LabelInspectModal';
 
 interface LabelPrintProps {
@@ -42,6 +54,8 @@ interface LabelPrintProps {
 const SPLIT_MIN = 28;
 const SPLIT_MAX = 58;
 const SPLIT_DEFAULT = 40;
+/** Picker share on mobile — lower leaves more room for the thermal preview pane. */
+const SPLIT_THERMAL_MAX = 38;
 
 function matchesSearch(record: VinylRecord, query: string): boolean {
   const q = query.trim().toLowerCase();
@@ -70,8 +84,19 @@ export function LabelPrint({
   const [splitPct, setSplitPct] = useState(SPLIT_DEFAULT);
   const [labelOrder, setLabelOrder] = useState<string[]>([]);
   const [dragId, setDragId] = useState<string | null>(null);
+  const [printProfile, setPrintProfile] = useState<LabelPrintProfileId>(loadLabelPrintProfile);
+  const phomemo = usePhomemoPrinter();
   const splitShellRef = useRef<HTMLDivElement>(null);
   const dragStateRef = useRef<{ startY: number; startPct: number } | null>(null);
+  const activeProfile =
+    LABEL_PRINT_PROFILES.find((p) => p.id === printProfile) ?? LABEL_PRINT_PROFILES[0];
+  const isThermalProfile = activeProfile.thermal;
+
+  useEffect(() => {
+    if (isThermalProfile) {
+      setSplitPct((prev) => Math.min(prev, SPLIT_THERMAL_MAX));
+    }
+  }, [isThermalProfile]);
 
   const filtered = useMemo(
     () => records.filter((r) => matchesSearch(r, search)),
@@ -109,7 +134,66 @@ export function LabelPrint({
     filtered.length > 0 && filtered.every((r) => selectedIds.has(r.id));
 
   const handlePrint = () => {
+    if (isThermalProfile) {
+      void handleThermalPrint();
+      return;
+    }
     window.print();
+  };
+
+  const handleProfileChange = (id: LabelPrintProfileId) => {
+    setPrintProfile(id);
+    saveLabelPrintProfile(id);
+  };
+
+  const handleConnectPrinter = async (event?: { shiftKey?: boolean }) => {
+    try {
+      if (phomemo.connected) {
+        await phomemo.disconnect();
+        toast.message('Printer disconnected');
+        return;
+      }
+      const showAllDevices = event?.shiftKey === true;
+      await phomemo.connect({ showAllDevices });
+      toast.success('Printer connected', { description: phomemo.deviceName ?? 'Phomemo M220' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not connect to printer';
+      toast.error('Printer connection failed', {
+        description: `${message} · Hold Shift and click Connect to show all Bluetooth devices.`,
+      });
+    }
+  };
+
+  const handleThermalPrint = async () => {
+    if (selected.length === 0) return;
+    if (printProfile === 'phomemo-40x80') {
+      toast.message('40×80 mm coming soon', { description: 'Use 40×30 mm for your first test batch.' });
+      return;
+    }
+    try {
+      await phomemo.printRecords(selected, printProfile);
+      toast.success(
+        selected.length === 1 ? 'Label sent to M220' : `${selected.length} labels sent to M220`
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Print failed';
+      toast.error('Thermal print failed', { description: message });
+    }
+  };
+
+  const handleThermalTest = async () => {
+    const sample = selected[0] ?? records[0] ?? null;
+    if (!sample) {
+      toast.message('No records available', { description: 'Add a record to print a test label.' });
+      return;
+    }
+    try {
+      await phomemo.printTestLabel(sample, printProfile);
+      toast.success('Test label sent', { description: `${sample.artist} — ${sample.title}` });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Print failed';
+      toast.error('Test print failed', { description: message });
+    }
   };
 
   const openInspect = useCallback((recordId: string) => {
@@ -317,8 +401,27 @@ export function LabelPrint({
       <div className="labels-workspace__empty">
         <p>Select records above to preview printable labels.</p>
         <p className="labels-workspace__empty-sub">
-          Each sticker is 2.125″ square — sized for standard DJ sleeve dots.
+          {isThermalProfile
+            ? `${activeProfile.widthMm}×${activeProfile.heightMm} mm thermal labels for your M220.`
+            : 'Each sticker is 2.125″ square — sized for standard DJ sleeve dots.'}
         </p>
+      </div>
+    ) : isThermalProfile ? (
+      <div className="labels-workspace__stage labels-workspace__stage--thermal">
+        <div className="labels-thermal-preview">
+          <div className="labels-thermal-preview__slot">
+            <ThermalLabelPreview
+              record={selected[0]}
+              widthMm={activeProfile.widthMm}
+              heightMm={activeProfile.heightMm}
+              onClick={() => openInspect(selected[0].id)}
+            />
+          </div>
+          <p className="labels-thermal-preview__note">
+            {activeProfile.widthMm}×{activeProfile.heightMm} mm · {selected.length} label
+            {selected.length === 1 ? '' : 's'} in queue
+          </p>
+        </div>
       </div>
     ) : (
       <div className="labels-workspace__stage">
@@ -370,15 +473,83 @@ export function LabelPrint({
           <button
             type="button"
             onClick={handlePrint}
-            disabled={!selected.length}
+            disabled={!selected.length || phomemo.printing}
             className="btn-primary disabled:opacity-40"
           >
-            <Printer className="h-4 w-4" />
-            Print {selected.length > 0 ? selected.length : ''} label
+            {phomemo.printing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Printer className="h-4 w-4" />
+            )}
+            {isThermalProfile ? 'Print to M220' : 'Print'}{' '}
+            {selected.length > 0 ? selected.length : ''} label
             {selected.length === 1 ? '' : 's'}
           </button>
         </div>
       </header>
+
+      <section className="labels-thermal-bar no-print" aria-label="Printer setup">
+        <div className="labels-thermal-bar__row">
+          <label className="labels-thermal-bar__field">
+            <span className="labels-thermal-bar__label">Label size</span>
+            <select
+              className="labels-thermal-bar__select"
+              value={printProfile}
+              onChange={(e) => handleProfileChange(e.target.value as LabelPrintProfileId)}
+            >
+              {LABEL_PRINT_PROFILES.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="labels-thermal-bar__hint">{activeProfile.description}</p>
+        </div>
+
+        {isThermalProfile ? (
+          <div className="labels-thermal-bar__row labels-thermal-bar__row--actions">
+            {!phomemo.supported ? (
+              <p className="labels-thermal-bar__warn">
+                Thermal printing needs Chrome or Edge with Web Bluetooth enabled.
+              </p>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={`labels-thermal-bar__btn${phomemo.connected ? ' labels-thermal-bar__btn--on' : ''}`}
+                  onClick={(e) => void handleConnectPrinter(e)}
+                  disabled={phomemo.printing || phomemo.connecting}
+                >
+                  {phomemo.connecting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
+                  ) : (
+                    <Bluetooth className="h-4 w-4" strokeWidth={2} />
+                  )}
+                  {phomemo.connecting
+                    ? 'Connecting…'
+                    : phomemo.connected
+                      ? `Connected · ${phomemo.deviceName ?? 'M220'}`
+                      : 'Connect M220'}
+                </button>
+                <button
+                  type="button"
+                  className="labels-thermal-bar__btn labels-thermal-bar__btn--ghost"
+                  onClick={() => void handleThermalTest()}
+                  disabled={phomemo.printing}
+                >
+                  Print test label
+                </button>
+                {phomemo.progress ? (
+                  <p className="labels-thermal-bar__progress">
+                    Printing {phomemo.progress.current} of {phomemo.progress.total}…
+                  </p>
+                ) : null}
+              </>
+            )}
+          </div>
+        ) : null}
+      </section>
 
       <div
         ref={splitShellRef}
@@ -407,10 +578,14 @@ export function LabelPrint({
         </div>
 
         <section className="labels-workspace" aria-label="Label print preview">
-          <div className="labels-workspace__head">
+          <div
+            className={`labels-workspace__head${isThermalProfile ? ' labels-workspace__head--thermal' : ''}`}
+          >
             <h2 className="labels-workspace__title">Print preview</h2>
             <p className="labels-workspace__hint">
-              Tap a record or label to edit · drag to reorder
+              {isThermalProfile
+                ? `${activeProfile.widthMm}×${activeProfile.heightMm} mm thermal preview · tap to edit`
+                : 'Tap a record or label to edit · drag to reorder'}
             </p>
           </div>
           {previewContent}
@@ -425,11 +600,16 @@ export function LabelPrint({
         <button
           type="button"
           onClick={handlePrint}
-          disabled={!selected.length}
+          disabled={!selected.length || phomemo.printing}
           className="labels-page__print-btn btn-primary disabled:opacity-40"
         >
-          <Printer className="h-5 w-5" strokeWidth={2} />
-          Print {selected.length > 0 ? selected.length : ''} label
+          {phomemo.printing ? (
+            <Loader2 className="h-5 w-5 animate-spin" strokeWidth={2} />
+          ) : (
+            <Printer className="h-5 w-5" strokeWidth={2} />
+          )}
+          {isThermalProfile ? 'Print to M220' : 'Print'}{' '}
+          {selected.length > 0 ? selected.length : ''} label
           {selected.length === 1 ? '' : 's'}
         </button>
       </footer>
@@ -438,6 +618,11 @@ export function LabelPrint({
         record={inspectRecord}
         onClose={() => setInspectId(null)}
         readOnly={readOnly}
+        thermalLabel={
+          isThermalProfile
+            ? { widthMm: activeProfile.widthMm, heightMm: activeProfile.heightMm }
+            : null
+        }
         onSaveDescription={onSaveDescription}
         onSaveVibes={onSaveVibes}
         onSaveLabelDisplay={onSaveLabelDisplay}

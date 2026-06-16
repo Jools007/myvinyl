@@ -17,7 +17,9 @@ import {
   type VinylRecord,
 } from '../../lib/types';
 import { VIBE_TAG_SUGGESTIONS } from '../../lib/vibes';
+import { useThermalPreviewLayout } from '../../hooks/useThermalPreviewLayout';
 import { CrateLabel } from './CrateLabel';
+import { ThermalLabelPreview } from './ThermalLabelPreview';
 
 const MAX_LABEL_VIBES = 3;
 const STICKER_IN = '2.125in';
@@ -27,6 +29,37 @@ const TITLE_LAYOUT_OPTIONS: { value: LabelTitleLayout; label: string }[] = [
   { value: 'album-artist', label: 'Album · Artist' },
   { value: 'album-only', label: 'Album only' },
 ];
+
+function useModalThermalTarget() {
+  const [target, setTarget] = useState(360);
+
+  const measure = useCallback(() => {
+    const isNarrow = window.innerWidth < 720;
+    const vw = window.visualViewport?.width ?? window.innerWidth;
+    const vh = window.visualViewport?.height ?? window.innerHeight;
+
+    if (isNarrow) {
+      const root = getComputedStyle(document.documentElement);
+      const safeTop = parseFloat(root.getPropertyValue('--safe-top')) * 16 || 0;
+      const previewBudget = vh * 0.34 - safeTop - 20;
+      setTarget(Math.min(vw - 20, Math.max(160, previewBudget)));
+    } else {
+      setTarget(Math.min(420, Math.max(240, Math.min(vw * 0.52, 520) - 48)));
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    measure();
+    window.addEventListener('resize', measure);
+    window.visualViewport?.addEventListener('resize', measure);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.visualViewport?.removeEventListener('resize', measure);
+    };
+  }, [measure]);
+
+  return target;
+}
 
 /** Measure true 2.125″ size in px and pick a scale that fits the modal preview column. */
 function useStickerPreviewLayout() {
@@ -88,6 +121,8 @@ interface LabelInspectModalProps {
   record: VinylRecord | null;
   onClose: () => void;
   readOnly?: boolean;
+  /** When set, live preview matches thermal print (not 2.125″ sheet). */
+  thermalLabel?: { widthMm: number; heightMm: number } | null;
   onSaveDescription?: (recordId: string, notes: string) => void;
   onSaveVibes?: (recordId: string, vibeTags: string[]) => void;
   onSaveLabelDisplay?: (recordId: string, display: LabelDisplayPrefs) => void;
@@ -101,6 +136,7 @@ export function LabelInspectModal({
   record,
   onClose,
   readOnly = false,
+  thermalLabel = null,
   onSaveDescription,
   onSaveVibes,
   onSaveLabelDisplay,
@@ -121,6 +157,12 @@ export function LabelInspectModal({
   const displayDraftRef = useRef(displayDraft);
   const recordId = record?.id;
   const stickerLayout = useStickerPreviewLayout();
+  const modalThermalTarget = useModalThermalTarget();
+  const thermalLayout = useThermalPreviewLayout(
+    thermalLabel?.widthMm ?? 40,
+    thermalLabel?.heightMm ?? 30,
+    thermalLabel ? { width: modalThermalTarget, height: modalThermalTarget } : null
+  );
 
   draftRef.current = draft;
   vibeDraftRef.current = vibeDraft;
@@ -289,6 +331,17 @@ export function LabelInspectModal({
     : 'Short crate note — opener, vocal 12", crowd pleaser…';
 
   const { basePx, scale, displayPx } = stickerLayout;
+  const isThermal = Boolean(thermalLabel);
+  const { scale: thermalScale, displayW: thermalDisplayW, displayH: thermalDisplayH } =
+    thermalLayout;
+  const thermalDraft = {
+    description: draft,
+    useDescriptionDraft: true,
+    vibes: vibeDraft,
+    useVibesDraft: true,
+    display: displayDraft,
+    useDisplayDraft: true,
+  };
 
   return createPortal(
     <AnimatePresence>
@@ -324,30 +377,47 @@ export function LabelInspectModal({
 
           <div className="label-modal__columns">
             <section className="label-modal__preview" aria-label="Label preview">
-              <div
-                className="label-modal__sticker-slot"
-                style={{ width: displayPx, height: displayPx }}
-              >
+              {isThermal && thermalLabel ? (
                 <div
-                  className="label-modal__sticker-inner"
-                  style={{
-                    width: basePx,
-                    height: basePx,
-                    transform: `scale(${scale})`,
-                  }}
+                  className="label-modal__thermal-slot"
+                  style={{ width: thermalDisplayW, height: thermalDisplayH }}
                 >
-                  <CrateLabel
+                  <ThermalLabelPreview
                     record={record}
-                    size="preview"
-                    className="crate-label--inspect"
-                    descriptionOverride={draft}
-                    vibesOverride={vibeDraft}
-                    displayOverride={displayDraft}
+                    widthMm={thermalLabel.widthMm}
+                    heightMm={thermalLabel.heightMm}
+                    draft={thermalDraft}
+                    displayScale={thermalScale}
                   />
                 </div>
-              </div>
+              ) : (
+                <div
+                  className="label-modal__sticker-slot"
+                  style={{ width: displayPx, height: displayPx }}
+                >
+                  <div
+                    className="label-modal__sticker-inner"
+                    style={{
+                      width: basePx,
+                      height: basePx,
+                      transform: `scale(${scale})`,
+                    }}
+                  >
+                    <CrateLabel
+                      record={record}
+                      size="preview"
+                      className="crate-label--inspect"
+                      descriptionOverride={draft}
+                      vibesOverride={vibeDraft}
+                      displayOverride={displayDraft}
+                    />
+                  </div>
+                </div>
+              )}
               <p className="label-modal__preview-note">
-                {STICKER_IN} · live preview
+                {isThermal && thermalLabel
+                  ? `${thermalLabel.widthMm}×${thermalLabel.heightMm} mm · exact print preview`
+                  : `${STICKER_IN} · live preview`}
               </p>
             </section>
 

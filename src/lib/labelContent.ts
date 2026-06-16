@@ -7,8 +7,8 @@ import {
 } from './types';
 import type { Track, VinylRecord } from './types';
 
-/** Max characters saved on the record & shown on the printed label (2 lines). */
-export const LABEL_DESCRIPTION_MAX = 120;
+/** Max characters saved on the record & shown on the printed label (up to 4 lines). */
+export const LABEL_DESCRIPTION_MAX = 220;
 
 export type CrateLabelContent = {
   artist: string;
@@ -23,6 +23,8 @@ export type CrateLabelContent = {
   keyEstimated?: boolean;
   vibes: string[];
   description: string;
+  /** User-written notes only — empty when label would use format/year fallback. */
+  customNotes: string;
   format?: string;
   year?: string;
 };
@@ -71,6 +73,18 @@ export function resolveLabelDescription(
   return labelDescriptionFallback(record);
 }
 
+/** Thermal labels: only user notes (footer carries format/year). */
+export function resolveThermalCustomNotes(
+  record: VinylRecord,
+  opts?: { description?: string; useDescriptionDraft?: boolean }
+): string {
+  if (opts?.useDescriptionDraft) {
+    return clampLabelDescription(opts.description ?? '');
+  }
+  const custom = (opts?.description !== undefined ? opts.description : record.notes)?.trim();
+  return custom ? clampLabelDescription(custom) : '';
+}
+
 export function buildCrateLabelContent(
   record: VinylRecord,
   opts?: {
@@ -96,6 +110,11 @@ export function buildCrateLabelContent(
     ? clampLabelDescription(opts.description ?? '')
     : resolveLabelDescription(record, opts?.description);
 
+  const customNotes = resolveThermalCustomNotes(record, {
+    description: opts?.description,
+    useDescriptionDraft: opts?.useDescriptionDraft,
+  });
+
   const vibes = opts?.useVibesDraft
     ? (opts.vibes ?? []).slice(0, 3)
     : formatLabelVibes(track, record);
@@ -113,6 +132,7 @@ export function buildCrateLabelContent(
     keyEstimated,
     vibes,
     description,
+    customNotes,
     format: record.format?.trim(),
     year: record.year?.trim(),
   };

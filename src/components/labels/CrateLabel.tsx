@@ -1,7 +1,7 @@
 import { buildCrateLabelContent } from '../../lib/labelContent';
 import type { LabelDisplayPrefs, VinylRecord } from '../../lib/types';
 
-export type CrateLabelSize = 'preview' | 'print';
+export type CrateLabelSize = 'preview' | 'print' | 'thermal-preview';
 
 interface CrateLabelProps {
   record: VinylRecord;
@@ -45,11 +45,13 @@ export function CrateLabel({
   const interactive = Boolean(onClick);
   const Tag = interactive ? 'button' : 'div';
 
+  const isThermal = size === 'thermal-preview';
   const bpmText =
     data.bpm != null ? `${data.bpmEstimated ? '~' : ''}${data.bpm}` : '—';
   const keyText = data.camelot ?? '—';
-  const hasDesc = Boolean(data.description.trim());
-  const showPlaceholder = !hasDesc && size !== 'print';
+  const notesText = isThermal ? data.customNotes : data.description;
+  const hasDesc = Boolean(notesText.trim());
+  const showPlaceholder = !hasDesc && size !== 'print' && !isThermal;
 
   const railMeta = [data.format, data.year].filter(Boolean).join(' · ');
   const identityLines =
@@ -66,6 +68,99 @@ export function CrateLabel({
           ];
   const showMix = data.showBpm || data.showKey;
 
+  const identityBlock = (
+    <div className="crate-label__identity">
+      {identityLines.map((line) =>
+        line.key === 'artist' ? (
+          <h3 key={line.key} className={line.className} title={line.text}>
+            {line.text}
+          </h3>
+        ) : (
+          <p key={line.key} className={line.className} title={line.text}>
+            {line.text}
+          </p>
+        )
+      )}
+    </div>
+  );
+
+  const thermalMixParts: string[] = [];
+  if (isThermal && showMix) {
+    if (data.showBpm) thermalMixParts.push(`${bpmText} BPM`);
+    if (data.showKey) {
+      const keyPart = `${keyText} KEY${data.keyEstimated && data.camelot ? '~' : ''}`;
+      thermalMixParts.push(keyPart);
+    }
+  }
+
+  const mixBlock = showMix ? (
+    <div
+      className={`crate-label__mix${isThermal ? ' crate-label__mix--thermal' : ''}`}
+      aria-label="BPM and key"
+    >
+      {isThermal ? (
+        <p className="crate-label__mix-inline tabular-nums">{thermalMixParts.join(' · ')}</p>
+      ) : (
+        <>
+          {data.showBpm ? (
+            <div className="crate-label__stat">
+              <span className="crate-label__stat-label">BPM</span>
+              <span className="crate-label__stat-value tabular-nums">{bpmText}</span>
+            </div>
+          ) : null}
+          {data.showKey ? (
+            <div className="crate-label__stat">
+              <span className="crate-label__stat-label">Key</span>
+              <span className="crate-label__stat-value crate-label__stat-value--key tabular-nums">
+                {keyText}
+                {data.keyEstimated && data.camelot ? (
+                  <span className="crate-label__est" aria-hidden>
+                    ~
+                  </span>
+                ) : null}
+              </span>
+            </div>
+          ) : null}
+        </>
+      )}
+    </div>
+  ) : null;
+
+  const labelBody = (
+    <>
+      {identityBlock}
+      {mixBlock}
+
+      {data.showVibes && data.vibes.length > 0 ? (
+        isThermal ? (
+          <p className="crate-label__vibes-line" aria-label="Vibe tags">
+            {data.vibes.join(' · ')}
+          </p>
+        ) : (
+          <ul className="crate-label__vibes" aria-label="Vibe tags">
+            {data.vibes.map((v) => (
+              <li key={v} className="crate-label__vibe">
+                {v}
+              </li>
+            ))}
+          </ul>
+        )
+      ) : null}
+
+      <div className="crate-label__desc-block">
+        {hasDesc ? (
+          <p className="crate-label__desc" title={notesText}>
+            {notesText}
+          </p>
+        ) : showPlaceholder ? (
+          <p className="crate-label__desc crate-label__desc--placeholder">
+            Add notes in preview…
+          </p>
+        ) : null}
+      </div>
+    </>
+  );
+
   return (
     <Tag
       type={interactive ? 'button' : undefined}
@@ -78,65 +173,11 @@ export function CrateLabel({
       }
     >
       <div className="crate-label__surface">
-        <div className="crate-label__identity">
-          {identityLines.map((line) =>
-            line.key === 'artist' ? (
-              <h3 key={line.key} className={line.className} title={line.text}>
-                {line.text}
-              </h3>
-            ) : (
-              <p key={line.key} className={line.className} title={line.text}>
-                {line.text}
-              </p>
-            )
-          )}
-        </div>
-
-        {showMix ? (
-          <div className="crate-label__mix" aria-label="BPM and key">
-            {data.showBpm ? (
-              <div className="crate-label__stat">
-                <span className="crate-label__stat-label">BPM</span>
-                <span className="crate-label__stat-value tabular-nums">{bpmText}</span>
-              </div>
-            ) : null}
-            {data.showKey ? (
-              <div className="crate-label__stat">
-                <span className="crate-label__stat-label">Key</span>
-                <span className="crate-label__stat-value crate-label__stat-value--key tabular-nums">
-                  {keyText}
-                  {data.keyEstimated && data.camelot ? (
-                    <span className="crate-label__est" aria-hidden>
-                      ~
-                    </span>
-                  ) : null}
-                </span>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
-        {data.showVibes && data.vibes.length > 0 ? (
-          <ul className="crate-label__vibes" aria-label="Vibe tags">
-            {data.vibes.map((v) => (
-              <li key={v} className="crate-label__vibe">
-                {v}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-
-        <div className="crate-label__desc-block">
-          {hasDesc ? (
-            <p className="crate-label__desc" title={data.description}>
-              {data.description}
-            </p>
-          ) : showPlaceholder ? (
-            <p className="crate-label__desc crate-label__desc--placeholder">
-              Add notes in preview…
-            </p>
-          ) : null}
-        </div>
+        {isThermal ? (
+          <div className="crate-label__thermal-stack">{labelBody}</div>
+        ) : (
+          labelBody
+        )}
 
         <footer className="crate-label__rail" aria-label="Label footer">
           <span className="crate-label__brand">MyVinyl</span>
