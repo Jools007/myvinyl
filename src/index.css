@@ -3,6 +3,8 @@
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display: "DM Sans", var(--font-sans);
+  /** Thermal labels — distinguishes i / I / 1 / l at small 1-bit sizes (print + preview). */
+  --font-thermal: "Atkinson Hyperlegible", Verdana, Tahoma, sans-serif;
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
@@ -10204,20 +10206,38 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 }
 
 /* 40×30 mm thermal — tight stack + pinned footer (no mid-label void) */
+.crate-label--thermal-preview {
+  font-family: var(--font-thermal);
+}
+
 .crate-label--thermal-preview .crate-label__surface {
   position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
   width: 40mm;
   height: 30mm;
-  padding: 0.28mm 0.5mm 2.05mm;
-  border-width: 1px;
-  border-radius: 0.8mm;
+  padding: 1.5mm 0.9mm 2mm 2mm;
+  border: none;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.crate-label--thermal-preview .crate-label__surface::before {
+  content: '';
+  position: absolute;
+  inset: 0.65mm 0.35mm 0.35mm 1.1mm;
+  border: 1px solid #000;
+  pointer-events: none;
 }
 
 .crate-label--thermal-preview .crate-label__thermal-stack {
   display: flex;
   flex-direction: column;
-  gap: 0.2mm;
-  height: 100%;
+  gap: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
   min-height: 0;
 }
 
@@ -10225,55 +10245,84 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.1mm;
+  gap: 0.15mm;
+  min-width: 0;
+  max-width: 100%;
   padding-bottom: 0;
   border-bottom: none;
 }
 
 .crate-label--thermal-preview .crate-label__artist {
   margin: 0;
-  font-size: 3.5mm;
-  line-height: 0.96;
+  font-family: var(--font-thermal);
+  font-size: 3.35mm;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: #000;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 .crate-label--thermal-preview .crate-label__album {
   margin: 0;
-  font-size: 2.8mm;
-  line-height: 1;
-  -webkit-line-clamp: 1;
+  font-family: var(--font-thermal);
+  font-size: 2.65mm;
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  color: #000;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 .crate-label--thermal-preview .crate-label__album--solo {
-  font-size: 3.5mm;
-  line-height: 0.96;
+  font-size: 3.35mm;
+  font-weight: 800;
+  line-height: 1;
   -webkit-line-clamp: 2;
 }
 
 .crate-label--thermal-preview .crate-label__album--lead {
-  font-size: 3.5mm;
-  line-height: 0.96;
-  -webkit-line-clamp: 1;
-}
-
-.crate-label--thermal-preview .crate-label__artist--sub {
-  margin: 0;
-  font-size: 2.8mm;
+  font-size: 3.35mm;
+  font-weight: 800;
   line-height: 1;
   -webkit-line-clamp: 2;
 }
 
-.crate-label--thermal-preview .crate-label__mix--thermal {
+.crate-label--thermal-preview .crate-label__artist--sub {
   margin: 0;
+  font-size: 2.65mm;
+  font-weight: 600;
+  line-height: 1.05;
+  -webkit-line-clamp: 2;
+}
+
+.crate-label--thermal-preview .crate-label__mix--thermal {
+  margin: 0.2mm 0 0;
   padding: 0;
   flex-shrink: 0;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .crate-label--thermal-preview .crate-label__mix-inline {
   margin: 0;
   padding: 0;
-  font-size: 2.15mm;
-  font-weight: 700;
+  font-size: 2.3mm;
+  font-weight: 800;
   line-height: 1.05;
   letter-spacing: 0.02em;
   color: #000;
@@ -10283,14 +10332,16 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 }
 
 .crate-label--thermal-preview .crate-label__vibes-line {
-  margin: 0;
+  margin: 0.75mm 0 0;
   padding: 0;
   font-size: 1.35mm;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1.08;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: #1a1a1a;
+  color: #000;
+  min-width: 0;
+  max-width: 100%;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 1;
@@ -10302,29 +10353,40 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   margin: 0;
   padding: 0;
   flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  max-width: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
+.crate-label--thermal-preview .crate-label__desc-block:empty {
+  display: none;
+}
+
 .crate-label--thermal-preview .crate-label__desc {
   margin: 0;
-  font-size: 1.55mm;
-  line-height: 1.1;
-  color: rgba(0, 0, 0, 0.88);
+  font-size: 2mm;
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: 0.03em;
+  color: #000;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 5;
+  -webkit-line-clamp: 6;
   overflow: hidden;
 }
 
 .crate-label--thermal-preview .crate-label__rail {
   position: absolute;
-  left: 0.5mm;
-  right: 0.5mm;
-  bottom: 0.28mm;
+  left: 2mm;
+  right: 0.9mm;
+  bottom: 0.35mm;
   margin: 0;
-  padding: 0.18mm 0 0;
-  border-top: 1px solid #0a0a0a;
+  padding: 0.14mm 0 0;
+  border-top: 1px solid #000;
   flex-shrink: 0;
   font-size: 0.9mm;
 }

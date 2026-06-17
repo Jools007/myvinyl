@@ -16,11 +16,7 @@ export const PHOMEMO_BLE = {
 
 /** M220 uses m-series protocol, 203 DPI (phomymo printers.json). */
 export const M220_CONFIG = {
-  /** Full print head width in bytes (72mm printable @ 8 px/mm). */
-  headWidthBytes: 72,
   dpi: 203,
-  /** M220 die-cut rolls are right-aligned on the 72mm head (phomymo default). */
-  headAlignment: 'right' as const,
   feedDots: 48,
   /** Mid-high density — 7 over-burns small type on 40×30 mm labels. */
   density: 5,

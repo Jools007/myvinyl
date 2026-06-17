@@ -73,39 +73,7 @@ export function canvasToLabelRaster(canvas: HTMLCanvasElement): RasterData {
   return { data, widthBytes, heightLines: height };
 }
 
-/** Pad label image to full print-head width (72 bytes on M220). */
-export function canvasToHeadRaster(
-  canvas: HTMLCanvasElement,
-  headWidthBytes: number,
-  alignment: RasterAlignment = 'left'
-): RasterData {
-  const { pixels, width, height } = readCanvasPixels(canvas);
-  const data = pixelsToRaster(pixels, width, height, headWidthBytes, alignment);
-  return { data, widthBytes: headWidthBytes, heightLines: height };
-}
-
-/** M220 raster: pad label canvas to 72-byte head width with roll alignment. */
-export function canvasToM220Raster(
-  canvas: HTMLCanvasElement,
-  headWidthBytes: number,
-  alignment: RasterAlignment
-): RasterData {
-  return canvasToHeadRaster(canvas, headWidthBytes, alignment);
-}
-
-/**
- * Die-cut rolls (e.g. 40×30 mm): header width must match the label, not the 72 mm head.
- * Padding to 72 bytes makes the firmware scale content down (~40/72) → tiny illegible type.
- */
+/** Die-cut 40×30 mm — raster width matches label (40 bytes), not the 72 mm head. */
 export function rasterForDieCutLabel(canvas: HTMLCanvasElement): RasterData {
   return canvasToLabelRaster(canvas);
-}
-
-/** @deprecated Prefer canvasToLabelRaster for die-cut labels. */
-export function canvasToRaster(
-  canvas: HTMLCanvasElement,
-  outputWidthBytes: number,
-  alignment: RasterAlignment = 'left'
-): RasterData {
-  return canvasToHeadRaster(canvas, outputWidthBytes, alignment);
 }

@@ -84,7 +84,10 @@ export interface VinylRecord {
   coverUrl?: string;
   genres: string[];
   condition: RecordCondition;
+  /** Personal crate / pressing notes — not the printed sticker description. */
   notes?: string;
+  /** User-written text on crate/thermal labels (≤220 chars). */
+  labelDescription?: string;
   /** Optional sticker layout overrides (title order, BPM/key/vibe visibility). */
   labelDisplay?: LabelDisplayPrefs;
   tracks: Track[];

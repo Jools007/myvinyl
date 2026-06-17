@@ -2,9 +2,11 @@ import { buildCrateLabelContent } from '../labelContent';
 import type { LabelDisplayPrefs, VinylRecord } from '../types';
 import { boxDownsampleTo1Bit } from './thermalRasterize';
 import {
+  borderInsetPx,
   getThermalLabelSpecBySize,
   identityLinePlan,
   THERMAL_FONT_FAMILY,
+  THERMAL_PRINT_PIPELINE,
   THERMAL_PRINT_SUPERSAMPLE,
   type ThermalLabelSpec,
 } from './thermalLabelSpecs';
@@ -12,19 +14,30 @@ import {
 const BLACK = '#000000';
 const WHITE = '#FFFFFF';
 
-/** Wait for DM Sans so canvas print matches the DOM label. */
+/** Wait for Atkinson Hyperlegible so canvas print matches thermal preview. */
 export async function ensureThermalLabelFonts(): Promise<void> {
   if (!document.fonts?.load) return;
-  const sizes = [9, 11, 12, 14, 18, 22, 26, 30, 33, 36];
+  const sizes = [9, 11, 12, 14, 15, 16, 17, 18, 22, 26, 30, 33, 36];
   await Promise.all(
     sizes.flatMap((px) => [
       document.fonts.load(`800 ${px}px ${THERMAL_FONT_FAMILY}`),
       document.fonts.load(`700 ${px}px ${THERMAL_FONT_FAMILY}`),
       document.fonts.load(`600 ${px}px ${THERMAL_FONT_FAMILY}`),
-      document.fonts.load(`500 ${px}px ${THERMAL_FONT_FAMILY}`),
+      document.fonts.load(`400 ${px}px ${THERMAL_FONT_FAMILY}`),
     ])
   );
   await document.fonts.ready;
+}
+
+/** Snap to half-pixel grid so glyph dots survive 1-bit downsample. */
+function drawThermalText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number
+): void {
+  ctx.fillStyle = BLACK;
+  ctx.fillText(text, Math.round(x * 2) / 2, Math.round(y * 2) / 2);
 }
 
 export interface ThermalLabelRenderOptions {
@@ -106,14 +119,12 @@ function drawIdentityStack(
     if (!text) continue;
 
     ctx.font = font(spec, sizeMm, weight);
-    ctx.fillStyle = BLACK;
-    if (line.maxLines > 1) {
-      for (const row of wrapLines(ctx, text, innerW, line.maxLines)) {
-        ctx.fillText(row, x, cursorY);
-        cursorY += px(spec, lineMm);
-      }
-    } else {
-      ctx.fillText(truncate(ctx, text, innerW), x, cursorY);
+    const lines =
+      line.maxLines > 1
+        ? wrapLines(ctx, text, innerW, line.maxLines)
+        : [truncate(ctx, text, innerW)];
+    for (const row of lines) {
+      drawThermalText(ctx, row, x, cursorY);
       cursorY += px(spec, lineMm);
     }
     if (i < plan.length - 1) cursorY += px(spec, 0.15);
@@ -136,6 +147,68 @@ function buildMixInlineText(data: ReturnType<typeof buildCrateLabelContent>): st
   return parts.join(' · ');
 }
 
+/** Per-edge inset border — extra left/top padding for M220 printable area. */
+function drawBorder(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  inset: ReturnType<typeof borderInsetPx>
+): void {
+  const { top, right, bottom, left } = inset;
+  const innerW = w - left - right;
+  const innerH = h - top - bottom;
+  if (innerW < 2 || innerH < 2) return;
+
+  const x0 = left;
+  const x1 = w - right - 1;
+  const y0 = top;
+  const y1 = h - bottom - 1;
+
+  ctx.fillStyle = BLACK;
+  ctx.fillRect(x0, y0, innerW, 1);
+  ctx.fillRect(x0, y1, innerW, 1);
+  ctx.fillRect(x0, y0, 1, innerH);
+  ctx.fillRect(x1, y0, 1, innerH);
+}
+
+type Canvas2D = CanvasRenderingContext2D & { letterSpacing?: string };
+
+/** Draw notes centered in the zone below vibes — extra tracking preserves lowercase i dots. */
+function drawNotesBlock(
+  ctx: CanvasRenderingContext2D,
+  spec: ThermalLabelSpec,
+  text: string,
+  x: number,
+  zoneTop: number,
+  zoneBottom: number,
+  innerW: number,
+  maxLinesCap: number
+): void {
+  const sizeMm = spec.type.notes;
+  const weight = 700;
+  const c2d = ctx as Canvas2D;
+  ctx.font = font(spec, sizeMm, weight);
+  c2d.letterSpacing = `${Math.max(1, px(spec, 0.06))}px`;
+
+  const lineH = px(spec, sizeMm * 1.12);
+  const available = zoneBottom - zoneTop;
+  const maxLines = Math.max(
+    1,
+    Math.min(maxLinesCap, Math.floor(available / Math.max(lineH, 1)))
+  );
+  const lines = wrapLines(ctx, text.trim(), innerW, maxLines);
+  const blockH = lines.length * lineH;
+  let y = zoneTop + Math.max(0, Math.floor((available - blockH) / 2));
+
+  for (const line of lines) {
+    if (y + lineH > zoneBottom) break;
+    drawThermalText(ctx, line, x, y);
+    y += lineH;
+  }
+
+  c2d.letterSpacing = '0px';
+}
+
 function drawRail(
   ctx: CanvasRenderingContext2D,
   spec: ThermalLabelSpec,
@@ -147,16 +220,15 @@ function drawRail(
   ctx.fillStyle = BLACK;
   ctx.fillRect(x, y, innerW, 1);
 
-  const textY = y + px(spec, 0.22);
+  const textY = y + px(spec, 0.16);
   ctx.font = font(spec, spec.type.brand, 800);
-  ctx.fillStyle = BLACK;
-  ctx.fillText('MyVinyl', x, textY);
+  drawThermalText(ctx, 'MyVinyl', x, textY);
 
   const meta = [data.format, data.year].filter(Boolean).join(' · ').toUpperCase();
   if (meta) {
     ctx.textAlign = 'right';
-    ctx.font = font(spec, spec.type.rail, 600);
-    ctx.fillText(truncate(ctx, meta, innerW * 0.65), x + innerW, textY);
+    ctx.font = font(spec, spec.type.rail, 700);
+    drawThermalText(ctx, truncate(ctx, meta, innerW * 0.65), x + innerW, textY);
     ctx.textAlign = 'left';
   }
 }
@@ -180,9 +252,7 @@ function renderLabel(
   ctx.fillStyle = WHITE;
   ctx.fillRect(0, 0, w, h);
 
-  ctx.strokeStyle = BLACK;
-  ctx.lineWidth = 1;
-  ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+  drawBorder(ctx, w, h, borderInsetPx(spec));
 
   ctx.textBaseline = 'top';
   ctx.textAlign = 'left';
@@ -194,40 +264,30 @@ function renderLabel(
   if (showMix) {
     y += gap;
     const mixText = buildMixInlineText(data);
-    ctx.font = font(spec, spec.type.statInline, 700);
-    ctx.fillStyle = BLACK;
-    ctx.fillText(truncate(ctx, mixText, innerW), padL, y);
+    ctx.font = font(spec, spec.type.statInline, 800);
+    drawThermalText(ctx, truncate(ctx, mixText, innerW), padL, y);
     y += px(spec, spec.type.statInline * 1.08);
   }
 
   if (data.showVibes && data.vibes.length) {
-    y += gap;
+    y += px(spec, showMix ? (spec.mixVibesGap ?? spec.stackGap) : spec.stackGap);
     const vibeText = data.vibes.slice(0, spec.zones.vibesMax).join(' · ').toUpperCase();
-    ctx.font = font(spec, spec.type.vibes, 700);
-    ctx.fillStyle = '#1a1a1a';
-    ctx.fillText(truncate(ctx, vibeText, innerW), padL, y);
+    ctx.font = font(spec, spec.type.vibes, 800);
+    drawThermalText(ctx, truncate(ctx, vibeText, innerW), padL, y);
     y += px(spec, spec.type.vibes * 1.1);
   }
 
   if (data.customNotes.trim()) {
-    y += gap;
-    ctx.font = font(spec, spec.type.notes, 500);
-    const lineH = px(spec, spec.type.notes * 1.1);
-    const available = footerY - gap - y;
-    const maxLines = Math.max(
-      1,
-      Math.min(
-        spec.zones.notesMaxLines + 1,
-        Math.floor(available / Math.max(lineH, 1))
-      )
+    drawNotesBlock(
+      ctx,
+      spec,
+      data.customNotes,
+      padL,
+      y,
+      footerY,
+      innerW,
+      spec.zones.notesMaxLines + 1
     );
-    const lines = wrapLines(ctx, data.customNotes.trim(), innerW, maxLines);
-    for (const line of lines) {
-      if (y + lineH > footerY - px(spec, 0.1)) break;
-      ctx.fillStyle = BLACK;
-      ctx.fillText(line, padL, y);
-      y += lineH;
-    }
   }
 
   drawRail(ctx, spec, data, padL, footerY, innerW);
@@ -278,7 +338,13 @@ export async function renderThermalLabelCanvas(
   hiCtx.imageSmoothingQuality = 'high';
   renderLabel(hiCtx, spec, data);
 
-  return boxDownsampleTo1Bit(hiCanvas, outW, outH);
+  return boxDownsampleTo1Bit(
+    hiCanvas,
+    outW,
+    outH,
+    THERMAL_PRINT_PIPELINE.inkThreshold,
+    THERMAL_PRINT_PIPELINE.downsample
+  );
 }
 
 export async function thermalLabelPreviewDataUrl(

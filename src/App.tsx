@@ -85,6 +85,7 @@ import {
   fetchRecords,
   probeGuestTracklistsPersisted,
 } from './lib/records';
+import { clampLabelDescription } from './lib/labelContent';
 import { migrateRecord } from './lib/tracks';
 
 import { normalizeGenre, normalizeVibe, parseFilterList } from './lib/filterLabels';
@@ -1276,7 +1277,10 @@ function App() {
                 onSaveDescription={
                   crates.isGuestView
                     ? undefined
-                    : (id, notes) => updateRecord(id, { notes: notes || undefined })
+                    : (id, text) =>
+                        updateRecord(id, {
+                          labelDescription: text ? clampLabelDescription(text) : undefined,
+                        })
                 }
                 onSaveVibes={
                   crates.isGuestView

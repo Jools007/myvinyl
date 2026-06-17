@@ -63,17 +63,19 @@ export function labelDescriptionFallback(record: VinylRecord): string {
   return parts.join(' · ');
 }
 
-/** Text shown on the label: custom notes, or fallback metadata. */
+/** Text shown on the label: sticker description, or fallback metadata. */
 export function resolveLabelDescription(
   record: VinylRecord,
-  notesDraft?: string
+  descriptionDraft?: string
 ): string {
-  const custom = (notesDraft !== undefined ? notesDraft : record.notes)?.trim();
+  const custom = (
+    descriptionDraft !== undefined ? descriptionDraft : record.labelDescription
+  )?.trim();
   if (custom) return clampLabelDescription(custom);
   return labelDescriptionFallback(record);
 }
 
-/** Thermal labels: only user notes (footer carries format/year). */
+/** Thermal labels: only user sticker copy (footer carries format/year). */
 export function resolveThermalCustomNotes(
   record: VinylRecord,
   opts?: { description?: string; useDescriptionDraft?: boolean }
@@ -81,7 +83,9 @@ export function resolveThermalCustomNotes(
   if (opts?.useDescriptionDraft) {
     return clampLabelDescription(opts.description ?? '');
   }
-  const custom = (opts?.description !== undefined ? opts.description : record.notes)?.trim();
+  const custom = (
+    opts?.description !== undefined ? opts.description : record.labelDescription
+  )?.trim();
   return custom ? clampLabelDescription(custom) : '';
 }
 

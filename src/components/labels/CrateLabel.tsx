@@ -147,17 +147,19 @@ export function CrateLabel({
         )
       ) : null}
 
-      <div className="crate-label__desc-block">
-        {hasDesc ? (
-          <p className="crate-label__desc" title={notesText}>
-            {notesText}
-          </p>
-        ) : showPlaceholder ? (
-          <p className="crate-label__desc crate-label__desc--placeholder">
-            Add notes in preview…
-          </p>
-        ) : null}
-      </div>
+      {(hasDesc || showPlaceholder) ? (
+        <div className="crate-label__desc-block">
+          {hasDesc ? (
+            <p className="crate-label__desc" title={notesText}>
+              {notesText}
+            </p>
+          ) : (
+            <p className="crate-label__desc crate-label__desc--placeholder">
+              Add notes in preview…
+            </p>
+          )}
+        </div>
+      ) : null}
     </>
   );
 

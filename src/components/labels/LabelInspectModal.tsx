@@ -170,7 +170,7 @@ export function LabelInspectModal({
 
   useEffect(() => {
     if (!record) return;
-    setDraft(record.notes?.trim() ?? '');
+    setDraft(record.labelDescription?.trim() ?? '');
     const primary = getPrimaryTrack(record);
     setVibeDraft([...(primary?.vibeTags ?? [])].slice(0, MAX_LABEL_VIBES));
     setDisplayDraft(resolveLabelDisplayPrefs(record));
@@ -179,7 +179,7 @@ export function LabelInspectModal({
   const persistDescription = useCallback(
     (text: string) => {
       if (!recordId || readOnly || !onSaveDescription) return;
-      onSaveDescription(recordId, text.trim());
+      onSaveDescription(recordId, clampLabelDescription(text.trim()));
     },
     [onSaveDescription, readOnly, recordId]
   );

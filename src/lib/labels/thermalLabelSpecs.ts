@@ -22,6 +22,10 @@ export interface ThermalLabelSpec {
   pxPerMm: number;
   margins: { top: number; right: number; bottom: number; left: number };
   stackGap: number;
+  /** Gap after BPM/mix row before vibes (mm). */
+  mixVibesGap?: number;
+  /** Gap after vibes before custom notes (mm). */
+  vibesNotesGap?: number;
   footerZone: number;
   type: ThermalLabelTypography;
   layoutVariant: 'compact' | 'tall';
@@ -33,50 +37,82 @@ export interface ThermalLabelSpec {
 
 const PX_PER_MM = 8;
 
-/** Hi-res capture/render factor before 1-bit downsample. */
-export const THERMAL_PRINT_SUPERSAMPLE = 8;
+/** Hi-res capture/render factor before 1-bit downsample (16 keeps i-dots separate from stems). */
+export const THERMAL_PRINT_SUPERSAMPLE = 16;
 
-/**
- * Locked M220 40×30 pipeline — best print clarity (Jun 2026). Do not regress.
- * - Canvas vector render @ 8× supersample
- * - Label-native 40-byte raster (not 72-byte head padding)
- * - Ink threshold 185, density 5
- */
+/** Per-edge border inset from canvas edge (mm) — M220 clips left/top harder than right/bottom. */
+export interface ThermalBorderInsetMm {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/** M220 40×30 master — asymmetric border inset (mm). */
+export const THERMAL_BORDER_INSET_MM: ThermalBorderInsetMm = {
+  top: 0.65,
+  right: 0.35,
+  bottom: 0.35,
+  left: 1.1,
+};
+
+export function borderInsetPx(
+  spec: ThermalLabelSpec
+): { top: number; right: number; bottom: number; left: number } {
+  const p = spec.pxPerMm;
+  return {
+    top: Math.round(THERMAL_BORDER_INSET_MM.top * p),
+    right: Math.round(THERMAL_BORDER_INSET_MM.right * p),
+    bottom: Math.round(THERMAL_BORDER_INSET_MM.bottom * p),
+    left: Math.round(THERMAL_BORDER_INSET_MM.left * p),
+  };
+}
+
+/** Master print pipeline — 8 px/mm canvas, 16× supersample, 40-byte die-cut raster. */
 export const THERMAL_PRINT_PIPELINE = {
   renderer: 'canvas' as const,
   rasterMode: 'label-native' as const,
   supersample: THERMAL_PRINT_SUPERSAMPLE,
-  inkThreshold: 185,
+  inkThreshold: 168,
+  downsample: 'any-ink' as const,
+  headWidthBytes: 40,
+  headAlignment: 'left' as const,
+  borderInsetMm: THERMAL_BORDER_INSET_MM,
   density: 5,
 };
 
-const FONT_FAMILY = '"DM Sans", system-ui, -apple-system, sans-serif';
+/** Legibility-first face — DM Sans i/I collapse to "1" on M220 1-bit output. */
+const THERMAL_FONT_STACK = '"Atkinson Hyperlegible", Verdana, Tahoma, sans-serif';
 
-export const THERMAL_FONT_FAMILY = FONT_FAMILY;
+export const THERMAL_FONT_FAMILY = THERMAL_FONT_STACK;
 
 export const SPEC_40X30: ThermalLabelSpec = {
   id: '40x30',
   widthMm: 40,
   heightMm: 30,
   pxPerMm: PX_PER_MM,
-  margins: { top: 0.28, right: 0.5, bottom: 0.28, left: 0.5 },
-  /** Uniform vertical gap between stacked sections (mm). */
+  margins: { top: 1.5, right: 0.9, bottom: 0.35, left: 2.0 },
+  /** Gap after identity block before BPM row (mm). */
   stackGap: 0.2,
+  /** Gap after BPM row before vibes (mm). */
+  mixVibesGap: 0.75,
+  /** Gap after vibes before custom notes (mm). */
+  vibesNotesGap: 0.8,
   /** Reserved height for pinned footer rule + meta (mm). */
-  footerZone: 2.05,
+  footerZone: 1.65,
   type: {
-    display: 3.5,
-    title: 2.8,
-    statInline: 2.15,
+    display: 3.35,
+    title: 2.65,
+    statInline: 2.3,
     vibes: 1.35,
-    notes: 1.55,
+    notes: 2.0,
     rail: 0.9,
     brand: 0.95,
   },
   layoutVariant: 'compact',
   zones: {
     vibesMax: 3,
-    notesMaxLines: 5,
+    notesMaxLines: 6,
   },
 };
 
@@ -142,6 +178,6 @@ export function identityLinePlan(
   }
   return [
     { role: 'display', maxLines: 2 },
-    { role: 'title', maxLines: 1 },
+    { role: 'title', maxLines: 2 },
   ];
 }

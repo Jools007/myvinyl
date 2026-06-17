@@ -2,15 +2,22 @@ import { resolveDiscogsCoverUrl } from './discogsCover';
 import { parseFilterList } from './filterLabels';
 import { migrateRecord } from './tracks';
 import { supabase } from './supabase';
-import type { RecordCondition, Track, VinylRecord } from './types';
+import { clampLabelDescription } from './labelContent';
+import type {
+  LabelDisplayPrefs,
+  LabelTitleLayout,
+  RecordCondition,
+  Track,
+  VinylRecord,
+} from './types';
 
 const TABLE = 'records';
 
 const SCOPED_RECORD_COLUMNS =
-  'id,user_id,collection_id,title,artist,year,format,genre,cover_image,tracklist,condition,discogs_id,bpm,barcode,created_at';
+  'id,user_id,collection_id,title,artist,year,format,genre,cover_image,tracklist,condition,discogs_id,bpm,barcode,notes,label_description,label_display,created_at';
 
 const LEGACY_RECORD_COLUMNS =
-  'id,user_id,title,artist,year,format,genre,cover_image,tracklist,condition,discogs_id,bpm,barcode,created_at';
+  'id,user_id,title,artist,year,format,genre,cover_image,tracklist,condition,discogs_id,bpm,barcode,notes,label_description,label_display,created_at';
 
 /** List/grid load — omits heavy tracklist JSON (placeholder track synthesized client-side). */
 const SCOPED_SUMMARY_COLUMNS =
@@ -101,8 +108,45 @@ export type RecordRow = {
   discogs_id: number | null;
   bpm: number | null;
   barcode: string | null;
+  notes: string | null;
+  label_description: string | null;
+  label_display: LabelDisplayPrefs | null;
   created_at: string;
 };
+
+const LABEL_TITLE_LAYOUTS: LabelTitleLayout[] = [
+  'artist-album',
+  'album-artist',
+  'album-only',
+];
+
+function parseLabelDisplay(raw: unknown): LabelDisplayPrefs | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const row = raw as Record<string, unknown>;
+  const prefs: LabelDisplayPrefs = {};
+
+  if (
+    typeof row.titleLayout === 'string' &&
+    LABEL_TITLE_LAYOUTS.includes(row.titleLayout as LabelTitleLayout)
+  ) {
+    prefs.titleLayout = row.titleLayout as LabelTitleLayout;
+  }
+  if (typeof row.showBpm === 'boolean') prefs.showBpm = row.showBpm;
+  if (typeof row.showKey === 'boolean') prefs.showKey = row.showKey;
+  if (typeof row.showVibes === 'boolean') prefs.showVibes = row.showVibes;
+
+  return Object.keys(prefs).length > 0 ? prefs : undefined;
+}
+
+function serializeLabelDisplay(prefs?: LabelDisplayPrefs): LabelDisplayPrefs | null {
+  if (!prefs) return null;
+  const out: LabelDisplayPrefs = {};
+  if (prefs.titleLayout) out.titleLayout = prefs.titleLayout;
+  if (prefs.showBpm !== undefined) out.showBpm = prefs.showBpm;
+  if (prefs.showKey !== undefined) out.showKey = prefs.showKey;
+  if (prefs.showVibes !== undefined) out.showVibes = prefs.showVibes;
+  return Object.keys(out).length > 0 ? out : null;
+}
 
 export type RecordsError = {
   message: string;
@@ -216,6 +260,7 @@ function primaryTrackBpm(tracks: Track[]): number | null {
 
 function rowToRecord(row: RecordRow, summaryOnly = false): VinylRecord {
   const tracks = summaryOnly ? [] : parseTracklist(row.tracklist);
+  const labelDescription = row.label_description?.trim();
   return migrateRecord({
     id: row.id,
     artist: row.artist,
@@ -225,6 +270,9 @@ function rowToRecord(row: RecordRow, summaryOnly = false): VinylRecord {
     coverUrl: resolveDiscogsCoverUrl(row.cover_image),
     genres: parseGenre(row.genre),
     condition: (row.condition as RecordCondition) || 'NM',
+    notes: row.notes?.trim() || undefined,
+    labelDescription: labelDescription ? clampLabelDescription(labelDescription) : undefined,
+    labelDisplay: parseLabelDisplay(row.label_display),
     tracks,
     discogsId: row.discogs_id ?? undefined,
     addedAt: row.created_at,
@@ -257,6 +305,11 @@ function recordToRow(
     discogs_id: record.discogsId ?? null,
     bpm: primaryTrackBpm(tracks),
     barcode: null,
+    notes: record.notes?.trim() || null,
+    label_description: record.labelDescription
+      ? clampLabelDescription(record.labelDescription)
+      : null,
+    label_display: serializeLabelDisplay(record.labelDisplay),
     created_at: record.addedAt,
   };
 
@@ -288,6 +341,9 @@ function recordToUpdatePayload(
     discogs_id: row.discogs_id,
     bpm: row.bpm,
     barcode: row.barcode,
+    notes: row.notes,
+    label_description: row.label_description,
+    label_display: row.label_display,
   };
 
   if (supportsCollectionIdColumn() && row.collection_id !== undefined) {

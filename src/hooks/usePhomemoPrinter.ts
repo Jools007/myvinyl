@@ -3,6 +3,8 @@ import { getLabelPrintProfile, type LabelPrintProfileId } from '../lib/labelProf
 import { getPhomemoTransport, PhomemoBleTransport } from '../lib/phomemo/bleTransport';
 import { printRasterM220 } from '../lib/phomemo/printM220';
 import { rasterForDieCutLabel } from '../lib/phomemo/raster';
+import { assertThermalLabelPrintable } from '../lib/labels/qc';
+import { renderCalibrationLabelCanvas } from '../lib/labels/renderCalibrationLabelCanvas';
 import { renderThermalLabelCanvas } from '../lib/labels/renderThermalLabelCanvas';
 import type { VinylRecord } from '../lib/types';
 
@@ -69,6 +71,7 @@ export function usePhomemoPrinter() {
             profile.widthMm,
             profile.heightMm
           );
+          assertThermalLabelPrintable(canvas, profile.widthMm, profile.heightMm);
           const raster = rasterForDieCutLabel(canvas);
           await printRasterM220(transport, raster);
           setProgress({ current: i + 1, total: records.length });
@@ -92,6 +95,37 @@ export function usePhomemoPrinter() {
     [printRecords]
   );
 
+  const printCalibrationLabel = useCallback(
+    async (profileId: LabelPrintProfileId) => {
+      const profile = getLabelPrintProfile(profileId);
+      if (!profile.thermal) {
+        throw new Error('Selected profile is not a thermal printer profile');
+      }
+
+      const transport = transportRef.current;
+      if (!transport.isConnected()) {
+        await connect();
+      }
+
+      setPrinting(true);
+      setProgress({ current: 0, total: 1 });
+
+      try {
+        const canvas = await renderCalibrationLabelCanvas(
+          profile.widthMm,
+          profile.heightMm
+        );
+        const raster = rasterForDieCutLabel(canvas);
+        await printRasterM220(transport, raster);
+        setProgress({ current: 1, total: 1 });
+      } finally {
+        setPrinting(false);
+        setProgress(null);
+      }
+    },
+    [connect]
+  );
+
   return {
     supported,
     connected,
@@ -103,5 +137,6 @@ export function usePhomemoPrinter() {
     disconnect,
     printRecords,
     printTestLabel,
+    printCalibrationLabel,
   };
 }

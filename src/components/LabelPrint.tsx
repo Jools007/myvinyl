@@ -33,6 +33,7 @@ import type { LabelDisplayPrefs, VinylRecord } from '../lib/types';
 import { RecordArtwork } from './RecordArtwork';
 import { CrateLabel } from './labels/CrateLabel';
 import { ThermalLabelPreview } from './labels/ThermalLabelPreview';
+import { ThermalLabelQcError } from '../lib/labels/qc';
 import { LabelInspectModal } from './labels/LabelInspectModal';
 
 interface LabelPrintProps {
@@ -176,8 +177,27 @@ export function LabelPrint({
         selected.length === 1 ? 'Label sent to M220' : `${selected.length} labels sent to M220`
       );
     } catch (err) {
+      if (err instanceof ThermalLabelQcError) {
+        const failed = err.report.checks.filter((c) => !c.pass);
+        toast.error('Label failed quality check', {
+          description: failed.map((c) => c.message).join(' · '),
+        });
+        return;
+      }
       const message = err instanceof Error ? err.message : 'Print failed';
       toast.error('Thermal print failed', { description: message });
+    }
+  };
+
+  const handleThermalCalibration = async () => {
+    try {
+      await phomemo.printCalibrationLabel(printProfile);
+      toast.success('Calibration label sent', {
+        description: 'Check border position and smallest legible font size on the sticker.',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Print failed';
+      toast.error('Calibration print failed', { description: message });
     }
   };
 
@@ -191,6 +211,13 @@ export function LabelPrint({
       await phomemo.printTestLabel(sample, printProfile);
       toast.success('Test label sent', { description: `${sample.artist} — ${sample.title}` });
     } catch (err) {
+      if (err instanceof ThermalLabelQcError) {
+        const failed = err.report.checks.filter((c) => !c.pass);
+        toast.error('Test label failed quality check', {
+          description: failed.map((c) => c.message).join(' · '),
+        });
+        return;
+      }
       const message = err instanceof Error ? err.message : 'Print failed';
       toast.error('Test print failed', { description: message });
     }
@@ -539,6 +566,14 @@ export function LabelPrint({
                   disabled={phomemo.printing}
                 >
                   Print test label
+                </button>
+                <button
+                  type="button"
+                  className="labels-thermal-bar__btn labels-thermal-bar__btn--ghost"
+                  onClick={() => void handleThermalCalibration()}
+                  disabled={phomemo.printing}
+                >
+                  Print calibration
                 </button>
                 {phomemo.progress ? (
                   <p className="labels-thermal-bar__progress">
