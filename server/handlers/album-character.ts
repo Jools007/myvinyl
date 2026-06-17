@@ -3,6 +3,7 @@ import { resolveAlbumCharacter } from '../album-character';
 export type AlbumCharacterQuery = {
   artist: string;
   album: string;
+  year?: string;
   genres?: string[];
 };
 
@@ -34,7 +35,9 @@ export function parseAlbumCharacterQuery(
     .map((g) => g.trim())
     .filter(Boolean);
 
-  return { artist, album, genres: genres.length ? genres : undefined };
+  const year = (pick('year')[0] ?? '').trim() || undefined;
+
+  return { artist, album, year, genres: genres.length ? genres : undefined };
 }
 
 export type AlbumCharacterEnv = {

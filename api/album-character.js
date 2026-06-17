@@ -141,6 +141,25 @@ async function lastFmFetch(apiKey, params) {
   if (!res.ok) throw new Error(`Last.fm request failed: ${res.status}`);
   return data;
 }
+async function getArtistInfo(apiKey, artist) {
+  const params = new URLSearchParams({
+    method: "artist.getInfo",
+    artist
+  });
+  const data = await lastFmFetch(apiKey, params);
+  const info = data.artist;
+  if (!info) return null;
+  const wiki = info.bio;
+  const wikiText = wiki?.summary?.replace(/<[^>]+>/g, " ").trim() || wiki?.content?.replace(/<[^>]+>/g, " ").trim() || "";
+  const tags = info.tags?.tag;
+  const tagList = Array.isArray(tags) ? tags : tags ? [tags] : [];
+  const tagNames = tagList.filter((t) => t?.name).map((t) => t.name);
+  return {
+    name: typeof info.name === "string" ? info.name : artist,
+    wikiText,
+    tags: tagNames
+  };
+}
 async function getAlbumInfo(apiKey, artist, album) {
   const params = new URLSearchParams({
     method: "album.getInfo",
@@ -205,13 +224,20 @@ var NOISE_TAGS = /* @__PURE__ */ new Set([
   "vinyl",
   "cd",
   "my vinyl",
-  "all"
+  "all",
+  "various",
+  "various artists"
 ]);
 var MOOD_BY_TAG = [
+  ["drum n bass", "rolling"],
+  ["drum and bass", "rolling"],
+  ["breakbeat", "break-driven"],
+  ["speed garage", "late-night"],
   ["dub", "deep"],
   ["roots reggae", "soulful"],
   ["reggae", "warm"],
   ["soul", "soulful"],
+  ["r&b", "soulful"],
   ["jazz", "late-night"],
   ["house", "hypnotic"],
   ["techno", "driving"],
@@ -222,7 +248,39 @@ var MOOD_BY_TAG = [
   ["hip-hop", "groovy"],
   ["trip hop", "moody"],
   ["trip-hop", "moody"],
-  ["downtempo", "smooth"]
+  ["downtempo", "smooth"],
+  ["electronic", "electronic"]
+];
+var RELEASE_BOILERPLATE = /^(the album was released|it was released|released in|released on|this album was released|the record was released|the song was released)/i;
+var MUSICAL_WORDS = [
+  "sound",
+  "music",
+  "vocal",
+  "guitar",
+  "bass",
+  "drum",
+  "beat",
+  "soul",
+  "funk",
+  "produced",
+  "features",
+  "style",
+  "genre",
+  "lyric",
+  "melod",
+  "rhythm",
+  "groove",
+  "atmospher",
+  "energy",
+  "landmark",
+  "classic",
+  "influence",
+  "textures",
+  "harmon",
+  "sample",
+  "synth",
+  "mix",
+  "anthem"
 ];
 function normalizeTag(raw) {
   return raw.trim().toLowerCase().replace(/\s+/g, " ");
@@ -258,35 +316,84 @@ function joinTags(tags) {
   if (top.length === 2) return `${top[0]} & ${top[1]}`;
   return `${top[0]}, ${top[1]} & ${top[2]}`;
 }
-function shortenWikiProse(text, tags) {
-  const clean = text.replace(/\s+/g, " ").trim();
-  if (!clean || isPressingNotes(clean)) return null;
-  const genreMatch = clean.match(/\bis an?\s+([^.]{3,80}?)\s+album\b/i);
-  const genrePhrase = genreMatch?.[1]?.trim();
-  const producerMatch = clean.match(/\bproduced by\s+([^.;]{3,50})/i);
-  let producer = producerMatch?.[1]?.trim();
-  if (producer) {
-    producer = producer.replace(/\bat his\b.*/i, "").replace(/\bat the\b.*/i, "").trim();
-    if (producer.length > 36) producer = producer.slice(0, 36).trim();
+function cleanSourceProse(text) {
+  return text.replace(/<[^>]+>/g, " ").replace(/\buser-contributed text\b/gi, " ").replace(/\bread more on last\.fm\b.*$/i, " ").replace(/^[^.]{0,80}\bprofile:\s*/i, "").replace(/\s+/g, " ").trim();
+}
+function splitSentences(text) {
+  return cleanSourceProse(text).split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter((s) => s.length > 16);
+}
+function musicalSentenceScore(sentence) {
+  const lower = sentence.toLowerCase();
+  let score = 0;
+  for (const word of MUSICAL_WORDS) {
+    if (lower.includes(word)) score += 2;
   }
-  const tagPhrase = joinTags(tags) || genrePhrase;
-  const mood = pickMood(tags.length ? tags : genrePhrase ? [genrePhrase] : []);
-  if (tagPhrase && producer) {
-    return `${capitalizePhrase(tagPhrase)} \u2014 ${producer}, ${mood} vibes`;
+  if (/\b(single|ep|album|record|song|compilation)\b/i.test(sentence)) score += 1;
+  if (RELEASE_BOILERPLATE.test(sentence)) score -= 4;
+  return score;
+}
+function ensureSentenceEnd(text) {
+  const trimmed = text.trim();
+  if (!trimmed) return trimmed;
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+function extractRichProse(text, maxLen = 500) {
+  const clean = cleanSourceProse(text);
+  if (!clean || isPressingNotes(clean) || clean.length < 48) return null;
+  const sentences = splitSentences(clean);
+  if (sentences.length === 0) return null;
+  const ranked = sentences.map((sentence, index) => ({
+    sentence,
+    index,
+    score: musicalSentenceScore(sentence) + (index === 0 ? 3 : 0),
+    skip: RELEASE_BOILERPLATE.test(sentence)
+  })).filter((row) => !row.skip).sort((a, b) => b.score - a.score || a.index - b.index);
+  const picked = [];
+  const opener = sentences[0];
+  if (opener && !RELEASE_BOILERPLATE.test(opener)) {
+    picked.push(opener);
   }
-  if (tagPhrase) {
-    return `${capitalizePhrase(tagPhrase)} \u2014 ${mood} vibes`;
+  for (const row of ranked) {
+    if (picked.length >= 3) break;
+    if (picked.includes(row.sentence)) continue;
+    if (row.score <= 0 && picked.length >= 2) continue;
+    picked.push(row.sentence);
   }
-  const firstSentence = clean.split(/\.\s/)[0]?.trim();
-  if (firstSentence && firstSentence.length >= 24 && !isPressingNotes(firstSentence)) {
-    return firstSentence.endsWith(".") ? firstSentence : `${firstSentence}.`;
+  if (picked.length === 0) {
+    const fallback = sentences.filter((s) => !RELEASE_BOILERPLATE.test(s)).slice(0, 2);
+    if (fallback.length === 0) return null;
+    return clampDescription(fallback.map(ensureSentenceEnd).join(" "), maxLen);
   }
-  return null;
+  picked.sort((a, b) => sentences.indexOf(a) - sentences.indexOf(b));
+  const joined = picked.map(ensureSentenceEnd).join(" ");
+  return clampDescription(joined, maxLen);
+}
+function composeTagFallback(signals, tags) {
+  const mood = pickMood(tags);
+  const tagLine = capitalizePhrase(joinTags(tags));
+  const artist = signals.artist?.trim();
+  const album = signals.album?.trim();
+  const year = signals.year?.trim();
+  const parts = [];
+  if (tagLine) parts.push(`${tagLine} record`);
+  if (artist && album) {
+    parts.push(`by ${artist}`);
+  } else if (artist) {
+    parts.push(`from ${artist}`);
+  }
+  if (year && /^\d{4}$/.test(year)) parts.push(`(${year})`);
+  parts.push(`\u2014 ${mood} energy`);
+  return parts.join(" ").replace(/\s+/g, " ").trim();
 }
 function clampDescription(text, max = 520) {
   const trimmed = text.trim();
   if (trimmed.length <= max) return trimmed;
-  return `${trimmed.slice(0, max - 1).trim()}\u2026`;
+  const slice = trimmed.slice(0, max - 1);
+  const lastStop = Math.max(slice.lastIndexOf(". "), slice.lastIndexOf("; "));
+  if (lastStop > max * 0.55) {
+    return `${slice.slice(0, lastStop + 1).trim()}\u2026`;
+  }
+  return `${slice.trim()}\u2026`;
 }
 function composeCharacterDescription(signals) {
   const tags = rankTags(signals);
@@ -297,21 +404,25 @@ function composeCharacterDescription(signals) {
   if (signals.musicBrainzTags?.length) sources.push("musicbrainz-tags");
   if (signals.listenBrainzTags?.length) sources.push("listenbrainz-tags");
   if (signals.discogsGenres?.length) sources.push("discogs-genres");
-  const wiki = signals.wikipediaExtract && !isPressingNotes(signals.wikipediaExtract) ? signals.wikipediaExtract : void 0;
-  const lastfm = signals.lastfmWiki && !isPressingNotes(signals.lastfmWiki) ? signals.lastfmWiki : void 0;
-  const prose = shortenWikiProse(wiki ?? lastfm ?? "", tags);
-  if (prose) {
-    return {
-      description: clampDescription(prose),
-      tags,
-      sources: [...new Set(sources)]
-    };
+  const proseCandidates = [signals.wikipediaExtract, signals.lastfmWiki].filter(
+    (text) => {
+      if (!text?.trim()) return false;
+      return !isPressingNotes(text);
+    }
+  );
+  for (const candidate of proseCandidates) {
+    const rich = extractRichProse(candidate);
+    if (rich && rich.length >= 72) {
+      return {
+        description: rich,
+        tags,
+        sources: [...new Set(sources)]
+      };
+    }
   }
   if (tags.length > 0) {
-    const mood = pickMood(tags);
-    const phrase = `${capitalizePhrase(joinTags(tags))} \u2014 ${mood} vibes`;
     return {
-      description: clampDescription(phrase),
+      description: clampDescription(composeTagFallback(signals, tags)),
       tags,
       sources: [...new Set(sources.filter((s) => s !== "wikipedia" && s !== "lastfm-wiki"))]
     };
@@ -387,20 +498,65 @@ async function fetchSummary(title) {
   const extract = data.extract?.replace(/\s+/g, " ").trim();
   return extract || null;
 }
+async function searchWikipediaTitles(query, limit = 5) {
+  const params = new URLSearchParams({
+    action: "query",
+    list: "search",
+    srsearch: query,
+    srlimit: String(limit),
+    format: "json",
+    origin: "*"
+  });
+  const res = await fetch(`https://en.wikipedia.org/w/api.php?${params}`, {
+    headers: { "User-Agent": USER_AGENT2, Accept: "application/json" }
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.query?.search ?? []).map((hit) => hit.title).filter(Boolean);
+}
 function albumTitleCandidates(artist, album) {
   const a = artist.trim();
   const t = album.trim();
-  const out = [t];
-  if (a) {
+  const out = [];
+  if (t) out.push(t);
+  if (a && t) {
     out.push(`${t} (${a} album)`);
     out.push(`${t} (${a} Album)`);
+    out.push(`${t} (${a} song)`);
+    out.push(`${t} (${a} single)`);
   }
   return [...new Set(out)];
+}
+function searchQueries(artist, album) {
+  const a = artist.trim();
+  const t = album.trim();
+  const queries = [];
+  if (a && t) queries.push(`${t} ${a} album`);
+  if (a && t) queries.push(`"${t}" ${a}`);
+  if (t) queries.push(`${t} album`);
+  return [...new Set(queries)];
+}
+function looksLikeMusicArticle(extract, artist, album) {
+  const text = extract.toLowerCase();
+  const a = artist.trim().toLowerCase();
+  const t = album.trim().toLowerCase();
+  const musicHints = ["album", "song", "single", "ep", "record", "studio", "music", "released"];
+  const hasMusic = musicHints.some((hint) => text.includes(hint));
+  const mentionsArtist = !a || a === "various" || text.includes(a);
+  const mentionsAlbum = !t || text.includes(t);
+  return hasMusic && mentionsArtist && mentionsAlbum;
 }
 async function fetchWikipediaAlbumExtract(artist, album) {
   for (const title of albumTitleCandidates(artist, album)) {
     const extract = await withTimeout(fetchSummary(title), 4500, null);
-    if (extract) return extract;
+    if (extract && looksLikeMusicArticle(extract, artist, album)) return extract;
+  }
+  for (const query of searchQueries(artist, album)) {
+    const titles = await withTimeout(searchWikipediaTitles(query), 4500, []);
+    for (const title of titles) {
+      const extract = await withTimeout(fetchSummary(title), 4500, null);
+      if (extract && looksLikeMusicArticle(extract, artist, album)) return extract;
+    }
   }
   return null;
 }
@@ -410,16 +566,20 @@ async function resolveAlbumCharacter(input, env) {
   const artist = input.artist.trim();
   const album = input.album.trim();
   const discogsGenres = (input.genres ?? []).map((g) => g.trim()).filter(Boolean);
-  const [wikipediaExtract, lastfmInfo, mbMatch] = await Promise.all([
+  const [wikipediaExtract, lastfmInfo, lastfmArtist, mbMatch] = await Promise.all([
     fetchWikipediaAlbumExtract(artist, album),
     env.lastfmKey ? withTimeout(getAlbumInfo(env.lastfmKey, artist, album), 6e3, null) : Promise.resolve(null),
+    env.lastfmKey && artist.toLowerCase() !== "various" ? withTimeout(getArtistInfo(env.lastfmKey, artist), 6e3, null) : Promise.resolve(null),
     lookupMusicBrainzAlbum(artist, album)
   ]);
   const listenBrainzTags = mbMatch?.releaseGroupMbid ? await fetchListenBrainzReleaseGroupTags(mbMatch.releaseGroupMbid) : [];
   const composed = composeCharacterDescription({
+    artist,
+    album,
+    year: input.year,
     wikipediaExtract: wikipediaExtract ?? void 0,
-    lastfmWiki: lastfmInfo?.wikiText,
-    lastfmTags: lastfmInfo?.tags,
+    lastfmWiki: lastfmInfo?.wikiText || lastfmArtist?.wikiText,
+    lastfmTags: [.../* @__PURE__ */ new Set([...lastfmInfo?.tags ?? [], ...lastfmArtist?.tags ?? []])],
     musicBrainzTags: mbMatch?.tags,
     listenBrainzTags,
     discogsGenres
@@ -451,7 +611,8 @@ function parseAlbumCharacterQuery(query) {
     throw new AlbumCharacterValidationError("artist and album required");
   }
   const genres = [...pick("genres"), ...pick("genre")].flatMap((v) => v.split(",")).map((g) => g.trim()).filter(Boolean);
-  return { artist, album, genres: genres.length ? genres : void 0 };
+  const year = (pick("year")[0] ?? "").trim() || void 0;
+  return { artist, album, year, genres: genres.length ? genres : void 0 };
 }
 async function handleAlbumCharacter(input, env) {
   return resolveAlbumCharacter(input, env);

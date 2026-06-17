@@ -4420,14 +4420,15 @@ body:has(.clear-collection-backdrop) .collection-toolbar-sticky {
 }
 
 .record-detail-modal .about-release-section__preview {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-height: 1.4;
+  display: none;
+}
+
+.record-detail-modal .about-release-section__chevron {
+  display: none;
 }
 
 .record-detail-modal .about-release-section__panel {
+  display: block;
   margin-top: 0.375rem;
 }
 

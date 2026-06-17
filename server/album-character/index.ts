@@ -1,5 +1,5 @@
 import { withTimeout } from '../enrich-timeout';
-import { getAlbumInfo } from '../lastfm';
+import { getAlbumInfo, getArtistInfo } from '../lastfm';
 import { composeCharacterDescription } from './compose';
 import { fetchListenBrainzReleaseGroupTags } from './listenbrainz';
 import { lookupMusicBrainzAlbum } from './musicbrainz';
@@ -8,6 +8,7 @@ import { fetchWikipediaAlbumExtract } from './wikipedia';
 export type AlbumCharacterInput = {
   artist: string;
   album: string;
+  year?: string;
   /** Comma-separated or repeated query values — Discogs genres/styles already on the record. */
   genres?: string[];
 };
@@ -30,10 +31,13 @@ export async function resolveAlbumCharacter(
   const album = input.album.trim();
   const discogsGenres = (input.genres ?? []).map((g) => g.trim()).filter(Boolean);
 
-  const [wikipediaExtract, lastfmInfo, mbMatch] = await Promise.all([
+  const [wikipediaExtract, lastfmInfo, lastfmArtist, mbMatch] = await Promise.all([
     fetchWikipediaAlbumExtract(artist, album),
     env.lastfmKey
       ? withTimeout(getAlbumInfo(env.lastfmKey, artist, album), 6000, null)
+      : Promise.resolve(null),
+    env.lastfmKey && artist.toLowerCase() !== 'various'
+      ? withTimeout(getArtistInfo(env.lastfmKey, artist), 6000, null)
       : Promise.resolve(null),
     lookupMusicBrainzAlbum(artist, album),
   ]);
@@ -43,9 +47,12 @@ export async function resolveAlbumCharacter(
     : [];
 
   const composed = composeCharacterDescription({
+    artist,
+    album,
+    year: input.year,
     wikipediaExtract: wikipediaExtract ?? undefined,
-    lastfmWiki: lastfmInfo?.wikiText,
-    lastfmTags: lastfmInfo?.tags,
+    lastfmWiki: lastfmInfo?.wikiText || lastfmArtist?.wikiText,
+    lastfmTags: [...new Set([...(lastfmInfo?.tags ?? []), ...(lastfmArtist?.tags ?? [])])],
     musicBrainzTags: mbMatch?.tags,
     listenBrainzTags,
     discogsGenres,

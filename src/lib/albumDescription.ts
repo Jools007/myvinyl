@@ -10,7 +10,7 @@ function storeBaseDescription(recordId: string, text: string): string {
 
 export type AlbumDescriptionSource = Pick<
   VinylRecord,
-  'id' | 'artist' | 'title' | 'discogsId' | 'genres' | 'characterBlurb'
+  'id' | 'artist' | 'title' | 'year' | 'discogsId' | 'genres' | 'characterBlurb'
 >;
 
 const cache = new Map<string, string>();
@@ -44,7 +44,12 @@ export async function fetchBaseAlbumDescription(
   if (cached !== undefined) return cached;
 
   try {
-    const result = await fetchAlbumCharacter(source.artist, source.title, source.genres ?? []);
+    const result = await fetchAlbumCharacter(
+      source.artist,
+      source.title,
+      source.genres ?? [],
+      source.year
+    );
     const text = cleanAlbumText(result.description ?? '');
     return storeBaseDescription(source.id, text);
   } catch {
@@ -66,7 +71,12 @@ export async function fetchAlbumCharacterDescription(
   }
 
   try {
-    const result = await fetchAlbumCharacter(source.artist, source.title, source.genres ?? []);
+    const result = await fetchAlbumCharacter(
+      source.artist,
+      source.title,
+      source.genres ?? [],
+      source.year
+    );
     const text = cleanAlbumText(result.description ?? '');
     cache.set(source.id, clampLabelDescription(text));
     return text;

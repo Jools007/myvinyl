@@ -5,7 +5,7 @@ import type { VinylRecord } from '../lib/types';
 
 export type AboutReleaseSource = Pick<
   VinylRecord,
-  'id' | 'artist' | 'title' | 'genres' | 'characterBlurb'
+  'id' | 'artist' | 'title' | 'year' | 'genres' | 'characterBlurb'
 >;
 
 function truncatePreview(text: string, max = 72): string {

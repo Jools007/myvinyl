@@ -336,9 +336,11 @@ export type AlbumCharacterResult = {
 export async function fetchAlbumCharacter(
   artist: string,
   album: string,
-  genres: string[] = []
+  genres: string[] = [],
+  year?: string
 ): Promise<AlbumCharacterResult> {
   const params = new URLSearchParams({ artist, album });
+  if (year?.trim()) params.set('year', year.trim());
   for (const genre of genres) {
     if (genre.trim()) params.append('genres', genre.trim());
   }

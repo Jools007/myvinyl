@@ -232,6 +232,34 @@ export async function resolveLastFmTrack(
   return resolved ?? direct;
 }
 
+export async function getArtistInfo(apiKey: string, artist: string) {
+  const params = new URLSearchParams({
+    method: 'artist.getInfo',
+    artist,
+  });
+  const data = await lastFmFetch(apiKey, params);
+  const info = (data as { artist?: Record<string, unknown> }).artist;
+  if (!info) return null;
+
+  const wiki = info.bio as { content?: string; summary?: string } | undefined;
+  const wikiText =
+    wiki?.summary?.replace(/<[^>]+>/g, ' ').trim() ||
+    wiki?.content?.replace(/<[^>]+>/g, ' ').trim() ||
+    '';
+
+  const tags = (info.tags as { tag?: unknown })?.tag;
+  const tagList = Array.isArray(tags) ? tags : tags ? [tags] : [];
+  const tagNames = tagList
+    .filter((t: { name?: string }) => t?.name)
+    .map((t: { name: string }) => t.name);
+
+  return {
+    name: typeof info.name === 'string' ? info.name : artist,
+    wikiText,
+    tags: tagNames,
+  };
+}
+
 export async function getAlbumInfo(apiKey: string, artist: string, album: string) {
   const params = new URLSearchParams({
     method: 'album.getInfo',
