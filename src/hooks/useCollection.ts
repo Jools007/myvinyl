@@ -48,6 +48,7 @@ import {
 } from '../lib/collectionClear';
 import { bulkImportCollectionRecords } from '../lib/discogsImport';
 import { GUEST_CRATE_MAX_RECORDS } from '../lib/collectionContext';
+import { registerCharacterBlurbPersister } from '../lib/albumDescription';
 import {
   applyCrossCrateTransferToCollection,
   type CrossCrateTransferStats,
@@ -236,6 +237,27 @@ export function useCollection(scope?: UseCollectionScope) {
     }
     persistRecordNow(record);
   }, [persistRecordNow]);
+
+  useEffect(() => {
+    if (readOnly) {
+      registerCharacterBlurbPersister(null);
+      return;
+    }
+
+    registerCharacterBlurbPersister((source, blurb) => {
+      const existing = recordsRef.current.find((record) => record.id === source.id);
+      if (!existing || existing.characterBlurb?.trim()) return;
+
+      const next = migrateRecord({ ...existing, characterBlurb: blurb });
+      recordsRef.current = recordsRef.current.map((record) =>
+        record.id === next.id ? next : record
+      );
+      setRecords((prev) => prev.map((record) => (record.id === next.id ? next : record)));
+      persistRecordNow(next);
+    });
+
+    return () => registerCharacterBlurbPersister(null);
+  }, [readOnly, persistRecordNow]);
 
   const replaceSavedRecord = useCallback(
     (localId: string, saved: VinylRecord) => {

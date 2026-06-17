@@ -1,5 +1,9 @@
+import { useLayoutEffect, useState } from 'react';
 import { useBaseAlbumDescription } from '../../hooks/useBaseAlbumDescription';
 import { buildCrateLabelContent, clampLabelDescription } from '../../lib/labelContent';
+import { fitThermalLabelNotes } from '../../lib/labels/fitThermalLabelNotes';
+import { ensureThermalLabelFonts } from '../../lib/labels/renderThermalLabelCanvas';
+import { SPEC_40X30 } from '../../lib/labels/thermalLabelSpecs';
 import type { LabelDisplayPrefs, VinylRecord } from '../../lib/types';
 
 export type CrateLabelSize = 'preview' | 'print' | 'thermal-preview';
@@ -62,6 +66,39 @@ export function CrateLabel({
   const keyText = data.camelot ?? '—';
   const notesText = data.description;
   const hasDesc = Boolean(notesText.trim());
+  const [fittedNotesText, setFittedNotesText] = useState(notesText);
+
+  useLayoutEffect(() => {
+    if (!isThermal || !hasDesc) {
+      setFittedNotesText(notesText);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      await ensureThermalLabelFonts();
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx || cancelled) return;
+      const fitted = fitThermalLabelNotes(ctx, SPEC_40X30, data);
+      if (!cancelled) setFittedNotesText(fitted || notesText);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isThermal,
+    hasDesc,
+    notesText,
+    data.titleLayout,
+    data.showBpm,
+    data.showKey,
+    data.showVibes,
+    data.vibes.join('\u0000'),
+    data.artist,
+    data.album,
+  ]);
 
   const railMeta = [data.format, data.year].filter(Boolean).join(' · ');
   const identityLines =
@@ -160,7 +197,7 @@ export function CrateLabel({
       {hasDesc ? (
         <div className="crate-label__desc-block">
           <p className="crate-label__desc" title={notesText}>
-            {notesText}
+            {isThermal ? fittedNotesText : notesText}
           </p>
         </div>
       ) : null}

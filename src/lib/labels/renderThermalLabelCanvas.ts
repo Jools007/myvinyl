@@ -1,5 +1,6 @@
 import { buildCrateLabelContent } from '../labelContent';
 import type { LabelDisplayPrefs, VinylRecord } from '../types';
+import { fitNotesTextForLines, fitThermalLabelNotes } from './fitThermalLabelNotes';
 import { boxDownsampleTo1Bit } from './thermalRasterize';
 import {
   borderInsetPx,
@@ -91,82 +92,6 @@ function wrapLines(
   }
   lines.push(current);
   return lines.slice(0, maxLines).map((line) => truncate(ctx, line, maxWidth));
-}
-
-function wrapLinesIncludeAllWords(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  maxWidth: number,
-  maxLines: number
-): boolean {
-  const words = text.split(/\s+/).filter(Boolean);
-  if (!words.length) return true;
-  const lines = wrapLines(ctx, text, maxWidth, maxLines);
-  const renderedWords = lines
-    .join(' ')
-    .replace(/…/g, '')
-    .split(/\s+/)
-    .filter(Boolean);
-  return lines.length <= maxLines && renderedWords.length >= words.length;
-}
-
-function splitNoteSentences(text: string): string[] {
-  return text
-    .replace(/\s+/g, ' ')
-    .trim()
-    .split(/(?<=[.!?])\s+/)
-    .map((sentence) => sentence.trim())
-    .filter((sentence) => sentence.length > 0);
-}
-
-/** Fit notes into the printable line budget, ending on a full sentence when possible. */
-function fitNotesTextForLines(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  maxWidth: number,
-  maxLines: number
-): string {
-  const trimmed = text.trim();
-  if (!trimmed) return '';
-
-  if (wrapLinesIncludeAllWords(ctx, trimmed, maxWidth, maxLines)) {
-    return trimmed;
-  }
-
-  const sentences = splitNoteSentences(trimmed);
-  if (sentences.length > 1) {
-    let built = '';
-    for (const sentence of sentences) {
-      const trial = built ? `${built} ${sentence}` : sentence;
-      if (wrapLinesIncludeAllWords(ctx, trial, maxWidth, maxLines)) {
-        built = trial;
-      } else {
-        break;
-      }
-    }
-    if (built.length >= 20) return built;
-  }
-
-  const words = trimmed.split(/\s+/).filter(Boolean);
-  let low = 1;
-  let high = words.length;
-  let best = '';
-  while (low <= high) {
-    const mid = Math.floor((low + high) / 2);
-    const trial = words.slice(0, mid).join(' ');
-    if (wrapLinesIncludeAllWords(ctx, trial, maxWidth, maxLines)) {
-      best = trial;
-      low = mid + 1;
-    } else {
-      high = mid - 1;
-    }
-  }
-
-  if (best) {
-    return /[.!?]$/.test(best) ? best : `${best}…`;
-  }
-
-  return truncate(ctx, trimmed, maxWidth);
 }
 
 function drawIdentityStack(
@@ -357,10 +282,11 @@ function renderLabel(
   }
 
   if (data.customNotes.trim()) {
+    const fittedNotes = fitThermalLabelNotes(ctx, spec, data);
     drawNotesBlock(
       ctx,
       spec,
-      data.customNotes,
+      fittedNotes,
       padL,
       y,
       footerY,
