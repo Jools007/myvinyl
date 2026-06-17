@@ -7,6 +7,7 @@ import {
   BarChart3,
   FileDown,
   KeyRound,
+  Sparkles,
   LayoutGrid,
   List,
   Loader2,
@@ -84,6 +85,8 @@ interface CollectionFiltersProps {
   onOpenInsights?: () => void;
   onEnrichMetadata?: () => void;
   enrichingMetadata?: boolean;
+  onRefreshCharacterBlurbs?: () => void;
+  refreshingCharacterBlurbs?: boolean;
 }
 
 type FilterOption = { value: string; label: string };
@@ -281,6 +284,8 @@ export function CollectionFilters({
   onOpenInsights,
   onEnrichMetadata,
   enrichingMetadata = false,
+  onRefreshCharacterBlurbs,
+  refreshingCharacterBlurbs = false,
 }: CollectionFiltersProps) {
   const [openFilterId, setOpenFilterId] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -702,6 +707,27 @@ export function CollectionFilters({
                         <KeyRound className="h-3.5 w-3.5" aria-hidden />
                       )}
                       Enrich metadata
+                    </button>
+                  </li>
+                ) : null}
+                {totalCount > 0 && onRefreshCharacterBlurbs ? (
+                  <li role="none">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="collection-toolbar__more-item"
+                      disabled={refreshingCharacterBlurbs}
+                      onClick={() => {
+                        setMoreOpen(false);
+                        onRefreshCharacterBlurbs();
+                      }}
+                    >
+                      {refreshingCharacterBlurbs ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      ) : (
+                        <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                      )}
+                      Refresh descriptions
                     </button>
                   </li>
                 ) : null}

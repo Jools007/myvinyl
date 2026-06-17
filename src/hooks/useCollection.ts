@@ -5,6 +5,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { isCdFormat, sanitizeVinylFormat } from '../lib/formats';
 import { isScannerSessionActive } from '../lib/scannerSession';
 import {
+  runCharacterBlurbRefresh,
+  idleCharacterBlurbRefresh,
+  type CharacterBlurbRefreshOptions,
+  type CharacterBlurbRefreshProgress,
+  type CharacterBlurbRefreshResult,
+} from '../lib/characterBlurbs';
+import {
   runFullMetadataEnrichment,
   idleMetadataEnrichment,
   type FullMetadataEnrichmentOptions,
@@ -121,11 +128,14 @@ export function useCollection(scope?: UseCollectionScope) {
     useState<FullTracklistEnrichmentProgress>(idleTracklistEnrichment);
   const [metadataEnrichment, setMetadataEnrichment] =
     useState<FullMetadataEnrichmentProgress>(idleMetadataEnrichment);
+  const [characterBlurbRefresh, setCharacterBlurbRefresh] =
+    useState<CharacterBlurbRefreshProgress>(idleCharacterBlurbRefresh);
   const [liveEnrich, setLiveEnrich] = useState<LiveEnrichState>(null);
   const backgroundStarted = useRef(false);
   const enrichRunRef = useRef(0);
   const tracklistEnrichmentRunRef = useRef(0);
   const metadataEnrichmentRunRef = useRef(0);
+  const characterBlurbRunRef = useRef(0);
   const persistTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   /** While set, background migrations must not overwrite this release (live per-track enrich). */
   const enrichActiveRecordIdRef = useRef<string | null>(null);
@@ -765,6 +775,47 @@ export function useCollection(scope?: UseCollectionScope) {
     setMetadataEnrichment(idleMetadataEnrichment);
   }, []);
 
+  const runCharacterBlurbRefreshJob = useCallback(async (
+    options: CharacterBlurbRefreshOptions = {}
+  ): Promise<CharacterBlurbRefreshResult | null> => {
+    const runId = ++characterBlurbRunRef.current;
+
+    const result = await runCharacterBlurbRefresh(recordsRef.current, {
+      onRecordsChange: (next) => {
+        if (characterBlurbRunRef.current !== runId) return;
+        const migrated = next.map((r) => migrateRecord(r));
+        flushSync(() => {
+          recordsRef.current = migrated;
+          setRecords(migrated);
+        });
+      },
+      onProgress: (progress) => {
+        if (characterBlurbRunRef.current !== runId) return;
+        setCharacterBlurbRefresh(progress);
+      },
+      onPersist: (record) => {
+        persistRecordNow(record);
+      },
+      isCancelled: () => characterBlurbRunRef.current !== runId,
+      getRecord: (id) => recordsRef.current.find((r) => r.id === id),
+    }, options);
+
+    if (characterBlurbRunRef.current === runId) {
+      window.setTimeout(() => {
+        if (characterBlurbRunRef.current === runId) {
+          setCharacterBlurbRefresh(idleCharacterBlurbRefresh);
+        }
+      }, 4000);
+    }
+
+    return characterBlurbRunRef.current === runId ? result : null;
+  }, [persistRecordNow]);
+
+  const cancelCharacterBlurbRefreshJob = useCallback(() => {
+    characterBlurbRunRef.current += 1;
+    setCharacterBlurbRefresh(idleCharacterBlurbRefresh);
+  }, []);
+
   const runCrossCrateTransferFromPersonal = useCallback(
     async (personalRecords: VinylRecord[]): Promise<CrossCrateTransferStats> => {
       const { records: next, stats, changedRecords } = applyCrossCrateTransferToCollection(
@@ -815,6 +866,7 @@ export function useCollection(scope?: UseCollectionScope) {
   const collectionLoading = Boolean(user) && !authLoading && isFetchingCollection;
   const isFullTracklistEnrichmentRunning = tracklistEnrichment.phase === 'running';
   const isFullMetadataEnrichmentRunning = metadataEnrichment.phase === 'running';
+  const isCharacterBlurbRefreshRunning = characterBlurbRefresh.phase === 'running';
 
   return {
     records,
@@ -827,13 +879,17 @@ export function useCollection(scope?: UseCollectionScope) {
     backgroundSync,
     tracklistEnrichment,
     metadataEnrichment,
+    characterBlurbRefresh,
     isFullTracklistEnrichmentRunning,
     isFullMetadataEnrichmentRunning,
+    isCharacterBlurbRefreshRunning,
     runFullTracklistEnrichmentJob,
     runFullMetadataEnrichmentJob,
+    runCharacterBlurbRefreshJob,
     runGuestSmartEnrichment,
     runCrossCrateTransferFromPersonal,
     cancelMetadataEnrichmentJob,
+    cancelCharacterBlurbRefreshJob,
     liveEnrich,
     addRecord,
     importDiscogsCollection,

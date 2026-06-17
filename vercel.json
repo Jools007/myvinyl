@@ -8,6 +8,9 @@
     "api/album-info.js": {
       "maxDuration": 10
     },
+    "api/album-character.js": {
+      "maxDuration": 15
+    },
     "api/health.ts": {
       "maxDuration": 15
     },

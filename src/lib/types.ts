@@ -88,6 +88,8 @@ export interface VinylRecord {
   notes?: string;
   /** User-written text on crate/thermal labels (≤220 chars). */
   labelDescription?: string;
+  /** Musical character blurb — how it sounds, not pressing notes. */
+  characterBlurb?: string;
   /** Optional sticker layout overrides (title order, BPM/key/vibe visibility). */
   labelDisplay?: LabelDisplayPrefs;
   tracks: Track[];

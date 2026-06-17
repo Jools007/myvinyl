@@ -1,40 +1,12 @@
 import { ChevronDown, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import {
-  cleanAlbumText,
-  fetchAlbumDescription,
-  fetchDiscogsRelease,
-} from '../lib/api';
+import { fetchAlbumCharacterDescription } from '../lib/albumDescription';
 import type { VinylRecord } from '../lib/types';
 
 export type AboutReleaseSource = Pick<
   VinylRecord,
-  'id' | 'artist' | 'title' | 'discogsId' | 'notes'
+  'id' | 'artist' | 'title' | 'genres' | 'characterBlurb'
 >;
-
-async function resolveAboutDescription(source: AboutReleaseSource): Promise<string> {
-  const fromNotes = cleanAlbumText(source.notes);
-  if (fromNotes) return fromNotes;
-
-  let discogsNotes: string | undefined;
-
-  if (source.discogsId) {
-    try {
-      const release = await fetchDiscogsRelease(source.discogsId);
-      discogsNotes = release.notes;
-      const fromDiscogs = cleanAlbumText(discogsNotes);
-      if (fromDiscogs) return fromDiscogs;
-    } catch {
-      /* try Last.fm next */
-    }
-  }
-
-  try {
-    return await fetchAlbumDescription(source.artist, source.title, discogsNotes);
-  } catch {
-    return '';
-  }
-}
 
 function truncatePreview(text: string, max = 72): string {
   const trimmed = text.trim();
@@ -49,13 +21,13 @@ export function AboutReleaseSection({
   source: AboutReleaseSource;
   className?: string;
 }) {
-  const notesFirst = cleanAlbumText(source.notes);
-  const [text, setText] = useState(notesFirst);
-  const [loading, setLoading] = useState(!notesFirst);
+  const stored = source.characterBlurb?.trim() ?? '';
+  const [text, setText] = useState(stored);
+  const [loading, setLoading] = useState(!stored);
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    const immediate = cleanAlbumText(source.notes);
+    const immediate = source.characterBlurb?.trim() ?? '';
     setText(immediate);
 
     if (immediate) {
@@ -66,17 +38,22 @@ export function AboutReleaseSection({
     let cancelled = false;
     setLoading(true);
 
-    (async () => {
-      const resolved = await resolveAboutDescription(source);
+    void fetchAlbumCharacterDescription(source).then((resolved) => {
       if (cancelled) return;
       setText(resolved);
       setLoading(false);
-    })();
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [source.id, source.artist, source.title, source.discogsId, source.notes]);
+  }, [
+    source.id,
+    source.artist,
+    source.title,
+    source.characterBlurb,
+    source.genres,
+  ]);
 
   const hasText = text.trim().length > 0;
 

@@ -14,9 +14,15 @@ import type {
 const TABLE = 'records';
 
 const SCOPED_RECORD_COLUMNS =
-  'id,user_id,collection_id,title,artist,year,format,genre,cover_image,tracklist,condition,discogs_id,bpm,barcode,notes,label_description,label_display,created_at';
+  'id,user_id,collection_id,title,artist,year,format,genre,cover_image,tracklist,condition,discogs_id,bpm,barcode,notes,label_description,label_display,character_blurb,created_at';
 
 const LEGACY_RECORD_COLUMNS =
+  'id,user_id,title,artist,year,format,genre,cover_image,tracklist,condition,discogs_id,bpm,barcode,notes,label_description,label_display,character_blurb,created_at';
+
+const SCOPED_RECORD_COLUMNS_NO_BLURB =
+  'id,user_id,collection_id,title,artist,year,format,genre,cover_image,tracklist,condition,discogs_id,bpm,barcode,notes,label_description,label_display,created_at';
+
+const LEGACY_RECORD_COLUMNS_NO_BLURB =
   'id,user_id,title,artist,year,format,genre,cover_image,tracklist,condition,discogs_id,bpm,barcode,notes,label_description,label_display,created_at';
 
 /** List/grid load — omits heavy tracklist JSON (placeholder track synthesized client-side). */
@@ -30,17 +36,35 @@ type RecordsSchemaMode = 'unknown' | 'scoped' | 'legacy';
 
 let recordsSchemaMode: RecordsSchemaMode = 'unknown';
 let recordsSchemaProbe: Promise<RecordsSchemaMode> | null = null;
+let characterBlurbColumnSupported: boolean | null = null;
 
 function isMissingCollectionIdColumnError(message: string): boolean {
   const lower = message.toLowerCase();
   return lower.includes('collection_id') && lower.includes('does not exist');
 }
 
+function isMissingCharacterBlurbColumnError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes('character_blurb') && lower.includes('does not exist');
+}
+
+function useRecordsWithoutCharacterBlurb(): void {
+  characterBlurbColumnSupported = false;
+}
+
+function supportsCharacterBlurbColumn(): boolean {
+  return characterBlurbColumnSupported !== false;
+}
+
 function selectColumns(summaryOnly = false): string {
   if (summaryOnly) {
     return recordsSchemaMode === 'legacy' ? LEGACY_SUMMARY_COLUMNS : SCOPED_SUMMARY_COLUMNS;
   }
-  return recordsSchemaMode === 'legacy' ? LEGACY_RECORD_COLUMNS : SCOPED_RECORD_COLUMNS;
+  const withBlurb = supportsCharacterBlurbColumn();
+  if (recordsSchemaMode === 'legacy') {
+    return withBlurb ? LEGACY_RECORD_COLUMNS : LEGACY_RECORD_COLUMNS_NO_BLURB;
+  }
+  return withBlurb ? SCOPED_RECORD_COLUMNS : SCOPED_RECORD_COLUMNS_NO_BLURB;
 }
 
 function useLegacyRecordsSchema(): void {
@@ -111,6 +135,7 @@ export type RecordRow = {
   notes: string | null;
   label_description: string | null;
   label_display: LabelDisplayPrefs | null;
+  character_blurb?: string | null;
   created_at: string;
 };
 
@@ -272,6 +297,7 @@ function rowToRecord(row: RecordRow, summaryOnly = false): VinylRecord {
     condition: (row.condition as RecordCondition) || 'NM',
     notes: row.notes?.trim() || undefined,
     labelDescription: labelDescription ? clampLabelDescription(labelDescription) : undefined,
+    characterBlurb: row.character_blurb?.trim() || undefined,
     labelDisplay: parseLabelDisplay(row.label_display),
     tracks,
     discogsId: row.discogs_id ?? undefined,
@@ -313,6 +339,10 @@ function recordToRow(
     created_at: record.addedAt,
   };
 
+  if (supportsCharacterBlurbColumn()) {
+    row.character_blurb = record.characterBlurb?.trim() || null;
+  }
+
   if (supportsCollectionIdColumn()) {
     row.collection_id = collectionId ?? record.collectionId ?? null;
   }
@@ -346,6 +376,10 @@ function recordToUpdatePayload(
     label_display: row.label_display,
   };
 
+  if (supportsCharacterBlurbColumn()) {
+    payload.character_blurb = row.character_blurb;
+  }
+
   if (supportsCollectionIdColumn() && row.collection_id !== undefined) {
     payload.collection_id = row.collection_id;
   }
@@ -371,7 +405,11 @@ async function fetchAllUserRecords(
   if (error) {
     if (recordsSchemaMode !== 'legacy' && isMissingCollectionIdColumnError(error.message)) {
       useLegacyRecordsSchema();
-      return fetchAllUserRecords(uid);
+      return fetchAllUserRecords(uid, options);
+    }
+    if (isMissingCharacterBlurbColumnError(error.message)) {
+      useRecordsWithoutCharacterBlurb();
+      return fetchAllUserRecords(uid, options);
     }
     return { data: null, error };
   }
@@ -401,7 +439,11 @@ async function fetchScopedRecords(
   if (scoped.error) {
     if (isMissingCollectionIdColumnError(scoped.error.message)) {
       useLegacyRecordsSchema();
-      return fetchAllUserRecords(uid);
+      return fetchAllUserRecords(uid, options);
+    }
+    if (isMissingCharacterBlurbColumnError(scoped.error.message)) {
+      useRecordsWithoutCharacterBlurb();
+      return fetchScopedRecords(uid, collectionId, personalCollectionId, options);
     }
     return { data: null, error: scoped.error };
   }
@@ -422,7 +464,11 @@ async function fetchScopedRecords(
     if (legacy.error) {
       if (isMissingCollectionIdColumnError(legacy.error.message)) {
         useLegacyRecordsSchema();
-        return fetchAllUserRecords(uid);
+        return fetchAllUserRecords(uid, options);
+      }
+      if (isMissingCharacterBlurbColumnError(legacy.error.message)) {
+        useRecordsWithoutCharacterBlurb();
+        return fetchScopedRecords(uid, collectionId, personalCollectionId, options);
       }
       return { data: null, error: legacy.error };
     }
@@ -612,6 +658,10 @@ export async function updateRecord(
     if (error) {
       if (recordsSchemaMode !== 'legacy' && isMissingCollectionIdColumnError(error.message)) {
         useLegacyRecordsSchema();
+        return updateRecord(record, options);
+      }
+      if (isMissingCharacterBlurbColumnError(error.message)) {
+        useRecordsWithoutCharacterBlurb();
         return updateRecord(record, options);
       }
       return { data: null, error: toRecordsError(error) };

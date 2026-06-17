@@ -397,8 +397,7 @@ export function DiscoverAddPanel({
                       id: String(hit?.id ?? 'draft'),
                       artist: displayArtist,
                       title: displayTitle,
-                      discogsId: hit?.id ?? discogsDetail?.id,
-                      notes: personalNotes,
+                      genres,
                     }}
                   />
                 </div>

@@ -20,6 +20,10 @@ const routes = [
   },
   { entry: 'scripts/api-entries/image.entry.ts', outfile: 'api/image.js' },
   { entry: 'scripts/api-entries/album-info.entry.ts', outfile: 'api/album-info.js' },
+  {
+    entry: 'scripts/api-entries/album-character.entry.ts',
+    outfile: 'api/album-character.js',
+  },
   { entry: 'scripts/api-entries/enrich.entry.ts', outfile: 'api/enrich.js' },
 ];
 

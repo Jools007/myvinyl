@@ -1,6 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { Plugin } from 'vite';
 import {
+  AlbumCharacterValidationError,
+  handleAlbumCharacter,
+  parseAlbumCharacterQuery,
+} from './handlers/album-character';
+import {
   AlbumInfoValidationError,
   handleAlbumInfo,
   parseAlbumInfoQuery,
@@ -104,6 +109,22 @@ export function apiPlugin(env: Env): Plugin {
         const youtubeApiKey = env.YOUTUBE_API_KEY;
 
         try {
+          // ── Musical character description (tags + Wikipedia — not pressing notes) ──
+          if (path === '/api/album-character' && req.method === 'GET') {
+            try {
+              const input = parseAlbumCharacterQuery(
+                Object.fromEntries(url.searchParams.entries())
+              );
+              const result = await handleAlbumCharacter(input, { lastfmKey });
+              return json(res, 200, result);
+            } catch (e) {
+              if (e instanceof AlbumCharacterValidationError) {
+                return json(res, 400, { error: e.message });
+              }
+              throw e;
+            }
+          }
+
           // ── Album description (Discogs notes + Last.fm wiki) ──
           if (path === '/api/album-info' && req.method === 'GET') {
             const q = url.searchParams.get('q') ?? undefined;

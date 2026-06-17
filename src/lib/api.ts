@@ -326,6 +326,33 @@ export async function fetchAlbumDescription(
   }
 }
 
+export type AlbumCharacterResult = {
+  description: string | null;
+  tags?: string[];
+  sources?: string[];
+};
+
+/** Musical character copy — tags, Wikipedia, etc. (not Discogs pressing notes). */
+export async function fetchAlbumCharacter(
+  artist: string,
+  album: string,
+  genres: string[] = []
+): Promise<AlbumCharacterResult> {
+  const params = new URLSearchParams({ artist, album });
+  for (const genre of genres) {
+    if (genre.trim()) params.append('genres', genre.trim());
+  }
+  try {
+    const res = await fetch(`/api/album-character?${params}`, {
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) return { description: null, tags: [], sources: [] };
+    return (await res.json()) as AlbumCharacterResult;
+  } catch {
+    return { description: null, tags: [], sources: [] };
+  }
+}
+
 export type DiscogsCollectionRelease = {
   discogsId: number;
   artist: string;

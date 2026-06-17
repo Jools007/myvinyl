@@ -28,6 +28,7 @@ import { ClearCollectionModal } from './components/ClearCollectionModal';
 import { EnrichGuestCrateModal } from './components/EnrichGuestCrateModal';
 import { EnrichMetadataModal } from './components/EnrichMetadataModal';
 import { EnrichTracklistsModal } from './components/EnrichTracklistsModal';
+import { RefreshCharacterBlurbsModal } from './components/RefreshCharacterBlurbsModal';
 import { GuestCrateBanner } from './components/crates/GuestCrateBanner';
 import { ImportCrateModal } from './components/crates/ImportCrateModal';
 import { RemoveGuestCrateModal } from './components/crates/RemoveGuestCrateModal';
@@ -93,6 +94,7 @@ import { collectGroupedGenreOptions, recordMatchesGroupedGenre } from './lib/gen
 import { isCdFormat } from './lib/formats';
 import { resolveTrackCamelot } from './lib/camelot';
 import { CUT_RATING_LABELS, recordMatchesCutRatingFilter } from './lib/cutRating';
+import { formatCharacterBlurbSummary } from './lib/characterBlurbs';
 import { formatMetadataEnrichmentSummary } from './lib/fullMetadataEnrichment';
 import {
   countDiscogsLinkedRecords,
@@ -161,12 +163,16 @@ function App() {
     backgroundSync,
     tracklistEnrichment,
     metadataEnrichment,
+    characterBlurbRefresh,
     isFullTracklistEnrichmentRunning,
     isFullMetadataEnrichmentRunning,
+    isCharacterBlurbRefreshRunning,
     runFullTracklistEnrichmentJob,
     runFullMetadataEnrichmentJob,
+    runCharacterBlurbRefreshJob,
     runCrossCrateTransferFromPersonal,
     cancelMetadataEnrichmentJob,
+    cancelCharacterBlurbRefreshJob,
     addRecord,
     importDiscogsCollection,
     clearCollection,
@@ -200,6 +206,7 @@ function App() {
   const [clearCollectionOpen, setClearCollectionOpen] = useState(false);
   const [enrichTracklistsOpen, setEnrichTracklistsOpen] = useState(false);
   const [enrichMetadataOpen, setEnrichMetadataOpen] = useState(false);
+  const [refreshCharacterBlurbsOpen, setRefreshCharacterBlurbsOpen] = useState(false);
   const [enrichGuestOpen, setEnrichGuestOpen] = useState(false);
   const [personalRecordsForEnrich, setPersonalRecordsForEnrich] = useState<VinylRecord[]>([]);
   const [personalRecordsForEnrichLoading, setPersonalRecordsForEnrichLoading] = useState(false);
@@ -300,6 +307,16 @@ function App() {
   const discogsLinkedCount = useMemo(() => countDiscogsLinkedRecords(records), [records]);
 
   const activeBackgroundSync = useMemo((): BackgroundSyncState => {
+    if (characterBlurbRefresh.phase === 'running') {
+      return {
+        phase: 'enriching',
+        message: characterBlurbRefresh.currentRelease
+          ? `${characterBlurbRefresh.message} · ${characterBlurbRefresh.currentRelease}`
+          : characterBlurbRefresh.message,
+        completed: characterBlurbRefresh.completed,
+        total: characterBlurbRefresh.total,
+      };
+    }
     if (metadataEnrichment.phase === 'running') {
       return {
         phase: 'enriching',
@@ -319,7 +336,7 @@ function App() {
       };
     }
     return backgroundSync;
-  }, [tracklistEnrichment, metadataEnrichment, backgroundSync]);
+  }, [tracklistEnrichment, metadataEnrichment, characterBlurbRefresh, backgroundSync]);
 
   const openGuestSmartEnrich = useCallback(() => {
     const personalId = crates.personalCrate?.id;
@@ -398,6 +415,46 @@ function App() {
     }
     setEnrichMetadataOpen(true);
   }, [crates.isGuestView, openGuestSmartEnrich]);
+
+  const handleOpenCharacterBlurbRefresh = useCallback(() => {
+    if (crates.isGuestView) return;
+    setRefreshCharacterBlurbsOpen(true);
+  }, [crates.isGuestView]);
+
+  const handleRefreshCharacterBlurbs = useCallback((options?: { force?: boolean }) => {
+    void runCharacterBlurbRefreshJob(options).then((result) => {
+      if (!result) return;
+      if (result.cancelled) {
+        toast.message('Description refresh cancelled', {
+          description: formatCharacterBlurbSummary(result),
+        });
+        return;
+      }
+      if (result.updated > 0) {
+        toast.success(
+          result.updated === 1
+            ? '1 description updated'
+            : `${result.updated} descriptions updated`,
+          { description: formatCharacterBlurbSummary(result) }
+        );
+      } else if (result.failed > 0) {
+        toast.error('Description refresh had failures', {
+          description: formatCharacterBlurbSummary(result),
+        });
+      } else {
+        toast.message('Descriptions already up to date', {
+          description: formatCharacterBlurbSummary(result),
+        });
+      }
+    });
+  }, [runCharacterBlurbRefreshJob]);
+
+  const handleCancelCharacterBlurbRefresh = useCallback(() => {
+    cancelCharacterBlurbRefreshJob();
+    toast.message('Stopping description refresh…', {
+      description: 'Already-saved blurbs are kept.',
+    });
+  }, [cancelCharacterBlurbRefreshJob]);
 
   const handleEnrichAllTracklists = useCallback(() => {
     void runFullTracklistEnrichmentJob().then((result) => {
@@ -1001,7 +1058,13 @@ function App() {
       </a>
       <BackgroundSyncIndicator
         status={activeBackgroundSync}
-        onCancel={isFullMetadataEnrichmentRunning ? handleCancelMetadataEnrichment : undefined}
+        onCancel={
+          isCharacterBlurbRefreshRunning
+            ? handleCancelCharacterBlurbRefresh
+            : isFullMetadataEnrichmentRunning
+              ? handleCancelMetadataEnrichment
+              : undefined
+        }
       />
       <Navigation
         page={page}
@@ -1084,6 +1147,8 @@ function App() {
                   }
                   onEnrichMetadata={handleOpenMetadataEnrich}
                   enrichingMetadata={isFullMetadataEnrichmentRunning}
+                  onRefreshCharacterBlurbs={handleOpenCharacterBlurbRefresh}
+                  refreshingCharacterBlurbs={isCharacterBlurbRefreshRunning}
                   discogsLinkedCount={discogsLinkedCount}
                   onExportPdf={() => void handleExportPdf()}
                   exportingPdf={exportingPdf}
@@ -1373,6 +1438,17 @@ function App() {
         onConfirm={(options) => {
           setEnrichMetadataOpen(false);
           handleEnrichAllMetadata(options);
+        }}
+      />
+
+      <RefreshCharacterBlurbsModal
+        open={refreshCharacterBlurbsOpen}
+        records={records}
+        running={isCharacterBlurbRefreshRunning}
+        onClose={() => setRefreshCharacterBlurbsOpen(false)}
+        onConfirm={(options) => {
+          setRefreshCharacterBlurbsOpen(false);
+          handleRefreshCharacterBlurbs(options);
         }}
       />
 
