@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { fetchBaseAlbumDescription } from '../lib/albumDescription';
+import { resolveDefaultStickerDescription } from '../lib/labelContent';
 import { getLabelPrintProfile, type LabelPrintProfileId } from '../lib/labelProfiles';
 import { getPhomemoTransport, PhomemoBleTransport } from '../lib/phomemo/bleTransport';
 import { printRasterM220 } from '../lib/phomemo/printM220';
@@ -65,11 +67,22 @@ export function usePhomemoPrinter() {
       setProgress({ current: 0, total: records.length });
 
       try {
+        const baseById = new Map<string, string>();
+        await Promise.all(
+          records.map(async (record) => {
+            if (record.labelDescription?.trim()) return;
+            const album = await fetchBaseAlbumDescription(record);
+            const resolved = resolveDefaultStickerDescription(record, album);
+            if (resolved) baseById.set(record.id, resolved);
+          })
+        );
+
         for (let i = 0; i < records.length; i++) {
           const canvas = await renderThermalLabelCanvas(
             records[i],
             profile.widthMm,
-            profile.heightMm
+            profile.heightMm,
+            { baseDescription: baseById.get(records[i].id) }
           );
           assertThermalLabelPrintable(canvas, profile.widthMm, profile.heightMm);
           const raster = rasterForDieCutLabel(canvas);

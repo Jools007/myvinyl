@@ -3,10 +3,11 @@ import { Loader2, Printer, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { resolveTrackCamelot } from '../../lib/camelot';
+import { useBaseAlbumDescription } from '../../hooks/useBaseAlbumDescription';
 import {
   clampLabelDescription,
   LABEL_DESCRIPTION_MAX,
-  labelDescriptionFallback,
+  resolveDefaultStickerDescription,
   resolveLabelDisplayPrefs,
 } from '../../lib/labelContent';
 import { getPrimaryTrack } from '../../lib/tracks';
@@ -313,6 +314,13 @@ export function LabelInspectModal({
     await onEnrich(recordId);
   }, [enriching, onEnrich, recordId]);
 
+  const { baseDescription, loading: baseDescriptionLoading } =
+    useBaseAlbumDescription(record);
+  const basePreview = clampLabelDescription(baseDescription).trim();
+  const defaultDescription = record
+    ? resolveDefaultStickerDescription(record, basePreview)
+    : '';
+
   if (!record) return null;
 
   const primaryTrack = getPrimaryTrack(record);
@@ -324,10 +332,8 @@ export function LabelInspectModal({
     ? `${primaryTrack?.bpmEstimated ? '~' : ''}${primaryTrack?.bpm}`
     : '—';
   const keyLabel = camelotCode ?? '—';
-
-  const fallback = labelDescriptionFallback(record);
-  const placeholder = fallback
-    ? `Leave empty to use: ${fallback}`
+  const placeholder = defaultDescription
+    ? `Leave empty to use: ${defaultDescription}`
     : 'Short crate note — opener, vocal 12", crowd pleaser…';
 
   const { basePx, scale, displayPx } = stickerLayout;
@@ -337,6 +343,7 @@ export function LabelInspectModal({
   const thermalDraft = {
     description: draft,
     useDescriptionDraft: true,
+    baseDescription: defaultDescription,
     vibes: vibeDraft,
     useVibesDraft: true,
     display: displayDraft,
@@ -407,7 +414,7 @@ export function LabelInspectModal({
                       record={record}
                       size="preview"
                       className="crate-label--inspect"
-                      descriptionOverride={draft}
+                      descriptionOverride={draft.trim() ? draft : undefined}
                       vibesOverride={vibeDraft}
                       displayOverride={displayDraft}
                     />
@@ -536,9 +543,11 @@ export function LabelInspectModal({
                   <span className="label-modal__hint">
                     {draft.trim()
                       ? 'Updates on the label as you type'
-                      : fallback
-                        ? `Empty shows: ${fallback}`
-                        : 'Two lines max on print'}
+                      : baseDescriptionLoading
+                        ? 'Loading album description…'
+                        : defaultDescription
+                          ? `Empty shows: ${defaultDescription}`
+                          : 'Two lines max on print'}
                   </span>
                   <span
                     className={`label-modal__count tabular-nums${

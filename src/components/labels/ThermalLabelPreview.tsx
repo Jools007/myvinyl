@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
+import { useBaseAlbumDescription } from '../../hooks/useBaseAlbumDescription';
 import {
   layoutForThermalScale,
   useThermalPreviewLayout,
@@ -66,9 +67,8 @@ export function ThermalLabelPreview({
       ? layoutForThermalScale(widthMm, heightMm, displayScale)
       : autoLayout;
 
-  const useDraft = Boolean(
-    draft?.useDescriptionDraft || draft?.useVibesDraft || draft?.useDisplayDraft
-  );
+  const { baseDescription } = useBaseAlbumDescription(record);
+  const resolvedBase = draft?.baseDescription ?? baseDescription;
 
   const Tag = onClick ? 'button' : 'div';
 
@@ -100,8 +100,13 @@ export function ThermalLabelPreview({
             size="thermal-preview"
             onClick={undefined}
             descriptionOverride={
-              useDraft || draft?.description !== undefined ? draft?.description : undefined
+              draft?.useDescriptionDraft
+                ? draft.description?.trim()
+                  ? draft.description
+                  : undefined
+                : draft?.description
             }
+            baseDescriptionOverride={resolvedBase || undefined}
             vibesOverride={draft?.useVibesDraft ? draft.vibes : undefined}
             displayOverride={draft?.useDisplayDraft ? draft.display : undefined}
           />

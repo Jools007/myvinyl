@@ -1,4 +1,5 @@
-import { buildCrateLabelContent } from '../../lib/labelContent';
+import { useBaseAlbumDescription } from '../../hooks/useBaseAlbumDescription';
+import { buildCrateLabelContent, clampLabelDescription } from '../../lib/labelContent';
 import type { LabelDisplayPrefs, VinylRecord } from '../../lib/types';
 
 export type CrateLabelSize = 'preview' | 'print' | 'thermal-preview';
@@ -8,6 +9,8 @@ interface CrateLabelProps {
   size?: CrateLabelSize;
   /** Live override for label notes (modal editor). */
   descriptionOverride?: string;
+  /** Pre-resolved default sticker copy from parent (skips fetch hook when set). */
+  baseDescriptionOverride?: string;
   /** Live override for vibe tags on the primary track (modal editor). */
   vibesOverride?: string[];
   /** Live override for title layout and field visibility (modal editor). */
@@ -20,11 +23,18 @@ export function CrateLabel({
   record,
   size = 'preview',
   descriptionOverride,
+  baseDescriptionOverride,
   vibesOverride,
   displayOverride,
   className = '',
   onClick,
 }: CrateLabelProps) {
+  const fetched = useBaseAlbumDescription(
+    baseDescriptionOverride != null && baseDescriptionOverride !== '' ? null : record
+  );
+  const albumBase = clampLabelDescription(
+    (baseDescriptionOverride ?? fetched.baseDescription).trim()
+  );
   const useDraft =
     descriptionOverride !== undefined ||
     vibesOverride !== undefined ||
@@ -39,8 +49,9 @@ export function CrateLabel({
           useVibesDraft: vibesOverride !== undefined,
           display: displayOverride,
           useDisplayDraft: displayOverride !== undefined,
+          baseDescription: albumBase,
         }
-      : undefined
+      : { baseDescription: albumBase }
   );
   const interactive = Boolean(onClick);
   const Tag = interactive ? 'button' : 'div';
@@ -49,9 +60,8 @@ export function CrateLabel({
   const bpmText =
     data.bpm != null ? `${data.bpmEstimated ? '~' : ''}${data.bpm}` : '—';
   const keyText = data.camelot ?? '—';
-  const notesText = isThermal ? data.customNotes : data.description;
+  const notesText = data.description;
   const hasDesc = Boolean(notesText.trim());
-  const showPlaceholder = !hasDesc && size !== 'print' && !isThermal;
 
   const railMeta = [data.format, data.year].filter(Boolean).join(' · ');
   const identityLines =
@@ -147,17 +157,11 @@ export function CrateLabel({
         )
       ) : null}
 
-      {(hasDesc || showPlaceholder) ? (
+      {hasDesc ? (
         <div className="crate-label__desc-block">
-          {hasDesc ? (
-            <p className="crate-label__desc" title={notesText}>
-              {notesText}
-            </p>
-          ) : (
-            <p className="crate-label__desc crate-label__desc--placeholder">
-              Add notes in preview…
-            </p>
-          )}
+          <p className="crate-label__desc" title={notesText}>
+            {notesText}
+          </p>
         </div>
       ) : null}
     </>

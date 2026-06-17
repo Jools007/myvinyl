@@ -43,6 +43,7 @@ function drawThermalText(
 export interface ThermalLabelRenderOptions {
   description?: string;
   useDescriptionDraft?: boolean;
+  baseDescription?: string;
   vibes?: string[];
   useVibesDraft?: boolean;
   display?: LabelDisplayPrefs;
@@ -275,6 +276,7 @@ function renderLabel(
     ctx.font = font(spec, spec.type.vibes, 800);
     drawThermalText(ctx, truncate(ctx, vibeText, innerW), padL, y);
     y += px(spec, spec.type.vibes * 1.1);
+    y += px(spec, spec.vibesNotesGap ?? spec.stackGap);
   }
 
   if (data.customNotes.trim()) {
@@ -314,12 +316,15 @@ export async function renderThermalLabelCanvas(
       ? {
           description: options?.description,
           useDescriptionDraft: options?.useDescriptionDraft,
+          baseDescription: options?.baseDescription,
           vibes: options?.vibes,
           useVibesDraft: options?.useVibesDraft,
           display: options?.display,
           useDisplayDraft: options?.useDisplayDraft,
         }
-      : undefined
+      : options
+        ? { baseDescription: options.baseDescription }
+        : undefined
   );
 
   const outW = px(spec, spec.widthMm);

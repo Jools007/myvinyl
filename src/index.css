@@ -10239,6 +10239,8 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   min-width: 0;
   max-width: 100%;
   min-height: 0;
+  /* Keep description above the pinned footer rail */
+  padding-bottom: 1.65mm;
 }
 
 .crate-label--thermal-preview .crate-label__identity {
@@ -10350,15 +10352,13 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
 }
 
 .crate-label--thermal-preview .crate-label__desc-block {
-  margin: 0;
+  margin: 0.8mm 0 0;
   padding: 0;
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
+  flex: 1 1 0;
+  display: block;
   min-width: 0;
   max-width: 100%;
-  min-height: 0;
+  min-height: 2mm;
   overflow: hidden;
 }
 
@@ -10373,10 +10373,10 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   line-height: 1.12;
   letter-spacing: 0.03em;
   color: #000;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 6;
+  display: block;
   overflow: hidden;
+  word-break: break-word;
+  max-height: 9mm;
 }
 
 .crate-label--thermal-preview .crate-label__rail {

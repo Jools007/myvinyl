@@ -23,7 +23,7 @@ export type CrateLabelContent = {
   keyEstimated?: boolean;
   vibes: string[];
   description: string;
-  /** User-written notes only — empty when label would use format/year fallback. */
+  /** Sticker description (manual, album blurb, or metadata fallback). */
   customNotes: string;
   format?: string;
   year?: string;
@@ -54,8 +54,8 @@ export function formatLabelVibes(track: Track | null, record: VinylRecord): stri
   return record.genres.slice(0, 2);
 }
 
-/** Auto text when the user has not written custom label notes. */
-export function labelDescriptionFallback(record: VinylRecord): string {
+/** Metadata line when no album blurb is available (format · year · genres). */
+export function labelMetadataFallback(record: VinylRecord): string {
   const parts: string[] = [];
   if (record.format?.trim()) parts.push(record.format.trim());
   if (record.year?.trim()) parts.push(record.year.trim());
@@ -63,37 +63,43 @@ export function labelDescriptionFallback(record: VinylRecord): string {
   return parts.join(' · ');
 }
 
-/** Text shown on the label: sticker description, or fallback metadata. */
-export function resolveLabelDescription(
+/** Default sticker copy before any manual override (album blurb, else metadata). */
+export function resolveDefaultStickerDescription(
   record: VinylRecord,
-  descriptionDraft?: string
+  baseDescription?: string
 ): string {
-  const custom = (
-    descriptionDraft !== undefined ? descriptionDraft : record.labelDescription
-  )?.trim();
-  if (custom) return clampLabelDescription(custom);
-  return labelDescriptionFallback(record);
+  const album = baseDescription?.trim();
+  if (album) return clampLabelDescription(album);
+  const meta = labelMetadataFallback(record).trim();
+  return meta ? clampLabelDescription(meta) : '';
 }
 
-/** Thermal labels: only user sticker copy (footer carries format/year). */
-export function resolveThermalCustomNotes(
+/** Sticker text: manual override, else album description, else metadata, else blank. */
+export function resolveStickerDescription(
   record: VinylRecord,
-  opts?: { description?: string; useDescriptionDraft?: boolean }
-): string {
-  if (opts?.useDescriptionDraft) {
-    return clampLabelDescription(opts.description ?? '');
+  opts?: {
+    description?: string;
+    useDescriptionDraft?: boolean;
+    baseDescription?: string;
   }
-  const custom = (
-    opts?.description !== undefined ? opts.description : record.labelDescription
+): string {
+  const manual = (
+    opts?.useDescriptionDraft
+      ? opts.description
+      : opts?.description !== undefined
+        ? opts.description
+        : record.labelDescription
   )?.trim();
-  return custom ? clampLabelDescription(custom) : '';
+  if (manual) return clampLabelDescription(manual);
+
+  return resolveDefaultStickerDescription(record, opts?.baseDescription);
 }
 
 export function buildCrateLabelContent(
   record: VinylRecord,
   opts?: {
     description?: string;
-    /** When true, show draft text only (no auto fallback) — modal live preview */
+    /** When true, prefer live draft text; empty draft still falls back to default copy. */
     useDescriptionDraft?: boolean;
     /** When set with useVibesDraft, preview shows these tags (max 3) */
     vibes?: string[];
@@ -101,6 +107,8 @@ export function buildCrateLabelContent(
     /** Live override for sticker layout (modal editor). */
     display?: LabelDisplayPrefs;
     useDisplayDraft?: boolean;
+    /** Album description from Discogs / Last.fm when no manual sticker copy. */
+    baseDescription?: string;
   }
 ): CrateLabelContent {
   const track = getPrimaryTrack(record);
@@ -110,13 +118,10 @@ export function buildCrateLabelContent(
     opts?.useDisplayDraft ? opts.display : undefined
   );
 
-  const description = opts?.useDescriptionDraft
-    ? clampLabelDescription(opts.description ?? '')
-    : resolveLabelDescription(record, opts?.description);
-
-  const customNotes = resolveThermalCustomNotes(record, {
+  const stickerText = resolveStickerDescription(record, {
     description: opts?.description,
     useDescriptionDraft: opts?.useDescriptionDraft,
+    baseDescription: opts?.baseDescription,
   });
 
   const vibes = opts?.useVibesDraft
@@ -135,8 +140,8 @@ export function buildCrateLabelContent(
     camelot: code,
     keyEstimated,
     vibes,
-    description,
-    customNotes,
+    description: stickerText,
+    customNotes: stickerText,
     format: record.format?.trim(),
     year: record.year?.trim(),
   };
