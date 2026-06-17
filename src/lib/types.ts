@@ -86,7 +86,7 @@ export interface VinylRecord {
   condition: RecordCondition;
   /** Personal crate / pressing notes — not the printed sticker description. */
   notes?: string;
-  /** User-written text on crate/thermal labels (≤220 chars). */
+  /** User-written text on crate/thermal labels (≤340 chars, sentence-trimmed). */
   labelDescription?: string;
   /** Musical character blurb — how it sounds, not pressing notes. */
   characterBlurb?: string;

@@ -3,6 +3,7 @@ import {
   LABEL_DESCRIPTION_MAX,
   resolveDefaultStickerDescription,
   resolveStickerDescription,
+  truncateAtSentenceBoundary,
 } from './labelContent';
 import type { VinylRecord } from './types';
 
@@ -28,8 +29,17 @@ describe('resolveStickerDescription', () => {
   it('uses album description when no manual copy exists', () => {
     const base = 'A'.repeat(300);
     const text = resolveStickerDescription(record, { baseDescription: base });
-    expect(text).toHaveLength(LABEL_DESCRIPTION_MAX);
+    expect(text.length).toBeLessThanOrEqual(LABEL_DESCRIPTION_MAX);
     expect(text).toBe(base.slice(0, LABEL_DESCRIPTION_MAX));
+  });
+
+  it('clamps at sentence boundaries when possible', () => {
+    const long =
+      'First sentence about the groove. Second sentence with more detail about the floor. Third sentence that will not fit at all.';
+    const clamped = truncateAtSentenceBoundary(long, 90);
+    expect(clamped.endsWith('.')).toBe(true);
+    expect(clamped).toContain('First sentence');
+    expect(clamped).not.toContain('Third sentence');
   });
 
   it('falls back to metadata when album copy is missing', () => {

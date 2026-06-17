@@ -7,8 +7,8 @@ import {
 } from './types';
 import type { Track, VinylRecord } from './types';
 
-/** Max characters saved on the record & shown on the printed label (up to 4 lines). */
-export const LABEL_DESCRIPTION_MAX = 220;
+/** Max characters saved for sticker copy (canvas may fit slightly less per layout). */
+export const LABEL_DESCRIPTION_MAX = 340;
 
 export type CrateLabelContent = {
   artist: string;
@@ -40,8 +40,32 @@ export function resolveLabelDisplayPrefs(
   };
 }
 
+/** Trim sticker copy at a sentence boundary when possible. */
+export function truncateAtSentenceBoundary(text: string, maxLen: number): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxLen) return trimmed;
+
+  const slice = trimmed.slice(0, maxLen);
+  const lastStop = Math.max(
+    slice.lastIndexOf('. '),
+    slice.lastIndexOf('! '),
+    slice.lastIndexOf('? '),
+    slice.lastIndexOf('; ')
+  );
+  if (lastStop >= Math.floor(maxLen * 0.45)) {
+    return slice.slice(0, lastStop + 1).trim();
+  }
+
+  const lastSpace = slice.lastIndexOf(' ');
+  if (lastSpace >= Math.floor(maxLen * 0.6)) {
+    return `${slice.slice(0, lastSpace).trim()}…`;
+  }
+
+  return `${slice.trim()}…`;
+}
+
 export function clampLabelDescription(text: string): string {
-  return text.slice(0, LABEL_DESCRIPTION_MAX);
+  return truncateAtSentenceBoundary(text, LABEL_DESCRIPTION_MAX);
 }
 
 export function formatLabelVibes(track: Track | null, record: VinylRecord): string[] {
