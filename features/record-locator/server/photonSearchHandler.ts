@@ -13,6 +13,10 @@ const PHOTON_QUERIES = [
   'VinyloMania',
   'iMuzika',
   'Thelonious',
+  'BUYMUSIC',
+  'Ragainė',
+  'Discotag',
+  'Mint Vinetu',
 ];
 
 export async function searchPhotonRecordStores(

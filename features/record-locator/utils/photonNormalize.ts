@@ -15,6 +15,7 @@ export type PhotonFeature = {
     country?: string;
     osm_key?: string;
     osm_value?: string;
+    type?: string;
   };
 };
 
@@ -47,13 +48,14 @@ export function normalizePhotonFeature(
   const name = props.name?.trim();
   if (!name || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
 
+  if (props.osm_key === 'highway' || props.type === 'street') return null;
+  if (/\s+g\.?$/i.test(name)) return null;
+
   const tags: Record<string, string> = { name };
   if (props.osm_key === 'shop' && props.osm_value) {
     tags.shop = props.osm_value;
   }
-  if (!isLikelyRecordShop(tags) && props.osm_value !== 'music' && props.osm_value !== 'vinyl') {
-    if (!isLikelyRecordShop({ name })) return null;
-  }
+  if (!isLikelyRecordShop(tags)) return null;
 
   const distanceMeters = haversineDistanceMeters(origin, { latitude: lat, longitude: lon });
   if (distanceMeters > maxDistanceMeters) return null;

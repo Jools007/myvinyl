@@ -2,7 +2,7 @@
   "places": [
     {
       "id": "places/open-vinyl",
-      "displayName": { "text": "Open Vinyl" },
+      "displayName": { "text": "Open Vinyl Record Shop" },
       "formattedAddress": "1 Groove Lane, London",
       "location": { "latitude": 51.501, "longitude": -0.121 },
       "rating": 4.8,
@@ -14,7 +14,7 @@
     },
     {
       "id": "places/closed-spin",
-      "displayName": { "text": "Closed Spin" },
+      "displayName": { "text": "Closed Spin Record Shop" },
       "formattedAddress": "9 B-side Road, London",
       "location": { "latitude": 51.508, "longitude": -0.125 },
       "rating": 4.2,
@@ -26,7 +26,7 @@
     },
     {
       "id": "places/open-crate",
-      "displayName": { "text": "Open Crate" },
+      "displayName": { "text": "Open Crate Vinyl Shop" },
       "formattedAddress": "3 Wax Street, London",
       "location": { "latitude": 51.504, "longitude": -0.118 },
       "rating": 4.5,

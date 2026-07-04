@@ -14,7 +14,7 @@ describe('normalizePlacesResponse', () => {
     const places = [
       {
         id: 'places/abc',
-        displayName: { text: 'Vinyl Vault' },
+        displayName: { text: 'Vinyl Vault Record Shop' },
         formattedAddress: '10 Record Lane, London',
         location: { latitude: 51.502, longitude: -0.121 },
         rating: 4.6,
@@ -28,7 +28,7 @@ describe('normalizePlacesResponse', () => {
       },
       {
         id: 'places/xyz',
-        displayName: { text: 'Spin City' },
+        displayName: { text: 'Spin City Record Shop' },
         formattedAddress: '2 Groove Rd, London',
         location: { latitude: 51.51, longitude: -0.12 },
         rating: 4.1,
@@ -39,9 +39,10 @@ describe('normalizePlacesResponse', () => {
     const stores = normalizePlacesResponse(places, origin);
     expect(stores).toHaveLength(2);
     expect(stores[0].id).toBe('places/abc');
-    expect(stores[0].name).toBe('Vinyl Vault');
+    expect(stores[0].name).toBe('Vinyl Vault Record Shop');
     expect(stores[0].openNow).toBe(true);
     expect(stores[0].openingHoursSummary).toBe('Mon: 10 AM – 7 PM');
+    expect(stores[1].name).toBe('Spin City Record Shop');
     expect(stores[1].id).toBe('places/xyz');
     expect(stores[0].distanceMeters).toBeLessThan(stores[1].distanceMeters);
   });
@@ -56,7 +57,7 @@ describe('normalizePlacesResponse', () => {
     const store = normalizePlacesPlace(
       {
         id: 'places/abc',
-        displayName: { text: 'Vinyl Vault' },
+        displayName: { text: 'Vinyl Vault Record Shop' },
         formattedAddress: '10 Record Lane, London',
         location: { latitude: 51.502, longitude: -0.121 },
         photos: [{ name: 'places/abc/photos/shot-1' }],

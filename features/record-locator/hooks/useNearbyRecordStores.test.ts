@@ -37,7 +37,7 @@ describe('useNearbyRecordStores', () => {
     await waitFor(() => expect(result.current.state.status).toBe('success'));
     if (result.current.state.status !== 'success') throw new Error('expected success');
     expect(result.current.state.stores).toHaveLength(3);
-    expect(result.current.state.stores[0].name).toBe('Open Vinyl');
+    expect(result.current.state.stores[0].name).toBe('Open Vinyl Record Shop');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

@@ -4,7 +4,7 @@ import type { RecordStore } from './types';
 export const sampleRecordStores: RecordStore[] = [
   {
     id: 'places/open-vinyl',
-    name: 'Open Vinyl',
+    name: 'Open Vinyl Record Shop',
     address: '1 Groove Lane, London',
     latitude: 51.501,
     longitude: -0.121,
@@ -15,7 +15,7 @@ export const sampleRecordStores: RecordStore[] = [
   },
   {
     id: 'places/closed-spin',
-    name: 'Closed Spin',
+    name: 'Closed Spin Record Shop',
     address: '9 B-side Road, London',
     latitude: 51.508,
     longitude: -0.125,
@@ -26,7 +26,7 @@ export const sampleRecordStores: RecordStore[] = [
   },
   {
     id: 'places/open-crate',
-    name: 'Open Crate',
+    name: 'Open Crate Vinyl Shop',
     address: '3 Wax Street, London',
     latitude: 51.504,
     longitude: -0.118,
@@ -41,7 +41,7 @@ export const googlePlacesNearbyPayload = {
   places: [
     {
       id: 'places/open-vinyl',
-      displayName: { text: 'Open Vinyl' },
+      displayName: { text: 'Open Vinyl Record Shop' },
       formattedAddress: '1 Groove Lane, London',
       location: { latitude: 51.501, longitude: -0.121 },
       rating: 4.8,
@@ -49,7 +49,7 @@ export const googlePlacesNearbyPayload = {
     },
     {
       id: 'places/closed-spin',
-      displayName: { text: 'Closed Spin' },
+      displayName: { text: 'Closed Spin Record Shop' },
       formattedAddress: '9 B-side Road, London',
       location: { latitude: 51.508, longitude: -0.125 },
       rating: 4.2,

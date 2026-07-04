@@ -137,6 +137,6 @@ describe('handleNearbyRecordStores', () => {
     const googleCalls = captured.filter((c) => c.url.includes('googleapis.com'));
     expect(googleCalls.length).toBe(5);
     expect(stores.length).toBeGreaterThanOrEqual(2);
-    expect(stores[0].name).toBe('Open Vinyl');
+    expect(stores[0].name).toBe('Open Vinyl Record Shop');
   });
 });

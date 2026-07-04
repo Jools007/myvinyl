@@ -1,5 +1,6 @@
 import type { GeoPosition, RecordStore } from '../types';
 import { haversineDistanceMeters } from './geo';
+import { isLikelyRecordShopCandidate } from './recordShopRelevance';
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MERGE_MAX_METERS = 80;
@@ -13,6 +14,8 @@ type PlacesApiPlace = {
   rating?: number;
   userRatingCount?: number;
   businessStatus?: string;
+  primaryType?: string;
+  types?: string[];
   currentOpeningHours?: { openNow?: boolean; weekdayDescriptions?: string[] };
   regularOpeningHours?: { weekdayDescriptions?: string[] };
   nationalPhoneNumber?: string;
@@ -48,6 +51,19 @@ export function normalizePlacesPlace(
   const longitude = place.location?.longitude;
 
   if (!id || !name || !address || latitude == null || longitude == null) {
+    return null;
+  }
+
+  if (
+    !isLikelyRecordShopCandidate(
+      {
+        name,
+        address,
+        types: place.types,
+      },
+      { source: 'google' }
+    )
+  ) {
     return null;
   }
 

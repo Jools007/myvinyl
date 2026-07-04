@@ -1,6 +1,7 @@
 import type { GeoPosition, RecordStore } from '../types';
 import { haversineDistanceMeters } from './geo';
 import { applyOpeningHoursToStore } from './openingHours';
+import { isLikelyRecordShopCandidate } from './recordShopRelevance';
 
 export type OsmElement = {
   type: 'node' | 'way' | 'relation';
@@ -10,9 +11,6 @@ export type OsmElement = {
   center?: { lat: number; lon: number };
   tags?: Record<string, string>;
 };
-
-const VINYL_NAME = /record|vinyl|vinil|plokštel|vinilo|viniloteka|vinylomania|hi-fi|hifi|thelonious/i;
-const EXCLUDE_NAME = /grindys|flooring|grindų/i;
 
 function elementCoords(element: OsmElement): GeoPosition | null {
   const lat = element.lat ?? element.center?.lat;
@@ -34,12 +32,12 @@ function formatOsmAddress(tags: Record<string, string>): string {
 }
 
 export function isLikelyRecordShop(tags: Record<string, string> | undefined): boolean {
-  if (!tags) return false;
-  const shop = tags.shop?.toLowerCase();
-  if (shop === 'music' || shop === 'vinyl' || shop === 'hifi') return true;
-  const name = tags.name ?? '';
-  if (EXCLUDE_NAME.test(name)) return false;
-  return VINYL_NAME.test(name);
+  if (!tags?.name?.trim()) return false;
+  return isLikelyRecordShopCandidate({
+    name: tags.name,
+    shop: tags.shop,
+    address: tags['addr:full'] ?? tags.address,
+  });
 }
 
 export function normalizeOsmElement(element: OsmElement, origin: GeoPosition): RecordStore | null {

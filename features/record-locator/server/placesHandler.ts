@@ -21,6 +21,8 @@ const FIELD_MASK = [
   'places.location',
   'places.rating',
   'places.businessStatus',
+  'places.primaryType',
+  'places.types',
   'places.currentOpeningHours',
   'places.regularOpeningHours',
   'places.nationalPhoneNumber',
@@ -38,6 +40,8 @@ type PlacesApiPlace = {
   location?: { latitude?: number; longitude?: number };
   rating?: number;
   businessStatus?: string;
+  primaryType?: string;
+  types?: string[];
   currentOpeningHours?: { openNow?: boolean; weekdayDescriptions?: string[] };
   regularOpeningHours?: { weekdayDescriptions?: string[] };
   nationalPhoneNumber?: string;
@@ -149,6 +153,19 @@ async function searchText(
   return payload.places ?? [];
 }
 
+async function safePlacesSearch(
+  label: string,
+  search: () => Promise<PlacesApiPlace[]>
+): Promise<PlacesApiPlace[]> {
+  try {
+    return await search();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Google Places search failed';
+    console.warn(`[record-locator] ${label} skipped: ${message}`);
+    return [];
+  }
+}
+
 async function searchGoogleRecordStores(
   apiKey: string,
   input: PlacesSearchRequest,
@@ -156,11 +173,21 @@ async function searchGoogleRecordStores(
 ): Promise<RecordStore[]> {
   const origin = { latitude: input.latitude, longitude: input.longitude };
   const [recordStores, musicStores, vinylText, recordText, shopText] = await Promise.all([
-    searchNearby(apiKey, input, ['record_store'], fetchFn),
-    searchNearby(apiKey, input, ['music_store'], fetchFn),
-    searchText(apiKey, input, 'vinyl record shop', fetchFn),
-    searchText(apiKey, input, 'record store', fetchFn),
-    searchText(apiKey, input, 'vinyl shop', fetchFn),
+    safePlacesSearch('nearby record_store', () =>
+      searchNearby(apiKey, input, ['record_store'], fetchFn)
+    ),
+    safePlacesSearch('nearby music_store', () =>
+      searchNearby(apiKey, input, ['music_store'], fetchFn)
+    ),
+    safePlacesSearch('text vinyl record shop', () =>
+      searchText(apiKey, input, 'vinyl record shop', fetchFn)
+    ),
+    safePlacesSearch('text record store', () =>
+      searchText(apiKey, input, 'record store', fetchFn)
+    ),
+    safePlacesSearch('text vinyl shop', () =>
+      searchText(apiKey, input, 'vinyl shop', fetchFn)
+    ),
   ]);
 
   const merged = [...recordStores, ...musicStores, ...vinylText, ...recordText, ...shopText];
