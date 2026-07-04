@@ -10,10 +10,15 @@ import {
   invalidateYouTubePlayback,
   rememberPlayback,
 } from '../lib/playbackCache';
-import { mountAudioElement, unmountAudioElement } from '../lib/playMediaHost';
+import {
+  acquireSharedAudioElement,
+  releaseSharedAudioPlayback,
+} from '../lib/playMediaHost';
 import {
   bindPlaybackMediaSessionHandlers,
+  clearPlaybackPositionState,
   updatePlaybackMediaSession,
+  updatePlaybackPositionState,
 } from '../lib/playbackMediaSession';
 import { playSelectionKey, type PlaySelection } from '../lib/playSession';
 import { YouTubePreviewPlayer } from '../lib/youtubePlayer';
@@ -69,7 +74,11 @@ export function useTrackPreview() {
   } | null>(null);
   const shouldKeepPlayingRef = useRef(false);
   const toggleRef = useRef<() => void>(() => {});
+  const resumePlaybackRef = useRef<() => void>(() => {});
+  const pausePlaybackRef = useRef<() => void>(() => {});
   const skipByRef = useRef<(deltaSeconds: number) => void>(() => {});
+  const audioListenerAbortRef = useRef<AbortController | null>(null);
+  const backgroundKeepaliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [status, setStatus] = useState<PreviewStatus>('idle');
   const [progress, setProgress] = useState(0);
@@ -119,38 +128,54 @@ export function useTrackPreview() {
     syncDiagSnapshot();
   }, [syncDiagSnapshot]);
 
-  const syncMediaSession = useCallback((nextStatus: PreviewStatus) => {
-    const ctx = loadCtxRef.current;
-    if (
-      !ctx ||
-      nextStatus === 'idle' ||
-      nextStatus === 'loading' ||
-      nextStatus === 'unavailable' ||
-      nextStatus === 'rate_limited' ||
-      nextStatus === 'error' ||
-      nextStatus === 'ended'
-    ) {
-      updatePlaybackMediaSession(null);
-      return;
-    }
+  const claimMediaSession = useCallback(
+    (playbackState: MediaSessionPlaybackState, position = 0, dur = duration) => {
+      const ctx = loadCtxRef.current;
+      if (!ctx) return;
+      updatePlaybackMediaSession(
+        {
+          title: ctx.track.title,
+          artist: ctx.artist,
+          album: ctx.albumTitle,
+          artworkUrl: ctx.record.coverUrl,
+        },
+        playbackState
+      );
+      if (playbackState === 'playing') {
+        updatePlaybackPositionState(dur, position);
+      }
+    },
+    [duration]
+  );
 
-    const playbackState: MediaSessionPlaybackState =
-      nextStatus === 'playing'
-        ? 'playing'
-        : nextStatus === 'paused'
-          ? 'paused'
-          : 'none';
+  const syncMediaSession = useCallback(
+    (nextStatus: PreviewStatus) => {
+      const ctx = loadCtxRef.current;
+      if (
+        !ctx ||
+        nextStatus === 'idle' ||
+        nextStatus === 'loading' ||
+        nextStatus === 'unavailable' ||
+        nextStatus === 'rate_limited' ||
+        nextStatus === 'error' ||
+        nextStatus === 'ended'
+      ) {
+        updatePlaybackMediaSession(null);
+        clearPlaybackPositionState();
+        return;
+      }
 
-    updatePlaybackMediaSession(
-      {
-        title: ctx.track.title,
-        artist: ctx.artist,
-        album: ctx.albumTitle,
-        artworkUrl: ctx.record.coverUrl,
-      },
-      playbackState
-    );
-  }, []);
+      const playbackState: MediaSessionPlaybackState =
+        nextStatus === 'playing'
+          ? 'playing'
+          : nextStatus === 'paused'
+            ? 'paused'
+            : 'none';
+
+      claimMediaSession(playbackState, elapsed, duration);
+    },
+    [claimMediaSession, duration, elapsed]
+  );
 
   const nudgeBackgroundPlayback = useCallback(() => {
     if (!shouldKeepPlayingRef.current || !activeKeyRef.current) return;
@@ -170,15 +195,53 @@ export function useTrackPreview() {
     }
   }, []);
 
+  const stopBackgroundKeepalive = useCallback(() => {
+    if (backgroundKeepaliveRef.current != null) {
+      clearInterval(backgroundKeepaliveRef.current);
+      backgroundKeepaliveRef.current = null;
+    }
+  }, []);
+
+  const startBackgroundKeepalive = useCallback(() => {
+    stopBackgroundKeepalive();
+    if (!shouldKeepPlayingRef.current || !document.hidden) return;
+
+    backgroundKeepaliveRef.current = setInterval(() => {
+      if (!shouldKeepPlayingRef.current || !document.hidden) {
+        stopBackgroundKeepalive();
+        return;
+      }
+      nudgeBackgroundPlayback();
+      const ctx = loadCtxRef.current;
+      if (!ctx) return;
+      let dur = duration;
+      let pos = elapsed;
+      if (sourceRef.current === 'spotify') {
+        const audio = audioRef.current;
+        if (audio && Number.isFinite(audio.duration)) dur = audio.duration;
+        if (audio && Number.isFinite(audio.currentTime)) pos = audio.currentTime;
+      } else if (sourceRef.current === 'youtube') {
+        dur = youtubeRef.current?.getDuration() || dur;
+        pos = youtubeRef.current?.getCurrentTime() ?? pos;
+      }
+      claimMediaSession('playing', pos, dur);
+    }, 900);
+  }, [claimMediaSession, duration, elapsed, nudgeBackgroundPlayback, stopBackgroundKeepalive]);
+
   useEffect(() => {
     shouldKeepPlayingRef.current = status === 'playing';
     syncMediaSession(status);
-  }, [status, syncMediaSession]);
+    if (status === 'playing' && document.hidden) {
+      startBackgroundKeepalive();
+    } else {
+      stopBackgroundKeepalive();
+    }
+  }, [status, startBackgroundKeepalive, stopBackgroundKeepalive, syncMediaSession]);
 
   useEffect(() => {
     return bindPlaybackMediaSessionHandlers({
-      onPlay: () => toggleRef.current(),
-      onPause: () => toggleRef.current(),
+      onPlay: () => resumePlaybackRef.current(),
+      onPause: () => pausePlaybackRef.current(),
       onSeekBackward: () => skipByRef.current(-10),
       onSeekForward: () => skipByRef.current(10),
     });
@@ -186,8 +249,16 @@ export function useTrackPreview() {
 
   useEffect(() => {
     const onVisibility = () => {
-      if (!shouldKeepPlayingRef.current) return;
+      if (!shouldKeepPlayingRef.current) {
+        stopBackgroundKeepalive();
+        return;
+      }
       nudgeBackgroundPlayback();
+      if (document.hidden) {
+        startBackgroundKeepalive();
+      } else {
+        stopBackgroundKeepalive();
+      }
     };
 
     document.addEventListener('visibilitychange', onVisibility);
@@ -196,8 +267,9 @@ export function useTrackPreview() {
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', onVisibility);
+      stopBackgroundKeepalive();
     };
-  }, [nudgeBackgroundPlayback]);
+  }, [nudgeBackgroundPlayback, startBackgroundKeepalive, stopBackgroundKeepalive]);
 
   const clearStallTimer = useCallback(() => {
     if (stallTimerRef.current != null) {
@@ -222,7 +294,9 @@ export function useTrackPreview() {
 
   const detachAudio = useCallback(() => {
     stopRaf();
-    unmountAudioElement(audioRef.current);
+    audioListenerAbortRef.current?.abort();
+    audioListenerAbortRef.current = null;
+    releaseSharedAudioPlayback();
     audioRef.current = null;
   }, [stopRaf]);
 
@@ -248,7 +322,9 @@ export function useTrackPreview() {
     setPlayerState(null);
     setActivelyPlaying(false);
     updatePlaybackMediaSession(null);
-  }, [clearStallTimer, detachAudio, detachYouTube]);
+    clearPlaybackPositionState();
+    stopBackgroundKeepalive();
+  }, [clearStallTimer, detachAudio, detachYouTube, stopBackgroundKeepalive]);
 
   const tick = useCallback(() => {
     const key = activeKeyRef.current;
@@ -277,8 +353,11 @@ export function useTrackPreview() {
     setDuration(dur);
     setElapsed(t);
     setProgress(dur > 0 ? Math.min(1, t / dur) : 0);
+    if (shouldKeepPlayingRef.current) {
+      claimMediaSession('playing', t, dur);
+    }
     rafRef.current = requestAnimationFrame(tick);
-  }, [duration]);
+  }, [claimMediaSession, duration]);
 
   const startProgress = useCallback(() => {
     stopRaf();
@@ -359,41 +438,65 @@ export function useTrackPreview() {
       setSource('spotify');
       setDuration(SPOTIFY_PREVIEW_SECONDS);
 
-      const audio = new Audio(previewUrl);
-      mountAudioElement(audio);
+      const audio = acquireSharedAudioElement();
+      audioListenerAbortRef.current?.abort();
+      const listenerAbort = new AbortController();
+      audioListenerAbortRef.current = listenerAbort;
+      const signal = listenerAbort.signal;
+
       audioRef.current = audio;
+      audio.src = previewUrl;
+      audio.load();
 
-      audio.addEventListener('play', () => {
-        if (activeKeyRef.current !== key) return;
-        setStatus('playing');
-        setDiagHint(null);
-        startProgress();
-      });
+      audio.addEventListener(
+        'play',
+        () => {
+          if (activeKeyRef.current !== key) return;
+          setStatus('playing');
+          setDiagHint(null);
+          claimMediaSession('playing', audio.currentTime, audio.duration || SPOTIFY_PREVIEW_SECONDS);
+          startProgress();
+        },
+        { signal }
+      );
 
-      audio.addEventListener('ended', () => {
-        stopRaf();
-        setStatus('ended');
-        setProgress(1);
-        setElapsed(SPOTIFY_PREVIEW_SECONDS);
-      });
-
-      audio.addEventListener('pause', () => {
-        if (!audio.ended && activeKeyRef.current === key) {
+      audio.addEventListener(
+        'ended',
+        () => {
           stopRaf();
-          setStatus('paused');
-        }
-      });
+          setStatus('ended');
+          setProgress(1);
+          setElapsed(SPOTIFY_PREVIEW_SECONDS);
+        },
+        { signal }
+      );
 
-      audio.addEventListener('error', () => {
-        if (activeKeyRef.current === key) setStatus('error');
-      });
+      audio.addEventListener(
+        'pause',
+        () => {
+          if (!audio.ended && activeKeyRef.current === key) {
+            stopRaf();
+            setStatus('paused');
+          }
+        },
+        { signal }
+      );
 
+      audio.addEventListener(
+        'error',
+        () => {
+          if (activeKeyRef.current === key) setStatus('error');
+        },
+        { signal }
+      );
+
+      claimMediaSession(opts?.autoplay ? 'playing' : 'none', 0, SPOTIFY_PREVIEW_SECONDS);
       setStatus('ready');
       if (opts?.autoplay) {
         playCurrent({ enableSound: opts.enableSound === true });
       }
     },
-    [detachAudio, detachYouTube, playCurrent, startProgress, stopRaf]
+    [claimMediaSession, detachAudio, detachYouTube, playCurrent, startProgress, stopRaf]
   );
 
   const attachYouTube = useCallback(
@@ -465,6 +568,9 @@ export function useTrackPreview() {
             setActivelyPlaying(true);
             setStatus('playing');
             setDiagHint(null);
+            const ytDur = youtubeRef.current?.getDuration() || DEFAULT_YOUTUBE_SECONDS;
+            const ytPos = youtubeRef.current?.getCurrentTime() ?? 0;
+            claimMediaSession('playing', ytPos, ytDur);
             startProgress();
           },
           onPaused: () => {
@@ -513,6 +619,7 @@ export function useTrackPreview() {
       );
     },
     [
+      claimMediaSession,
       clearStallTimer,
       detachAudio,
       detachYouTube,
@@ -977,10 +1084,43 @@ export function useTrackPreview() {
     playCurrent({ enableSound });
   }, [playCurrent, status, stopRaf]);
 
+  const pausePlayback = useCallback(() => {
+    if (status !== 'playing') return;
+    if (sourceRef.current === 'spotify') {
+      audioRef.current?.pause();
+      stopRaf();
+      setStatus('paused');
+      return;
+    }
+    playRequestedRef.current = false;
+    youtubeRef.current?.pause();
+  }, [status, stopRaf]);
+
+  const resumePlayback = useCallback(() => {
+    if (status === 'playing') return;
+    if (status === 'ended') {
+      if (sourceRef.current === 'spotify') {
+        const audio = audioRef.current;
+        if (audio) {
+          audio.currentTime = 0;
+          setProgress(0);
+          setElapsed(0);
+        }
+      } else {
+        youtubeRef.current?.seekStart();
+        setProgress(0);
+        setElapsed(0);
+      }
+    }
+    playCurrent({ enableSound: true });
+  }, [playCurrent, status]);
+
   useEffect(() => {
     toggleRef.current = toggle;
+    resumePlaybackRef.current = resumePlayback;
+    pausePlaybackRef.current = pausePlayback;
     skipByRef.current = skipBy;
-  }, [toggle, skipBy]);
+  }, [pausePlayback, resumePlayback, skipBy, toggle]);
 
   const matchesSelection = useCallback(
     (ref: PlaySelection | null) => {

@@ -1,9 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   bindPlaybackMediaSessionHandlers,
+  formatMyVinylAlbumLabel,
   isPlaybackMediaSessionSupported,
   updatePlaybackMediaSession,
 } from './playbackMediaSession';
+
+describe('formatMyVinylAlbumLabel', () => {
+  it('tags album text as MyVinyl for lock-screen identification', () => {
+    expect(formatMyVinylAlbumLabel('Mezzanine')).toBe('Mezzanine · MyVinyl');
+    expect(formatMyVinylAlbumLabel('Mezzanine · MyVinyl')).toBe('Mezzanine · MyVinyl');
+  });
+});
 
 describe('playbackMediaSession', () => {
   const originalMediaSession = navigator.mediaSession;
@@ -40,10 +48,12 @@ describe('playbackMediaSession', () => {
     vi.stubGlobal('MediaMetadata', MockMediaMetadata);
 
     const setActionHandler = vi.fn();
+    const setPositionState = vi.fn();
     const session = {
       metadata: null as MediaMetadata | null,
       playbackState: 'none' as MediaSessionPlaybackState,
       setActionHandler,
+      setPositionState,
     };
     Object.defineProperty(navigator, 'mediaSession', {
       configurable: true,

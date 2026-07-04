@@ -4,6 +4,8 @@ import { isMobilePlaybackDevice } from './playbackDevice';
 
 const AUDIO_ROOT_ID = 'play-audio-root';
 
+let sharedAudio: HTMLAudioElement | null = null;
+
 export function getAudioMount(): HTMLElement {
   let root = document.getElementById(AUDIO_ROOT_ID);
   if (!root) {
@@ -27,10 +29,32 @@ export function mountAudioElement(audio: HTMLAudioElement): void {
   }
 }
 
+/** One persistent <audio> for the session — iOS background play breaks if the node is removed. */
+export function acquireSharedAudioElement(): HTMLAudioElement {
+  if (!sharedAudio) {
+    sharedAudio = document.createElement('audio');
+    mountAudioElement(sharedAudio);
+  }
+  return sharedAudio;
+}
+
+export function releaseSharedAudioPlayback(): void {
+  if (!sharedAudio) return;
+  sharedAudio.pause();
+  sharedAudio.removeAttribute('src');
+  sharedAudio.load();
+}
+
+/** @deprecated Prefer releaseSharedAudioPlayback — only for full teardown tests. */
 export function unmountAudioElement(audio: HTMLAudioElement | null): void {
   if (!audio) return;
   audio.pause();
   audio.removeAttribute('src');
   audio.load();
+  if (audio === sharedAudio) {
+    audio.remove();
+    sharedAudio = null;
+    return;
+  }
   audio.remove();
 }
