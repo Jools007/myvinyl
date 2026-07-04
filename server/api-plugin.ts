@@ -36,6 +36,15 @@ import {
   priceSuggestionsErrorStatus,
 } from './handlers/discogs-price-suggestions';
 import { fetchProxiedImage, parseImageProxyUrl } from './handlers/image-proxy';
+import {
+  RecordLocatorValidationError,
+  handleNearbyRecordStores,
+  parsePlacesSearchBody,
+} from '../features/record-locator/server/placesHandler';
+import {
+  handleWalkingRoute,
+  parseWalkingRouteBody,
+} from '../features/record-locator/server/routesHandler';
 
 type Env = Record<string, string>;
 
@@ -359,6 +368,47 @@ export function apiPlugin(env: Env): Plugin {
             res.setHeader('Access-Control-Allow-Origin', '*');
             res.end(result.buffer);
             return;
+          }
+
+          // ── Record store locator (Google Places + Routes) ──
+          if (path === '/api/record-locator/places' && req.method === 'POST') {
+            const useFixture =
+              process.env.RECORD_LOCATOR_FIXTURE === '1' || env.RECORD_LOCATOR_FIXTURE === '1';
+            const apiKey =
+              process.env.GOOGLE_PLACES_API_KEY?.trim() || env.GOOGLE_PLACES_API_KEY?.trim();
+            try {
+              const input = parsePlacesSearchBody(await readJsonBody(req));
+              const result = await handleNearbyRecordStores(apiKey, input, { useFixture });
+              return json(res, 200, result);
+            } catch (e) {
+              if (e instanceof RecordLocatorValidationError) {
+                return json(res, 400, { error: e.message });
+              }
+              const message = e instanceof Error ? e.message : 'Places search failed';
+              const status = message.includes('not configured') ? 503 : 502;
+              return json(res, status, { error: message });
+            }
+          }
+
+          if (path === '/api/record-locator/routes' && req.method === 'POST') {
+            const useFixture =
+              process.env.RECORD_LOCATOR_FIXTURE === '1' || env.RECORD_LOCATOR_FIXTURE === '1';
+            const apiKey =
+              process.env.GOOGLE_PLACES_API_KEY?.trim() || env.GOOGLE_PLACES_API_KEY?.trim();
+            try {
+              const input = parseWalkingRouteBody(await readJsonBody(req));
+              const route = await handleWalkingRoute(apiKey, input, {
+                useFixture,
+              });
+              return json(res, 200, { route });
+            } catch (e) {
+              const message = e instanceof Error ? e.message : 'Walking route failed';
+              const status = /required|at least|not configured/i.test(message) ? 400 : 502;
+              if (message.includes('not configured')) {
+                return json(res, 503, { error: message });
+              }
+              return json(res, status, { error: message });
+            }
           }
 
           // ── Last.fm vibe discovery ──

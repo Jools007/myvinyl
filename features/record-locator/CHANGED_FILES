@@ -1,0 +1,57 @@
+# Record Store Locator — files touched by this feature
+
+## features/record-locator/ (all feature code)
+features/record-locator/RecordLocatorShell.tsx
+features/record-locator/index.ts
+features/record-locator/types.ts
+features/record-locator/testFixtures.ts
+features/record-locator/CHANGED_FILES
+features/record-locator/components/RecordLocatorLauncher.tsx
+features/record-locator/components/RecordLocatorModal.tsx
+features/record-locator/components/RecordLocatorModal.filter.test.tsx
+features/record-locator/components/RecordRoutePanel.tsx
+features/record-locator/components/RecordStoreList.tsx
+features/record-locator/components/RecordStoreMap.tsx
+features/record-locator/fixtures/loadFixtures.ts
+features/record-locator/fixtures/places-nearby.json
+features/record-locator/fixtures/routes-walk.json
+features/record-locator/hooks/useGeolocation.ts
+features/record-locator/hooks/useNearbyRecordStores.ts
+features/record-locator/hooks/useNearbyRecordStores.test.ts
+features/record-locator/hooks/useWalkingRoute.ts
+features/record-locator/hooks/useWalkingRoute.test.ts
+features/record-locator/server/placesHandler.ts
+features/record-locator/server/placesHandler.test.ts
+features/record-locator/server/placesHandler.live.test.ts
+features/record-locator/server/routesHandler.ts
+features/record-locator/server/routesHandler.test.ts
+features/record-locator/scripts/playwright-locator-probe.mjs
+features/record-locator/scripts/verify-dev-proxy.mjs
+features/record-locator/styles/record-locator.css
+features/record-locator/utils/geo.ts
+features/record-locator/utils/geo.test.ts
+features/record-locator/utils/normalize.ts
+features/record-locator/utils/normalize.test.ts
+features/record-locator/utils/openNow.ts
+features/record-locator/utils/openNow.test.ts
+features/record-locator/utils/routeOrder.ts
+features/record-locator/utils/routeOrder.test.ts
+features/record-locator/utils/sort.ts
+features/record-locator/utils/sort.test.ts
+
+## api/ (Vercel serverless bundles)
+api/record-locator/places.js
+api/record-locator/routes.js
+scripts/api-entries/record-locator/places.entry.ts
+scripts/api-entries/record-locator/routes.entry.ts
+
+## Shell + deployment exceptions (documented in goal/plan.md Assumed scope)
+src/main.tsx
+server/api-plugin.ts
+scripts/build-vercel-apis.mjs
+vercel.json
+.env.example
+package.json
+package-lock.json
+tsconfig.app.json
+vitest.config.ts

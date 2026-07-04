@@ -1,0 +1,25 @@
+{
+  "routes": [
+    {
+      "duration": "900s",
+      "distanceMeters": 1200,
+      "optimizedIntermediateWaypointIndex": [0],
+      "legs": [
+        {
+          "duration": "240s",
+          "distanceMeters": 320,
+          "steps": [
+            { "navigationInstruction": { "instructions": "Head north on Groove Lane" } }
+          ]
+        },
+        {
+          "duration": "660s",
+          "distanceMeters": 880,
+          "steps": [
+            { "navigationInstruction": { "instructions": "Turn right on Wax Street" } }
+          ]
+        }
+      ]
+    }
+  ]
+}

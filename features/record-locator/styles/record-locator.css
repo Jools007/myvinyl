@@ -1,0 +1,343 @@
+@import "leaflet/dist/leaflet.css";
+
+.record-locator-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+}
+
+.record-locator-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 80rem;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.record-locator-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--glass);
+}
+
+.record-locator-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.record-locator-subtitle {
+  margin: 0.15rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.record-locator-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.2s var(--ease-out-expo), color 0.2s var(--ease-out-expo);
+}
+
+.record-locator-close:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.record-locator-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+
+@media (min-width: 900px) {
+  .record-locator-body {
+    grid-template-columns: minmax(18rem, 24rem) 1fr;
+  }
+}
+
+.record-locator-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--glass) 70%, transparent);
+}
+
+@media (min-width: 900px) {
+  .record-locator-sidebar {
+    border-bottom: none;
+    border-right: 1px solid var(--border);
+  }
+}
+
+.record-locator-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.record-locator-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
+}
+
+.record-locator-filter--active {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.record-locator-list {
+  flex: 1;
+  overflow: auto;
+  padding: 0.5rem;
+}
+
+.record-locator-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.85rem 0.9rem;
+  margin-bottom: 0.5rem;
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.2s var(--ease-spring);
+}
+
+.record-locator-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  transform: translateY(-1px);
+}
+
+.record-locator-card--selected {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.record-locator-card__name {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.record-locator-card__meta {
+  margin: 0.2rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.record-locator-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.record-locator-badge--open {
+  color: var(--teal);
+  background: var(--teal-soft);
+}
+
+.record-locator-badge--closed {
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+}
+
+.record-locator-map-pane {
+  position: relative;
+  min-height: 16rem;
+  background: var(--bg-subtle);
+}
+
+@media (min-width: 900px) {
+  .record-locator-map-pane {
+    min-height: 0;
+  }
+}
+
+.record-locator-map {
+  width: 100%;
+  height: 100%;
+  min-height: 16rem;
+}
+
+@media (min-width: 900px) {
+  .record-locator-map {
+    min-height: 100%;
+  }
+}
+
+.record-locator-route-panel {
+  border-top: 1px solid var(--border);
+  padding: 0.85rem 1rem 1rem;
+  background: color-mix(in srgb, var(--glass) 85%, transparent);
+}
+
+.record-locator-route-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.record-locator-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.record-locator-btn--primary {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-strong));
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.record-locator-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.record-locator-leg {
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.record-locator-leg:last-child {
+  border-bottom: none;
+}
+
+.record-locator-leg__title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.record-locator-leg__steps {
+  margin: 0.35rem 0 0;
+  padding-left: 1rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.record-locator-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.record-locator-launcher {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  transition:
+    color 0.2s var(--ease-out-expo),
+    background 0.2s var(--ease-out-expo),
+    border-color 0.2s var(--ease-out-expo),
+    transform 0.2s var(--ease-spring),
+    box-shadow 0.25s var(--ease-out-expo);
+}
+
+.record-locator-launcher:hover {
+  color: var(--violet);
+  background: var(--violet-soft);
+  border-color: color-mix(in srgb, var(--violet) 35%, var(--border-strong));
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--violet) 25%, transparent);
+}
+
+.record-locator-launcher:active {
+  transform: translateY(0) scale(0.96);
+}
+
+.record-locator-fab {
+  position: fixed;
+  right: 1rem;
+  bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
+  z-index: 55;
+}
+
+@media (min-width: 640px) {
+  .record-locator-fab {
+    bottom: 1.25rem;
+  }
+}
+
+.record-locator-marker {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  border: 2px solid var(--bg-elevated);
+  background: var(--accent);
+  box-shadow: 0 2px 8px var(--accent-glow);
+}
+
+.record-locator-marker--selected {
+  background: var(--violet);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--violet) 40%, transparent);
+}

@@ -25,6 +25,14 @@ const routes = [
     outfile: 'api/album-character.js',
   },
   { entry: 'scripts/api-entries/enrich.entry.ts', outfile: 'api/enrich.js' },
+  {
+    entry: 'scripts/api-entries/record-locator/places.entry.ts',
+    outfile: 'api/record-locator/places.js',
+  },
+  {
+    entry: 'scripts/api-entries/record-locator/routes.entry.ts',
+    outfile: 'api/record-locator/routes.js',
+  },
 ];
 
 for (const { entry, outfile } of routes) {

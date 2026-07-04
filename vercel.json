@@ -37,6 +37,12 @@
     },
     "api/lastfm/similar.js": {
       "maxDuration": 10
+    },
+    "api/record-locator/places.js": {
+      "maxDuration": 15
+    },
+    "api/record-locator/routes.js": {
+      "maxDuration": 15
     }
   },
   "rewrites": [
