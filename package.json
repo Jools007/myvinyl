@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:record-locator:proxy": "node features/record-locator/scripts/verify-dev-proxy.mjs",
     "test:record-locator:proxy:fixture": "RECORD_LOCATOR_FIXTURE=1 node features/record-locator/scripts/verify-dev-proxy.mjs",
-    "test:record-locator:e2e": "RECORD_LOCATOR_FIXTURE=1 node features/record-locator/scripts/playwright-locator-probe.mjs",
+    "test:record-locator:e2e": "node features/record-locator/scripts/playwright-locator-probe.mjs",
+    "test:record-locator:proxy:strict": "RECORD_LOCATOR_STRICT_LIVE=1 node features/record-locator/scripts/verify-dev-proxy.mjs",
     "test:qc": "vitest run src/lib/labels/qc",
     "preview": "vite preview"
   },

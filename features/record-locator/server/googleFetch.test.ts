@@ -69,4 +69,16 @@ describe('resolveRecordLocator runtime', () => {
     expect(isRecordLocatorFixtureMode(env)).toBe(false);
     expect(resolveRecordLocatorApiKey(env)).toBe('real-key');
   });
+
+  it('auto-enables fixture in dev when API key is missing', () => {
+    const env = { RECORD_LOCATOR_FIXTURE: '' };
+    expect(isRecordLocatorFixtureMode(env, { isDev: true })).toBe(true);
+    expect(resolveRecordLocatorApiKey(env, { isDev: true })).toBe('fixture-intercept');
+  });
+
+  it('respects RECORD_LOCATOR_FIXTURE=0 to disable dev auto-fixture', () => {
+    const env = { RECORD_LOCATOR_FIXTURE: '0' };
+    expect(isRecordLocatorFixtureMode(env, { isDev: true })).toBe(false);
+    expect(resolveRecordLocatorApiKey(env, { isDev: true })).toBeUndefined();
+  });
 });

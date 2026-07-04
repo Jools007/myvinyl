@@ -377,8 +377,9 @@ export function apiPlugin(env: Env): Plugin {
           // ── Record store locator (Google Places + Routes) ──
           if (path === '/api/record-locator/places' && req.method === 'POST') {
             const locatorEnv = { ...env, ...process.env };
-            const apiKey = resolveRecordLocatorApiKey(locatorEnv);
-            const fetchFn = resolveRecordLocatorFetch(locatorEnv);
+            const locatorRuntime = { isDev: true };
+            const apiKey = resolveRecordLocatorApiKey(locatorEnv, locatorRuntime);
+            const fetchFn = resolveRecordLocatorFetch(locatorEnv, locatorRuntime);
             try {
               const input = parsePlacesSearchBody(await readJsonBody(req));
               const result = await handleNearbyRecordStores(apiKey, input, { fetchFn });
@@ -395,8 +396,9 @@ export function apiPlugin(env: Env): Plugin {
 
           if (path === '/api/record-locator/routes' && req.method === 'POST') {
             const locatorEnv = { ...env, ...process.env };
-            const apiKey = resolveRecordLocatorApiKey(locatorEnv);
-            const fetchFn = resolveRecordLocatorFetch(locatorEnv);
+            const locatorRuntime = { isDev: true };
+            const apiKey = resolveRecordLocatorApiKey(locatorEnv, locatorRuntime);
+            const fetchFn = resolveRecordLocatorFetch(locatorEnv, locatorRuntime);
             try {
               const input = parseWalkingRouteBody(await readJsonBody(req));
               const route = await handleWalkingRoute(apiKey, input, { fetchFn });

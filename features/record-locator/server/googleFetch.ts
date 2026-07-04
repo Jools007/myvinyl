@@ -56,20 +56,33 @@ export function createGoogleFetch(mode: GoogleFetchMode): GoogleFetchFn {
   };
 }
 
-export function isRecordLocatorFixtureMode(env: Record<string, string | undefined> = process.env): boolean {
-  return env.RECORD_LOCATOR_FIXTURE === '1';
+export type RecordLocatorRuntimeOptions = {
+  /** Vite dev proxy sets true so missing API key auto-uses fixture intercept. */
+  isDev?: boolean;
+};
+
+export function isRecordLocatorFixtureMode(
+  env: Record<string, string | undefined> = process.env,
+  options?: RecordLocatorRuntimeOptions
+): boolean {
+  if (env.RECORD_LOCATOR_FIXTURE === '1') return true;
+  if (env.RECORD_LOCATOR_FIXTURE === '0') return false;
+  if (env.GOOGLE_PLACES_API_KEY?.trim()) return false;
+  return options?.isDev === true;
 }
 
 export function resolveRecordLocatorApiKey(
-  env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env,
+  options?: RecordLocatorRuntimeOptions
 ): string | undefined {
   const key = env.GOOGLE_PLACES_API_KEY?.trim();
   if (key) return key;
-  return isRecordLocatorFixtureMode(env) ? FIXTURE_API_KEY : undefined;
+  return isRecordLocatorFixtureMode(env, options) ? FIXTURE_API_KEY : undefined;
 }
 
 export function resolveRecordLocatorFetch(
-  env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env,
+  options?: RecordLocatorRuntimeOptions
 ): GoogleFetchFn {
-  return createGoogleFetch(isRecordLocatorFixtureMode(env) ? 'fixture' : 'live');
+  return createGoogleFetch(isRecordLocatorFixtureMode(env, options) ? 'fixture' : 'live');
 }

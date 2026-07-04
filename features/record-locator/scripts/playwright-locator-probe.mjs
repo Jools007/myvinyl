@@ -1,6 +1,6 @@
 /**
  * UI probe through the real Vite dev proxy — no page.route mocks.
- * Requires dev server started with RECORD_LOCATOR_FIXTURE=1.
+ * Requires `npm run dev` (auto-fixture when no GOOGLE_PLACES_API_KEY).
  */
 import { chromium } from 'playwright';
 import path from 'path';
@@ -8,11 +8,6 @@ import path from 'path';
 const scratch = process.env.RECORD_LOCATOR_SCRATCH;
 if (!scratch) {
   console.error('RECORD_LOCATOR_SCRATCH env var required');
-  process.exit(1);
-}
-
-if (process.env.RECORD_LOCATOR_FIXTURE !== '1') {
-  console.error('RECORD_LOCATOR_FIXTURE=1 required on the dev server (not just this script)');
   process.exit(1);
 }
 
