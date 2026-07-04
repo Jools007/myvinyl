@@ -11,6 +11,10 @@ import {
   rememberPlayback,
 } from '../lib/playbackCache';
 import { mountAudioElement, unmountAudioElement } from '../lib/playMediaHost';
+import {
+  bindPlaybackMediaSessionHandlers,
+  updatePlaybackMediaSession,
+} from '../lib/playbackMediaSession';
 import { playSelectionKey, type PlaySelection } from '../lib/playSession';
 import { YouTubePreviewPlayer } from '../lib/youtubePlayer';
 import type { Track, VinylRecord } from '../lib/types';
@@ -63,6 +67,9 @@ export function useTrackPreview() {
     albumTitle: string;
     albumIndex?: number;
   } | null>(null);
+  const shouldKeepPlayingRef = useRef(false);
+  const toggleRef = useRef<() => void>(() => {});
+  const skipByRef = useRef<(deltaSeconds: number) => void>(() => {});
 
   const [status, setStatus] = useState<PreviewStatus>('idle');
   const [progress, setProgress] = useState(0);
@@ -112,6 +119,86 @@ export function useTrackPreview() {
     syncDiagSnapshot();
   }, [syncDiagSnapshot]);
 
+  const syncMediaSession = useCallback((nextStatus: PreviewStatus) => {
+    const ctx = loadCtxRef.current;
+    if (
+      !ctx ||
+      nextStatus === 'idle' ||
+      nextStatus === 'loading' ||
+      nextStatus === 'unavailable' ||
+      nextStatus === 'rate_limited' ||
+      nextStatus === 'error' ||
+      nextStatus === 'ended'
+    ) {
+      updatePlaybackMediaSession(null);
+      return;
+    }
+
+    const playbackState: MediaSessionPlaybackState =
+      nextStatus === 'playing'
+        ? 'playing'
+        : nextStatus === 'paused'
+          ? 'paused'
+          : 'none';
+
+    updatePlaybackMediaSession(
+      {
+        title: ctx.track.title,
+        artist: ctx.artist,
+        album: ctx.albumTitle,
+        artworkUrl: ctx.record.coverUrl,
+      },
+      playbackState
+    );
+  }, []);
+
+  const nudgeBackgroundPlayback = useCallback(() => {
+    if (!shouldKeepPlayingRef.current || !activeKeyRef.current) return;
+
+    if (sourceRef.current === 'spotify') {
+      const audio = audioRef.current;
+      if (audio && !audio.ended) {
+        void audio.play().catch(() => {});
+      }
+      return;
+    }
+
+    if (sourceRef.current === 'youtube') {
+      const yt = youtubeRef.current;
+      if (!yt) return;
+      yt.play(yt.isSoundEnabled());
+    }
+  }, []);
+
+  useEffect(() => {
+    shouldKeepPlayingRef.current = status === 'playing';
+    syncMediaSession(status);
+  }, [status, syncMediaSession]);
+
+  useEffect(() => {
+    return bindPlaybackMediaSessionHandlers({
+      onPlay: () => toggleRef.current(),
+      onPause: () => toggleRef.current(),
+      onSeekBackward: () => skipByRef.current(-10),
+      onSeekForward: () => skipByRef.current(10),
+    });
+  }, []);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (!shouldKeepPlayingRef.current) return;
+      nudgeBackgroundPlayback();
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', onVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', onVisibility);
+    };
+  }, [nudgeBackgroundPlayback]);
+
   const clearStallTimer = useCallback(() => {
     if (stallTimerRef.current != null) {
       clearTimeout(stallTimerRef.current);
@@ -160,6 +247,7 @@ export function useTrackPreview() {
     setLastApiTitle(null);
     setPlayerState(null);
     setActivelyPlaying(false);
+    updatePlaybackMediaSession(null);
   }, [clearStallTimer, detachAudio, detachYouTube]);
 
   const tick = useCallback(() => {
@@ -888,6 +976,11 @@ export function useTrackPreview() {
       sourceRef.current === 'spotify' || sourceRef.current === 'youtube';
     playCurrent({ enableSound });
   }, [playCurrent, status, stopRaf]);
+
+  useEffect(() => {
+    toggleRef.current = toggle;
+    skipByRef.current = skipBy;
+  }, [toggle, skipBy]);
 
   const matchesSelection = useCallback(
     (ref: PlaySelection | null) => {

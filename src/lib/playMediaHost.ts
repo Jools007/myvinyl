@@ -20,6 +20,7 @@ export function mountAudioElement(audio: HTMLAudioElement): void {
   audio.className = `play-dj__audio-engine${isMobilePlaybackDevice() ? ' play-dj__audio-engine--touch' : ''}`;
   audio.setAttribute('playsinline', '');
   audio.setAttribute('webkit-playsinline', '');
+  audio.preload = 'auto';
   const root = getAudioMount();
   if (audio.parentElement !== root) {
     root.replaceChildren(audio);
