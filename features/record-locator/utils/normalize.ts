@@ -12,6 +12,10 @@ type PlacesApiPlace = {
   businessStatus?: string;
   currentOpeningHours?: { openNow?: boolean; weekdayDescriptions?: string[] };
   regularOpeningHours?: { weekdayDescriptions?: string[] };
+  nationalPhoneNumber?: string;
+  internationalPhoneNumber?: string;
+  websiteUri?: string;
+  googleMapsUri?: string;
 };
 
 export function summarizeOpeningHours(place: PlacesApiPlace): string | undefined {
@@ -48,7 +52,11 @@ export function normalizePlacesPlace(
     businessStatus: place.businessStatus,
     openNow: place.currentOpeningHours?.openNow,
     openingHoursSummary: summarizeOpeningHours(place),
+    phone: place.nationalPhoneNumber ?? place.internationalPhoneNumber,
+    website: place.websiteUri,
+    mapsUrl: place.googleMapsUri,
     distanceMeters: haversineDistanceMeters(origin, { latitude, longitude }),
+    source: 'google',
   };
 }
 
@@ -69,4 +77,27 @@ export function normalizePlacesResponse(
   }
 
   return stores.sort((a, b) => a.distanceMeters - b.distanceMeters);
+}
+
+/** Merge Google + OSM results, preferring Google when two shops are within 80 m. */
+export function mergeRecordStoreResults(
+  googleStores: RecordStore[],
+  osmStores: RecordStore[]
+): RecordStore[] {
+  const merged = [...googleStores];
+  const googlePositions = googleStores.map((s) => ({
+    lat: s.latitude,
+    lon: s.longitude,
+  }));
+
+  for (const osm of osmStores) {
+    const duplicate = googlePositions.some((g) => {
+      const dLat = Math.abs(g.lat - osm.latitude);
+      const dLon = Math.abs(g.lon - osm.longitude);
+      return dLat < 0.0008 && dLon < 0.0008;
+    });
+    if (!duplicate) merged.push(osm);
+  }
+
+  return merged.sort((a, b) => a.distanceMeters - b.distanceMeters);
 }

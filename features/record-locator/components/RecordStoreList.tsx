@@ -1,4 +1,4 @@
-import { MapPin, Star } from 'lucide-react';
+import { ExternalLink, MapPin, Phone, Star } from 'lucide-react';
 import type { RecordStore } from '../types';
 import { formatDistanceMeters } from '../utils/geo';
 
@@ -43,13 +43,39 @@ export function RecordStoreList({ stores, selectedIds, onToggleSelect }: RecordS
               onClick={(event) => event.stopPropagation()}
               aria-label={`Select ${store.name}`}
             />
-            <div>
+            <div className="min-w-0 flex-1">
               <h3 className="record-locator-card__name">{store.name}</h3>
               <p className="record-locator-card__meta">
                 <MapPin className="inline h-3 w-3" strokeWidth={2} /> {store.address}
               </p>
               {store.openingHoursSummary ? (
                 <p className="record-locator-card__meta">{store.openingHoursSummary}</p>
+              ) : null}
+              {store.phone ? (
+                <p className="record-locator-card__meta">
+                  <Phone className="inline h-3 w-3" strokeWidth={2} />
+                  <a
+                    href={`tel:${store.phone}`}
+                    className="record-locator-link"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {store.phone}
+                  </a>
+                </p>
+              ) : null}
+              {store.website ? (
+                <p className="record-locator-card__meta">
+                  <ExternalLink className="inline h-3 w-3" strokeWidth={2} />
+                  <a
+                    href={store.website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="record-locator-link"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    Website
+                  </a>
+                </p>
               ) : null}
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 {store.openNow === true ? (

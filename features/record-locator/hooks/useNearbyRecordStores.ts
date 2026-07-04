@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { GeoPosition, NearbyStoresState, RecordStore } from '../types';
+import type { GeoPosition, NearbyStoresState, RecordStore, RecordStoreSearchMeta } from '../types';
 
 const PLACES_API = '/api/record-locator/places';
 
@@ -15,18 +15,26 @@ export function useNearbyRecordStores(position: GeoPosition | null) {
         body: JSON.stringify({
           latitude: coords.latitude,
           longitude: coords.longitude,
-          radiusMeters: 8000,
+          radiusMeters: 12_000,
         }),
       });
 
-      const payload = (await response.json()) as { stores?: unknown; error?: string };
+      const payload = (await response.json()) as {
+        stores?: RecordStore[];
+        meta?: RecordStoreSearchMeta;
+        error?: string;
+      };
       if (!response.ok) {
         throw new Error(payload.error ?? `Search failed (${response.status})`);
       }
 
       setState({
         status: 'success',
-        stores: (payload.stores ?? []) as RecordStore[],
+        stores: payload.stores ?? [],
+        meta: payload.meta ?? {
+          source: 'osm',
+          locationLabel: `${coords.latitude.toFixed(4)}°, ${coords.longitude.toFixed(4)}°`,
+        },
       });
     } catch (error) {
       setState({

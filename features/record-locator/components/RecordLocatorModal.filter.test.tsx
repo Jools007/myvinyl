@@ -54,7 +54,7 @@ describe('RecordLocatorModal open-now filter', () => {
     fireEvent.click(screen.getByTestId('record-locator-open-now-filter'));
 
     await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(2));
-    expect(screen.getByText(/2\s+shops/)).toBeTruthy();
+    expect(screen.getByText(/2 shop/)).toBeTruthy();
     await waitFor(() => expect(screen.getByTestId('record-locator-map-pane')).toBeTruthy());
   });
 });

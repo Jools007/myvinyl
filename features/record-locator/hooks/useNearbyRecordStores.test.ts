@@ -18,7 +18,13 @@ describe('useNearbyRecordStores', () => {
       const body = JSON.parse(String(init?.body)) as { latitude: number; longitude: number };
       expect(body.latitude).toBe(51.5);
       expect(body.longitude).toBe(-0.12);
-      return new Response(JSON.stringify({ stores: sampleRecordStores }), { status: 200 });
+      return new Response(
+        JSON.stringify({
+          stores: sampleRecordStores,
+          meta: { source: 'osm', locationLabel: 'Vilnius, Lithuania · 54.6872°, 25.2797°' },
+        }),
+        { status: 200 }
+      );
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -39,8 +45,8 @@ describe('useNearbyRecordStores', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
-        new Response(JSON.stringify({ error: 'GOOGLE_PLACES_API_KEY not configured' }), {
-          status: 503,
+        new Response(JSON.stringify({ error: 'No record stores found near your location.' }), {
+          status: 502,
         })
       )
     );
@@ -53,6 +59,6 @@ describe('useNearbyRecordStores', () => {
 
     await waitFor(() => expect(result.current.state.status).toBe('error'));
     if (result.current.state.status !== 'error') throw new Error('expected error');
-    expect(result.current.state.message).toContain('GOOGLE_PLACES_API_KEY');
+    expect(result.current.state.message).toContain('No record stores found');
   });
 });

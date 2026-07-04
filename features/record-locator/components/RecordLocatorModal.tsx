@@ -1,5 +1,5 @@
 import { lazy, Suspense, useMemo, useState } from 'react';
-import { Loader2, MapPin, X } from 'lucide-react';
+import { Loader2, MapPin, Navigation, RefreshCw, X } from 'lucide-react';
 import { useGeolocation } from '../hooks/useGeolocation';
 import { useNearbyRecordStores } from '../hooks/useNearbyRecordStores';
 import { filterOpenNowStores } from '../utils/openNow';
@@ -14,6 +14,21 @@ const RecordStoreMap = lazy(() =>
 type RecordLocatorModalProps = {
   onClose: () => void;
 };
+
+function sourceLabel(source: string | undefined): string {
+  switch (source) {
+    case 'google':
+      return 'Google Places';
+    case 'osm':
+      return 'OpenStreetMap';
+    case 'combined':
+      return 'Google Places + OpenStreetMap';
+    case 'fixture':
+      return 'Demo data';
+    default:
+      return 'Local search';
+  }
+}
 
 export function RecordLocatorModal({ onClose }: RecordLocatorModalProps) {
   const [openNowOnly, setOpenNowOnly] = useState(false);
@@ -51,6 +66,13 @@ export function RecordLocatorModal({ onClose }: RecordLocatorModalProps) {
     });
   };
 
+  const locationBanner =
+    storesState.status === 'success'
+      ? storesState.meta.locationLabel
+      : geoState.status === 'granted'
+        ? `${geoState.position.latitude.toFixed(4)}°, ${geoState.position.longitude.toFixed(4)}°`
+        : null;
+
   return (
     <div
       className="record-locator-overlay"
@@ -66,7 +88,7 @@ export function RecordLocatorModal({ onClose }: RecordLocatorModalProps) {
               Record Store Locator
             </h2>
             <p className="record-locator-subtitle">
-              Discover vinyl shops near you and plan a walking route.
+              Real shops near your exact location — select stops and plan a walking route.
             </p>
           </div>
           <button
@@ -79,6 +101,26 @@ export function RecordLocatorModal({ onClose }: RecordLocatorModalProps) {
           </button>
         </header>
 
+        {locationBanner ? (
+          <div className="record-locator-location-bar" data-testid="record-locator-location-bar">
+            <Navigation className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+            <span className="truncate">{locationBanner}</span>
+            {geoState.status === 'granted' && geoState.accuracyMeters != null ? (
+              <span className="record-locator-location-bar__accuracy">
+                ±{Math.round(geoState.accuracyMeters)} m
+              </span>
+            ) : null}
+            <button
+              type="button"
+              className="record-locator-location-bar__refresh"
+              onClick={requestLocation}
+              aria-label="Refresh location"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : null}
+
         <div className="record-locator-body">
           <aside className="record-locator-sidebar">
             {geoState.status === 'requesting' || storesState.status === 'loading' ? (
@@ -86,8 +128,8 @@ export function RecordLocatorModal({ onClose }: RecordLocatorModalProps) {
                 <Loader2 className="h-6 w-6 animate-spin text-[var(--accent)]" />
                 <p>
                   {geoState.status === 'requesting'
-                    ? 'Requesting your location…'
-                    : 'Searching nearby record stores…'}
+                    ? 'Pinpointing your location…'
+                    : 'Searching record shops near you…'}
                 </p>
               </div>
             ) : null}
@@ -97,7 +139,7 @@ export function RecordLocatorModal({ onClose }: RecordLocatorModalProps) {
                 <MapPin className="h-6 w-6 text-[var(--accent)]" />
                 <p>{geoState.message}</p>
                 <button type="button" className="record-locator-btn" onClick={requestLocation}>
-                  Try again
+                  Use my location
                 </button>
               </div>
             ) : null}
@@ -116,9 +158,14 @@ export function RecordLocatorModal({ onClose }: RecordLocatorModalProps) {
             {storesState.status === 'success' ? (
               <>
                 <div className="record-locator-toolbar">
-                  <span className="text-xs text-[var(--text-secondary)]">
-                    {visibleStores.length} shop{visibleStores.length === 1 ? '' : 's'}
-                  </span>
+                  <div className="min-w-0">
+                    <span className="text-xs text-[var(--text-secondary)]">
+                      {visibleStores.length} shop{visibleStores.length === 1 ? '' : 's'}
+                    </span>
+                    <span className="record-locator-source-pill">
+                      {sourceLabel(storesState.meta.source)}
+                    </span>
+                  </div>
                   <button
                     type="button"
                     className={`record-locator-filter${openNowOnly ? ' record-locator-filter--active' : ''}`}

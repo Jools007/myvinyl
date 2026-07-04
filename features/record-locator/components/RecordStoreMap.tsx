@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import type { GeoPosition, RecordStore } from '../types';
+import { haversineDistanceMeters } from '../utils/geo';
 
 type RecordStoreMapProps = {
   center: GeoPosition;
@@ -10,11 +11,13 @@ type RecordStoreMapProps = {
   onSelectStore: (id: string) => void;
 };
 
-function MapRecenter({ center }: { center: GeoPosition }) {
+const LOCAL_CLUSTER_MAX_METERS = 25_000;
+
+function MapRecenter({ center, zoom }: { center: GeoPosition; zoom: number }) {
   const map = useMap();
   useEffect(() => {
-    map.setView([center.latitude, center.longitude], map.getZoom(), { animate: true });
-  }, [center.latitude, center.longitude, map]);
+    map.setView([center.latitude, center.longitude], zoom, { animate: true });
+  }, [center.latitude, center.longitude, zoom, map]);
   return null;
 }
 
@@ -27,24 +30,41 @@ function storeMarkerIcon(selected: boolean) {
   });
 }
 
+const userMarkerIcon = L.divIcon({
+  className: '',
+  html: '<div class="record-locator-marker record-locator-marker--user"></div>',
+  iconSize: [20, 20],
+  iconAnchor: [10, 10],
+});
+
 export function RecordStoreMap({
   center,
   stores,
   selectedIds,
   onSelectStore,
 }: RecordStoreMapProps) {
+  const localStores = useMemo(
+    () =>
+      stores.filter(
+        (store) => haversineDistanceMeters(center, store) <= LOCAL_CLUSTER_MAX_METERS
+      ),
+    [stores, center]
+  );
+
   const bounds = useMemo(() => {
-    if (stores.length === 0) return null;
-    const points: [number, number][] = stores.map((s) => [s.latitude, s.longitude]);
+    if (localStores.length === 0) return null;
+    const points: [number, number][] = localStores.map((s) => [s.latitude, s.longitude]);
     points.push([center.latitude, center.longitude]);
     return L.latLngBounds(points);
-  }, [stores, center]);
+  }, [localStores, center]);
+
+  const initialZoom = localStores.length === 0 ? 13 : localStores.length === 1 ? 15 : 14;
 
   return (
     <div className="record-locator-map-pane" data-testid="record-locator-map-pane">
       <MapContainer
         center={[center.latitude, center.longitude]}
-        zoom={14}
+        zoom={initialZoom}
         scrollWheelZoom
         className="record-locator-map"
         data-testid="record-locator-map"
@@ -53,14 +73,12 @@ export function RecordStoreMap({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <MapRecenter center={center} />
-        {bounds && stores.length > 1 ? (
-          <FitBounds bounds={bounds} />
-        ) : null}
-        <Marker position={[center.latitude, center.longitude]} icon={storeMarkerIcon(false)}>
+        <MapRecenter center={center} zoom={initialZoom} />
+        {bounds && localStores.length > 0 ? <FitBounds bounds={bounds} /> : null}
+        <Marker position={[center.latitude, center.longitude]} icon={userMarkerIcon}>
           <Popup>You are here</Popup>
         </Marker>
-        {stores.map((store) => (
+        {localStores.map((store) => (
           <Marker
             key={store.id}
             position={[store.latitude, store.longitude]}
@@ -71,6 +89,12 @@ export function RecordStoreMap({
               <strong>{store.name}</strong>
               <br />
               {store.address}
+              {store.phone ? (
+                <>
+                  <br />
+                  <a href={`tel:${store.phone}`}>{store.phone}</a>
+                </>
+              ) : null}
             </Popup>
           </Marker>
         ))}
@@ -82,7 +106,7 @@ export function RecordStoreMap({
 function FitBounds({ bounds }: { bounds: L.LatLngBounds }) {
   const map = useMap();
   useEffect(() => {
-    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+    map.fitBounds(bounds, { padding: [48, 48], maxZoom: 16 });
   }, [bounds, map]);
   return null;
 }

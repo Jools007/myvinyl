@@ -64,21 +64,15 @@ describe('resolveRecordLocator runtime', () => {
     expect(resolveRecordLocatorFetch(env)).toBeTypeOf('function');
   });
 
-  it('requires real API key in live mode', () => {
+  it('uses live fetch without API key when fixture is not enabled', () => {
+    const env = { RECORD_LOCATOR_FIXTURE: '' };
+    expect(isRecordLocatorFixtureMode(env)).toBe(false);
+    expect(resolveRecordLocatorApiKey(env)).toBeUndefined();
+  });
+
+  it('uses real API key when configured', () => {
     const env = { RECORD_LOCATOR_FIXTURE: '', GOOGLE_PLACES_API_KEY: '  real-key  ' };
     expect(isRecordLocatorFixtureMode(env)).toBe(false);
     expect(resolveRecordLocatorApiKey(env)).toBe('real-key');
-  });
-
-  it('auto-enables fixture in dev when API key is missing', () => {
-    const env = { RECORD_LOCATOR_FIXTURE: '' };
-    expect(isRecordLocatorFixtureMode(env, { isDev: true })).toBe(true);
-    expect(resolveRecordLocatorApiKey(env, { isDev: true })).toBe('fixture-intercept');
-  });
-
-  it('respects RECORD_LOCATOR_FIXTURE=0 to disable dev auto-fixture', () => {
-    const env = { RECORD_LOCATOR_FIXTURE: '0' };
-    expect(isRecordLocatorFixtureMode(env, { isDev: true })).toBe(false);
-    expect(resolveRecordLocatorApiKey(env, { isDev: true })).toBeUndefined();
   });
 });

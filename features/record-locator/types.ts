@@ -3,12 +3,7 @@ export type GeoPosition = {
   longitude: number;
 };
 
-export type OpeningHoursPeriod = {
-  openDay: number;
-  openTime: string;
-  closeDay: number;
-  closeTime: string;
-};
+export type RecordStoreSource = 'google' | 'osm';
 
 export type RecordStore = {
   id: string;
@@ -20,13 +15,24 @@ export type RecordStore = {
   businessStatus?: string;
   openNow?: boolean;
   openingHoursSummary?: string;
+  phone?: string;
+  website?: string;
+  mapsUrl?: string;
   distanceMeters: number;
+  source?: RecordStoreSource;
 };
 
 export type PlacesSearchRequest = {
   latitude: number;
   longitude: number;
   radiusMeters?: number;
+};
+
+export type RecordStoreSearchMeta = {
+  source: 'google' | 'osm' | 'combined' | 'fixture';
+  locationLabel: string;
+  googleCount?: number;
+  osmCount?: number;
 };
 
 export type WalkingRouteLeg = {
@@ -47,12 +53,12 @@ export type WalkingRoute = {
 export type GeolocationState =
   | { status: 'idle' }
   | { status: 'requesting' }
-  | { status: 'granted'; position: GeoPosition }
+  | { status: 'granted'; position: GeoPosition; accuracyMeters?: number }
   | { status: 'denied'; message: string }
   | { status: 'error'; message: string };
 
 export type NearbyStoresState =
   | { status: 'idle' }
   | { status: 'loading' }
-  | { status: 'success'; stores: RecordStore[] }
+  | { status: 'success'; stores: RecordStore[]; meta: RecordStoreSearchMeta }
   | { status: 'error'; message: string };

@@ -23,13 +23,15 @@ export function useGeolocation(enabled: boolean) {
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
           },
+          accuracyMeters: position.coords.accuracy,
         });
       },
       (error) => {
         if (error.code === error.PERMISSION_DENIED) {
           setState({
             status: 'denied',
-            message: 'Location access was denied. Enable location in your browser settings to find nearby record stores.',
+            message:
+              'Location access was denied. Enable location in your browser settings to find nearby record stores.',
           });
           return;
         }
@@ -38,7 +40,7 @@ export function useGeolocation(enabled: boolean) {
           message: error.message || 'Could not determine your location.',
         });
       },
-      { enableHighAccuracy: true, timeout: 15_000, maximumAge: 60_000 }
+      { enableHighAccuracy: true, timeout: 20_000, maximumAge: 0 }
     );
   }, []);
 
