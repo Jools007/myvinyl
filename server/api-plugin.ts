@@ -46,6 +46,11 @@ import {
   parsePlacesSearchBody,
 } from '../features/record-locator/server/placesHandler';
 import {
+  RecordLocatorPhotoError,
+  parsePhotoNameParam,
+  resolvePlacePhoto,
+} from '../features/record-locator/server/photoHandler';
+import {
   handleWalkingRoute,
   parseWalkingRouteBody,
 } from '../features/record-locator/server/routesHandler';
@@ -388,6 +393,35 @@ export function apiPlugin(env: Env): Plugin {
                 return json(res, 400, { error: e.message });
               }
               const message = e instanceof Error ? e.message : 'Places search failed';
+              const status = message.includes('not configured') ? 503 : 502;
+              return json(res, status, { error: message });
+            }
+          }
+
+          if (path === '/api/record-locator/photo' && req.method === 'GET') {
+            const locatorEnv = { ...env, ...process.env };
+            const apiKey = resolveRecordLocatorApiKey(locatorEnv);
+            const fetchFn = resolveRecordLocatorFetch(locatorEnv);
+            try {
+              const photoName = parsePhotoNameParam(url.searchParams.get('n'));
+              const result = await resolvePlacePhoto(apiKey, photoName, fetchFn);
+              if (result.kind === 'redirect') {
+                res.statusCode = 302;
+                res.setHeader('Location', result.location);
+                res.setHeader('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
+                res.end();
+                return;
+              }
+              res.statusCode = 200;
+              res.setHeader('Content-Type', result.contentType);
+              res.setHeader('Cache-Control', 'public, max-age=86400');
+              res.end(result.body);
+              return;
+            } catch (e) {
+              if (e instanceof RecordLocatorPhotoError) {
+                return json(res, 400, { error: e.message });
+              }
+              const message = e instanceof Error ? e.message : 'Photo lookup failed';
               const status = message.includes('not configured') ? 503 : 502;
               return json(res, status, { error: message });
             }

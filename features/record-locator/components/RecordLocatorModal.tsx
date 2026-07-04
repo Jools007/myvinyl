@@ -3,8 +3,10 @@ import { Loader2, MapPin, Navigation, RefreshCw, X } from 'lucide-react';
 import { useGeolocation } from '../hooks/useGeolocation';
 import { useNearbyRecordStores } from '../hooks/useNearbyRecordStores';
 import { filterOpenNowStores } from '../utils/openNow';
+import { findNearestOpenStore } from '../utils/nearestOpenStore';
+import { buildStoreRankMap } from '../utils/storeRanks';
+import { RecordLocatorQuickAction } from './RecordLocatorQuickAction';
 import { RecordStoreList } from './RecordStoreList';
-import { RecordRoutePanel } from './RecordRoutePanel';
 import '../styles/record-locator.css';
 
 const RecordStoreMap = lazy(() =>
@@ -15,12 +17,12 @@ type RecordLocatorModalProps = {
   onClose: () => void;
 };
 
-function sourceLabel(source: string | undefined): string {
+function sourceLabel(source: string | undefined, googleEnriched?: boolean): string {
   switch (source) {
     case 'google':
       return 'Google Places';
     case 'osm':
-      return 'OpenStreetMap';
+      return googleEnriched ? 'OpenStreetMap + Google details' : 'OpenStreetMap';
     case 'combined':
       return 'Google Places + OpenStreetMap';
     case 'fixture':
@@ -32,7 +34,7 @@ function sourceLabel(source: string | undefined): string {
 
 export function RecordLocatorModal({ onClose }: RecordLocatorModalProps) {
   const [openNowOnly, setOpenNowOnly] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
   const { state: geoState, requestLocation } = useGeolocation(true);
   const position = geoState.status === 'granted' ? geoState.position : null;
   const { state: storesState, retry } = useNearbyRecordStores(position);
@@ -44,27 +46,15 @@ export function RecordLocatorModal({ onClose }: RecordLocatorModalProps) {
       : storesState.stores;
   }, [storesState, openNowOnly]);
 
-  const visibleStoreIds = useMemo(
-    () => new Set(visibleStores.map((store) => store.id)),
-    [visibleStores]
+  const nearestOpenStore = useMemo(
+    () => findNearestOpenStore(storesState.status === 'success' ? storesState.stores : []),
+    [storesState]
   );
 
-  const effectiveSelectedIds = useMemo(() => {
-    const next = new Set<string>();
-    for (const id of selectedIds) {
-      if (visibleStoreIds.has(id)) next.add(id);
-    }
-    return next;
-  }, [selectedIds, visibleStoreIds]);
-
-  const toggleSelect = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
+  const nearestOpenRank = useMemo(() => {
+    if (storesState.status !== 'success' || !nearestOpenStore) return 0;
+    return buildStoreRankMap(storesState.stores).get(nearestOpenStore.id) ?? 0;
+  }, [storesState, nearestOpenStore]);
 
   const locationBanner =
     storesState.status === 'success'
@@ -72,6 +62,10 @@ export function RecordLocatorModal({ onClose }: RecordLocatorModalProps) {
       : geoState.status === 'granted'
         ? `${geoState.position.latitude.toFixed(4)}°, ${geoState.position.longitude.toFixed(4)}°`
         : null;
+
+  const handleSelectStore = (id: string) => {
+    setSelectedStoreId((current) => (current === id ? null : id));
+  };
 
   return (
     <div
@@ -88,7 +82,7 @@ export function RecordLocatorModal({ onClose }: RecordLocatorModalProps) {
               Record Store Locator
             </h2>
             <p className="record-locator-subtitle">
-              Real shops near your exact location — select stops and plan a walking route.
+              Numbered pins match the list. <strong>Go</strong> jumps to the nearest open shop.
             </p>
           </div>
           <button
@@ -160,65 +154,85 @@ export function RecordLocatorModal({ onClose }: RecordLocatorModalProps) {
                 <div className="record-locator-toolbar">
                   <div className="min-w-0">
                     <span className="text-xs text-[var(--text-secondary)]">
-                      {visibleStores.length} shop{visibleStores.length === 1 ? '' : 's'}
+                      {visibleStores.length} shop{visibleStores.length === 1 ? '' : 's'} · sorted by distance
                     </span>
                     <span className="record-locator-source-pill">
-                      {sourceLabel(storesState.meta.source)}
+                      {sourceLabel(storesState.meta.source, storesState.meta.googleEnriched)}
                     </span>
                   </div>
                   <button
                     type="button"
                     className={`record-locator-filter${openNowOnly ? ' record-locator-filter--active' : ''}`}
-                    onClick={() => setOpenNowOnly((value) => !value)}
+                    onClick={() => {
+                      setOpenNowOnly((value) => !value);
+                      setSelectedStoreId(null);
+                    }}
                     aria-pressed={openNowOnly}
                     data-testid="record-locator-open-now-filter"
                   >
                     Open now
                   </button>
                 </div>
-                <RecordStoreList
-                  stores={visibleStores}
-                  selectedIds={effectiveSelectedIds}
-                  onToggleSelect={toggleSelect}
-                />
-                {position ? (
-                  <RecordRoutePanel
-                    origin={position}
-                    stores={visibleStores}
-                    selectedIds={effectiveSelectedIds}
-                    onClearSelection={() => setSelectedIds(new Set())}
+
+                {nearestOpenStore && nearestOpenRank > 0 && !openNowOnly ? (
+                  <RecordLocatorQuickAction
+                    store={nearestOpenStore}
+                    rank={nearestOpenRank}
+                    userPosition={position}
+                    variant="inline"
+                    onSelect={() => handleSelectStore(nearestOpenStore.id)}
                   />
                 ) : null}
+
+                <RecordStoreList
+                  stores={visibleStores}
+                  selectedStoreId={selectedStoreId}
+                  userPosition={position}
+                  onSelectStore={handleSelectStore}
+                  openNowOnly={openNowOnly}
+                />
               </>
             ) : null}
           </aside>
 
-          {position && storesState.status === 'success' ? (
-            <Suspense
-              fallback={
-                <div className="record-locator-state">
-                  <Loader2 className="h-6 w-6 animate-spin text-[var(--accent)]" />
-                  <p>Loading map…</p>
-                </div>
-              }
-            >
-              <RecordStoreMap
-                center={position}
-                stores={visibleStores}
-                selectedIds={effectiveSelectedIds}
-                onSelectStore={toggleSelect}
-              />
-            </Suspense>
-          ) : (
-            <div
-              className="record-locator-map-pane record-locator-state"
-              data-testid="record-locator-map-placeholder"
-            >
-              <MapPin className="h-8 w-8 text-[var(--text-muted)]" />
-              <p>Map appears once your location and nearby shops load.</p>
-            </div>
-          )}
+          <div className="record-locator-map-column">
+            {position && storesState.status === 'success' ? (
+              <Suspense
+                fallback={
+                  <div className="record-locator-map-pane record-locator-state">
+                    <Loader2 className="h-6 w-6 animate-spin text-[var(--accent)]" />
+                    <p>Loading map…</p>
+                  </div>
+                }
+              >
+                <RecordStoreMap
+                  center={position}
+                  stores={visibleStores}
+                  selectedStoreId={selectedStoreId}
+                  onSelectStore={handleSelectStore}
+                />
+              </Suspense>
+            ) : (
+              <div
+                className="record-locator-map-pane record-locator-state"
+                data-testid="record-locator-map-placeholder"
+              >
+                <MapPin className="h-8 w-8 text-[var(--text-muted)]" />
+                <p>Map appears once your location and nearby shops load.</p>
+              </div>
+            )}
+          </div>
         </div>
+
+        {nearestOpenStore && nearestOpenRank > 0 && storesState.status === 'success' && !openNowOnly ? (
+          <RecordLocatorQuickAction
+            store={nearestOpenStore}
+            rank={nearestOpenRank}
+            userPosition={position}
+            variant="sticky"
+            onSelect={() => handleSelectStore(nearestOpenStore.id)}
+          />
+        ) : null}
       </div>
     </div>
   );

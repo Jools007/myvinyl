@@ -33,6 +33,10 @@ const routes = [
     entry: 'scripts/api-entries/record-locator/routes.entry.ts',
     outfile: 'api/record-locator/routes.js',
   },
+  {
+    entry: 'scripts/api-entries/record-locator/photo.entry.ts',
+    outfile: 'api/record-locator/photo.js',
+  },
 ];
 
 for (const { entry, outfile } of routes) {

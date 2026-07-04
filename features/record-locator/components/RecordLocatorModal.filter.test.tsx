@@ -49,12 +49,24 @@ describe('RecordLocatorModal open-now filter', () => {
     render(<RecordLocatorModal onClose={() => undefined} />);
 
     await waitFor(() => expect(screen.getByTestId('record-locator-shop-list')).toBeTruthy());
-    expect(screen.getAllByRole('checkbox')).toHaveLength(3);
+    expect(screen.getAllByTestId(/^record-locator-card-/).length).toBe(3);
 
     fireEvent.click(screen.getByTestId('record-locator-open-now-filter'));
 
-    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByTestId(/^record-locator-card-/).length).toBe(2));
     expect(screen.getByText(/2 shop/)).toBeTruthy();
     await waitFor(() => expect(screen.getByTestId('record-locator-map-pane')).toBeTruthy());
+  });
+
+  it('shows store detail when a shop card is selected', async () => {
+    render(<RecordLocatorModal onClose={() => undefined} />);
+
+    await waitFor(() => expect(screen.getByTestId('record-locator-shop-list')).toBeTruthy());
+    const firstCard = screen.getAllByTestId(/^record-locator-card-/)[0];
+    const mainButton = firstCard.querySelector('.record-locator-card__main');
+    expect(mainButton).toBeTruthy();
+    fireEvent.click(mainButton!);
+
+    await waitFor(() => expect(screen.getByTestId('record-locator-store-detail')).toBeTruthy());
   });
 });

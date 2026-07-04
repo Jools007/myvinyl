@@ -47,10 +47,10 @@ export function normalizePhotonFeature(
   const name = props.name?.trim();
   if (!name || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
 
-  const tags = {
-    shop: props.osm_key === 'shop' ? props.osm_value : undefined,
-    name: props.name,
-  };
+  const tags: Record<string, string> = { name };
+  if (props.osm_key === 'shop' && props.osm_value) {
+    tags.shop = props.osm_value;
+  }
   if (!isLikelyRecordShop(tags) && props.osm_value !== 'music' && props.osm_value !== 'vinyl') {
     if (!isLikelyRecordShop({ name })) return null;
   }

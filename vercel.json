@@ -43,6 +43,9 @@
     },
     "api/record-locator/routes.js": {
       "maxDuration": 15
+    },
+    "api/record-locator/photo.js": {
+      "maxDuration": 10
     }
   },
   "rewrites": [

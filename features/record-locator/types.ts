@@ -12,12 +12,14 @@ export type RecordStore = {
   latitude: number;
   longitude: number;
   rating?: number;
+  ratingCount?: number;
   businessStatus?: string;
   openNow?: boolean;
   openingHoursSummary?: string;
   phone?: string;
   website?: string;
   mapsUrl?: string;
+  photoUrl?: string;
   distanceMeters: number;
   source?: RecordStoreSource;
 };
@@ -33,6 +35,7 @@ export type RecordStoreSearchMeta = {
   locationLabel: string;
   googleCount?: number;
   osmCount?: number;
+  googleEnriched?: boolean;
 };
 
 export type WalkingRouteLeg = {

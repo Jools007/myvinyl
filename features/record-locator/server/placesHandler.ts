@@ -2,6 +2,7 @@ import { mergeRecordStoreResults, normalizePlacesResponse } from '../utils/norma
 import type { PlacesSearchRequest, RecordStore, RecordStoreSearchMeta } from '../types';
 import type { GoogleFetchFn } from './googleFetch';
 import { FIXTURE_API_KEY } from './googleFetch';
+import { enrichStoresWithOsmTags } from './osmEnrichmentHandler';
 import { searchOsmRecordStores } from './osmSearchHandler';
 import { searchPhotonRecordStores } from './photonSearchHandler';
 import { reverseGeocodeLabel } from './reverseGeocode';
@@ -26,6 +27,8 @@ const FIELD_MASK = [
   'places.internationalPhoneNumber',
   'places.websiteUri',
   'places.googleMapsUri',
+  'places.photos',
+  'places.userRatingCount',
 ].join(',');
 
 type PlacesApiPlace = {
@@ -41,6 +44,8 @@ type PlacesApiPlace = {
   internationalPhoneNumber?: string;
   websiteUri?: string;
   googleMapsUri?: string;
+  photos?: Array<{ name?: string }>;
+  userRatingCount?: number;
 };
 
 export class RecordLocatorValidationError extends Error {
@@ -232,10 +237,12 @@ export async function handleNearbyRecordStores(
     );
   }
 
-  const stores =
+  const mergedStores =
     googleStores.length > 0 && osmStores.length > 0
       ? mergeRecordStoreResults(googleStores, osmStores)
       : [...googleStores, ...osmStores].sort((a, b) => a.distanceMeters - b.distanceMeters);
+
+  const stores = await enrichStoresWithOsmTags(mergedStores, fetchFn);
 
   const source: RecordStoreSearchMeta['source'] =
     googleStores.length > 0 && osmStores.length > 0
@@ -251,6 +258,7 @@ export async function handleNearbyRecordStores(
       locationLabel,
       googleCount: googleStores.length,
       osmCount: osmStores.length,
+      googleEnriched: googleStores.length > 0,
     },
   };
 }

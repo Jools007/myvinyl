@@ -52,6 +52,9 @@ npx vercel --prod   # Deploy current directory to production (requires Vercel CL
 | `/api/lastfm/similar` | `api/lastfm/similar.js` (bundled) |
 | `/api/album-info` | `api/album-info.js` (bundled) |
 | `/api/image` | `api/image.js` (bundled) |
+| `/api/record-locator/places` | `api/record-locator/places.js` (bundled) |
+| `/api/record-locator/photo` | `api/record-locator/photo.js` (bundled) |
+| `/api/record-locator/routes` | `api/record-locator/routes.js` (bundled) |
 
 Discogs client fallbacks (`src/lib/discogsDirect.ts`) activate on API **404/503** when `VITE_DISCOGS_TOKEN` is set at build time.
 
@@ -71,6 +74,7 @@ Copy `.env.example` → `.env.local` for local dev. **Never commit** secrets.
 - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` — previews + play + enrich
 - `LASTFM_API_KEY` — vibe discovery, album info, enrich
 - `YOUTUBE_API_KEY` — optional; improves play/audio YouTube fallback
+- `GOOGLE_PLACES_API_KEY` — optional; Record Store Locator Google photos, ratings, live hours (merged with OSM). Enable **Places API (New)** in Google Cloud. Sync: `node scripts/sync-vercel-env.mjs`
 
 `DISCOGS_TOKEN` and `VITE_DISCOGS_TOKEN` are usually the same Discogs personal token.
 
@@ -98,7 +102,7 @@ curl -s "https://myvinyl-nine.vercel.app/api/discogs/search?q=moodymann&per_page
 ## Safe deploy workflow
 
 1. `npm run build` — must pass locally (bundles `scripts/api-entries/*` → `api/**/*.js`)
-2. Confirm Vercel **Production** server env vars are non-empty (`DISCOGS_TOKEN`, `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `LASTFM_API_KEY`). After `vercel env add`, redeploy.
+2. Confirm Vercel **Production** server env vars are non-empty (`DISCOGS_TOKEN`, `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `LASTFM_API_KEY`, optional `GOOGLE_PLACES_API_KEY` for Record Store Locator photos/ratings). After `vercel env add`, redeploy.
 3. `npx vercel deploy` — preview URL; run smoke tests
 4. `npx vercel --prod` — only after preview passes
 5. Ensure **Preview** env vars match Production if using preview deploys (`npx vercel env ls`)

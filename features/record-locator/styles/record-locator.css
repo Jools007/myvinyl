@@ -68,12 +68,14 @@
   min-height: 0;
   display: grid;
   grid-template-columns: 1fr;
+  grid-template-rows: minmax(14rem, 42vh) 1fr;
   gap: 0;
 }
 
 @media (min-width: 900px) {
   .record-locator-body {
-    grid-template-columns: minmax(18rem, 24rem) 1fr;
+    grid-template-columns: minmax(18rem, 26rem) 1fr;
+    grid-template-rows: 1fr;
   }
 }
 
@@ -127,35 +129,95 @@
   padding: 0.5rem;
 }
 
+.record-locator-map-column {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .record-locator-card {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 0.75rem;
-  align-items: start;
-  padding: 0.85rem 0.9rem;
   margin-bottom: 0.5rem;
   border-radius: 1rem;
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   box-shadow: var(--shadow);
-  cursor: pointer;
-  transition: border-color 0.2s, transform 0.2s var(--ease-spring);
+  overflow: hidden;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .record-locator-card:hover {
-  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
-  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
 }
 
 .record-locator-card--selected {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
+  border-color: color-mix(in srgb, var(--violet) 50%, var(--border));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--violet) 22%, transparent),
+    var(--shadow);
+}
+
+.record-locator-card__main {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  width: 100%;
+  padding: 0.8rem 0.85rem 0.55rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.record-locator-card__rank {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border-strong));
+}
+
+.record-locator-card__rank--open {
+  background: var(--teal-soft);
+  border-color: color-mix(in srgb, var(--teal) 40%, var(--border-strong));
+  color: var(--teal);
+}
+
+.record-locator-card__rank--closed {
+  background: var(--bg-subtle);
+  border-color: var(--border-strong);
+  color: var(--text-muted);
+}
+
+.record-locator-card__rank--unknown {
+  background: var(--violet-soft);
+  border-color: color-mix(in srgb, var(--violet) 35%, var(--border-strong));
+  color: var(--violet);
+}
+
+.record-locator-card__topline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
 .record-locator-card__name {
   margin: 0;
-  font-size: 0.9375rem;
+  font-size: 0.9rem;
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .record-locator-card__meta {
@@ -163,6 +225,90 @@
   font-size: 0.75rem;
   color: var(--text-secondary);
   line-height: 1.4;
+}
+
+.record-locator-card__address {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.record-locator-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.record-locator-card__hours {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.record-locator-card__rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.record-locator-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 0.85rem 0.7rem;
+}
+
+.record-locator-card__expand {
+  padding: 0 0.85rem 0.85rem;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-subtle) 45%, var(--bg-elevated));
+}
+
+.record-locator-card__detail-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.55rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.record-locator-card__cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  width: 100%;
+  margin-top: 0.7rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border-strong));
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.record-locator-card__cta:hover {
+  background: color-mix(in srgb, var(--accent-soft) 70%, var(--bg-elevated));
+}
+
+.record-locator-card__maps-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+  font-size: 0.75rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.record-locator-card__maps-link:hover {
+  text-decoration: underline;
 }
 
 .record-locator-badge {
@@ -185,28 +331,125 @@
   background: var(--bg-subtle);
 }
 
-.record-locator-map-pane {
-  position: relative;
-  min-height: 16rem;
-  background: var(--bg-subtle);
+.record-locator-badge--unknown {
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg-subtle) 70%, var(--bg-elevated));
 }
 
-@media (min-width: 900px) {
-  .record-locator-map-pane {
-    min-height: 0;
-  }
+.record-locator-card__distance {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.record-locator-card__directions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border-strong));
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.record-locator-card__directions:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border-strong));
+  background: color-mix(in srgb, var(--accent-soft) 80%, var(--bg-elevated));
+}
+
+.record-locator-map-chip {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  right: 0.75rem;
+  z-index: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 0.9rem;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--glass) 96%, transparent);
+  box-shadow: var(--shadow-overlay);
+  backdrop-filter: blur(12px);
+}
+
+.record-locator-map-chip--idle {
+  justify-content: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.record-locator-map-chip__rank {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--violet);
+  background: var(--violet-soft);
+  border: 1px solid color-mix(in srgb, var(--violet) 35%, var(--border-strong));
+}
+
+.record-locator-map-chip__copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.record-locator-map-chip__copy strong {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.record-locator-map-chip__copy span {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.record-locator-map-chip__go {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border-strong));
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.record-locator-map-pane {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg-subtle);
 }
 
 .record-locator-map {
   width: 100%;
   height: 100%;
-  min-height: 16rem;
-}
-
-@media (min-width: 900px) {
-  .record-locator-map {
-    min-height: 100%;
-  }
+  min-height: 100%;
 }
 
 .record-locator-route-panel {
@@ -328,25 +571,240 @@
   }
 }
 
-.record-locator-marker {
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 999px;
+.record-locator-pin {
+  position: relative;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px 999px 999px 0;
+  transform: rotate(-45deg);
   border: 2px solid var(--bg-elevated);
-  background: var(--accent);
-  box-shadow: 0 2px 8px var(--accent-glow);
-}
-
-.record-locator-marker--selected {
   background: var(--violet);
-  box-shadow: 0 2px 10px color-mix(in srgb, var(--violet) 40%, transparent);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--violet) 35%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.record-locator-marker--user {
-  width: 1.25rem;
-  height: 1.25rem;
+.record-locator-pin__num,
+.record-locator-pin__you {
+  transform: rotate(45deg);
+  font-size: 0.6875rem;
+  font-weight: 800;
+  color: var(--bg-elevated);
+  line-height: 1;
+}
+
+.record-locator-pin--open {
+  background: var(--teal);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--teal) 35%, transparent);
+}
+
+.record-locator-pin--closed {
+  background: color-mix(in srgb, var(--text-muted) 85%, var(--bg-subtle));
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--text-muted) 25%, transparent);
+}
+
+.record-locator-pin--unknown {
+  background: var(--accent);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.record-locator-pin--selected {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-color: var(--bg-elevated);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--violet) 45%, transparent),
+    0 8px 20px color-mix(in srgb, var(--violet) 35%, transparent);
+  z-index: 2;
+}
+
+.record-locator-pin--user {
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 999px;
+  transform: none;
   background: var(--gold);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold) 35%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--gold) 28%, transparent);
+}
+
+.record-locator-pin--user .record-locator-pin__you {
+  transform: none;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #1c1916;
+}
+
+.record-locator-map-legend {
+  position: absolute;
+  left: 0.75rem;
+  bottom: 0.65rem;
+  z-index: 500;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--glass) 92%, transparent);
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  backdrop-filter: blur(10px);
+}
+
+.record-locator-legend-dot {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-right: 0.3rem;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+.record-locator-legend-dot--open {
+  background: var(--teal);
+}
+
+.record-locator-legend-dot--closed {
+  background: var(--text-muted);
+}
+
+.record-locator-legend-dot--unknown {
+  background: var(--violet);
+}
+
+.record-locator-popup strong {
+  display: block;
+  margin-bottom: 0.2rem;
+}
+
+.record-locator-popup p {
+  margin: 0.15rem 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.record-locator-detail--sidebar {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--bg-elevated);
+}
+
+.record-locator-detail__header {
+  flex-shrink: 0;
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.record-locator-detail__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.55rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.record-locator-detail__back:hover {
+  color: var(--text);
+  background: var(--bg-subtle);
+}
+
+.record-locator-detail__scroll {
+  flex: 1;
+  overflow: auto;
+  padding: 0.85rem 1rem 1.25rem;
+}
+
+.record-locator-detail__intro {
+  margin-bottom: 0.85rem;
+}
+
+.record-locator-detail__cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border-strong));
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: var(--shadow);
+  transition: transform 0.2s var(--ease-spring), background 0.2s;
+}
+
+.record-locator-detail__cta:hover {
+  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--accent-soft) 75%, var(--bg-elevated));
+}
+
+.record-locator-detail__secondary-link {
+  display: inline-block;
+  margin-top: 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.record-locator-detail__secondary-link:hover {
+  text-decoration: underline;
+}
+
+.record-locator-detail__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.record-locator-detail__distance {
+  margin: 0.2rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.record-locator-detail__body {
+  padding: 0;
+}
+
+.record-locator-detail__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin: 0.45rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.record-locator-detail__badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+
+.record-locator-detail__rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
 }
 
 .record-locator-location-bar {
@@ -394,4 +852,197 @@
 
 .record-locator-link:hover {
   text-decoration: underline;
+}
+
+.record-locator-quick-action {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--teal-soft) 65%, var(--bg-elevated));
+}
+
+.record-locator-quick-action--inline {
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+}
+
+.record-locator-quick-action--sticky {
+  display: none;
+}
+
+.record-locator-quick-action__select {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.record-locator-quick-action__rank {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--teal);
+  background: var(--bg-elevated);
+  border: 1px solid color-mix(in srgb, var(--teal) 35%, var(--border-strong));
+}
+
+.record-locator-quick-action__copy {
+  min-width: 0;
+}
+
+.record-locator-quick-action__copy strong {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--teal);
+}
+
+.record-locator-quick-action__copy span {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 0.8125rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.record-locator-quick-action__go {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--teal) 45%, var(--border-strong));
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.record-locator-photo {
+  width: 100%;
+  height: 8.5rem;
+  object-fit: cover;
+  border-radius: 0.75rem;
+  margin-bottom: 0.65rem;
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+
+.record-locator-photo--fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--bg-subtle) 80%, var(--accent-soft)),
+    var(--bg-elevated)
+  );
+}
+
+.record-locator-photo--thumb {
+  width: 2.75rem;
+  height: 2.75rem;
+  flex-shrink: 0;
+  margin-bottom: 0;
+  border-radius: 0.65rem;
+}
+
+.record-locator-photo--thumb.record-locator-photo--fallback svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.record-locator-photo--chip {
+  width: 2.25rem;
+  height: 2.25rem;
+  flex-shrink: 0;
+  margin-bottom: 0;
+  border-radius: 0.55rem;
+}
+
+.record-locator-photo--chip.record-locator-photo--fallback svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+@media (max-width: 899px) {
+  .record-locator-header {
+    padding: 0.75rem 1rem;
+  }
+
+  .record-locator-subtitle {
+    display: none;
+  }
+
+  .record-locator-shell {
+    padding-bottom: calc(3.75rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .record-locator-body {
+    grid-template-rows: minmax(42vh, 1fr) minmax(10rem, 36vh);
+  }
+
+  .record-locator-map-column {
+    order: 1;
+  }
+
+  .record-locator-sidebar {
+    order: 2;
+  }
+
+  .record-locator-quick-action--inline {
+    display: none;
+  }
+
+  .record-locator-quick-action--sticky {
+    display: flex;
+    position: fixed;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+    z-index: 90;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 1rem;
+    box-shadow: var(--shadow-overlay);
+    backdrop-filter: blur(12px);
+  }
+
+  .record-locator-map-chip {
+    top: 0.55rem;
+    left: 0.55rem;
+    right: 0.55rem;
+  }
+
+  .record-locator-map-legend {
+    left: 0.55rem;
+    bottom: 0.55rem;
+    max-width: calc(100% - 1.1rem);
+  }
+
+  .record-locator-card__main {
+    padding: 0.7rem 0.75rem 0.45rem;
+  }
+
+  .record-locator-card__actions {
+    padding: 0 0.75rem 0.6rem;
+  }
 }

@@ -1,5 +1,6 @@
 import type { GeoPosition, RecordStore } from '../types';
 import { haversineDistanceMeters } from './geo';
+import { applyOpeningHoursToStore } from './openingHours';
 
 export type OsmElement = {
   type: 'node' | 'way' | 'relation';
@@ -51,7 +52,7 @@ export function normalizeOsmElement(element: OsmElement, origin: GeoPosition): R
 
   const id = `osm/${element.type}/${element.id}`;
 
-  return {
+  return applyOpeningHoursToStore({
     id,
     name,
     address: formatOsmAddress(tags),
@@ -62,8 +63,8 @@ export function normalizeOsmElement(element: OsmElement, origin: GeoPosition): R
     mapsUrl: `https://www.openstreetmap.org/${element.type}/${element.id}`,
     openingHoursSummary: tags.opening_hours,
     distanceMeters: haversineDistanceMeters(origin, coords),
-    source: 'osm',
-  };
+    source: 'osm' as const,
+  });
 }
 
 export function normalizeOsmResponse(
