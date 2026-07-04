@@ -38,17 +38,14 @@
     "api/lastfm/similar.js": {
       "maxDuration": 10
     },
-    "api/record-locator/places.js": {
+    "api/record-locator.js": {
       "maxDuration": 15
-    },
-    "api/record-locator/routes.js": {
-      "maxDuration": 15
-    },
-    "api/record-locator/photo.js": {
-      "maxDuration": 10
     }
   },
   "rewrites": [
+    { "source": "/api/record-locator/places", "destination": "/api/record-locator" },
+    { "source": "/api/record-locator/routes", "destination": "/api/record-locator" },
+    { "source": "/api/record-locator/photo", "destination": "/api/record-locator" },
     { "source": "/api/discogs/search", "destination": "/api/health" },
     { "source": "/api/discogs/release/:id", "destination": "/api/health?releaseId=:id" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }

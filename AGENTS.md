@@ -52,9 +52,9 @@ npx vercel --prod   # Deploy current directory to production (requires Vercel CL
 | `/api/lastfm/similar` | `api/lastfm/similar.js` (bundled) |
 | `/api/album-info` | `api/album-info.js` (bundled) |
 | `/api/image` | `api/image.js` (bundled) |
-| `/api/record-locator/places` | `api/record-locator/places.js` (bundled) |
-| `/api/record-locator/photo` | `api/record-locator/photo.js` (bundled) |
-| `/api/record-locator/routes` | `api/record-locator/routes.js` (bundled) |
+| `/api/record-locator/places` | rewrite → `api/record-locator.js` (bundled) |
+| `/api/record-locator/photo` | rewrite → `api/record-locator.js` (bundled) |
+| `/api/record-locator/routes` | rewrite → `api/record-locator.js` (bundled) |
 
 Discogs client fallbacks (`src/lib/discogsDirect.ts`) activate on API **404/503** when `VITE_DISCOGS_TOKEN` is set at build time.
 

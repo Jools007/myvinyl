@@ -26,16 +26,8 @@ const routes = [
   },
   { entry: 'scripts/api-entries/enrich.entry.ts', outfile: 'api/enrich.js' },
   {
-    entry: 'scripts/api-entries/record-locator/places.entry.ts',
-    outfile: 'api/record-locator/places.js',
-  },
-  {
-    entry: 'scripts/api-entries/record-locator/routes.entry.ts',
-    outfile: 'api/record-locator/routes.js',
-  },
-  {
-    entry: 'scripts/api-entries/record-locator/photo.entry.ts',
-    outfile: 'api/record-locator/photo.js',
+    entry: 'scripts/api-entries/record-locator/index.entry.ts',
+    outfile: 'api/record-locator.js',
   },
 ];
 

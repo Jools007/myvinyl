@@ -64,12 +64,8 @@ features/record-locator/utils/storeRanks.ts
 features/record-locator/utils/storeRanks.test.ts
 
 ## api/ (Vercel serverless bundles)
-api/record-locator/places.js
-api/record-locator/photo.js
-api/record-locator/routes.js
-scripts/api-entries/record-locator/places.entry.ts
-scripts/api-entries/record-locator/photo.entry.ts
-scripts/api-entries/record-locator/routes.entry.ts
+api/record-locator.js
+scripts/api-entries/record-locator/index.entry.ts
 
 ## Shell + deployment exceptions
 src/main.tsx

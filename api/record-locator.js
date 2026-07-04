@@ -1,4 +1,4 @@
-// Bundled for Vercel — edit scripts/api-entries/record-locator/places.entry.ts and npm run build
+// Bundled for Vercel — edit scripts/api-entries/record-locator/index.entry.ts and npm run build
 
 // api/_lib/log.ts
 function serializeError(error) {
@@ -206,6 +206,54 @@ function resolveRecordLocatorApiKey(env = process.env) {
 }
 function resolveRecordLocatorFetch(env = process.env) {
   return createGoogleFetch(isRecordLocatorFixtureMode(env) ? "fixture" : "live");
+}
+
+// features/record-locator/server/photoHandler.ts
+var PLACEHOLDER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+  <rect width="400" height="300" fill="#1a1a1e"/>
+  <circle cx="200" cy="130" r="48" fill="#2a2a32" stroke="#5eb8ad" stroke-width="3"/>
+  <circle cx="200" cy="130" r="16" fill="#5eb8ad"/>
+  <text x="200" y="220" text-anchor="middle" fill="#a8a6a0" font-family="system-ui,sans-serif" font-size="16">Record shop</text>
+</svg>`;
+var RecordLocatorPhotoError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "RecordLocatorPhotoError";
+  }
+};
+function parsePhotoNameParam(value) {
+  const name = value?.trim();
+  if (!name) {
+    throw new RecordLocatorPhotoError("Photo name is required");
+  }
+  if (!name.startsWith("places/")) {
+    throw new RecordLocatorPhotoError("Invalid photo reference");
+  }
+  return name;
+}
+async function resolvePlacePhoto(apiKey, photoName, fetchFn) {
+  if (!apiKey?.trim()) {
+    return {
+      kind: "svg",
+      body: PLACEHOLDER_SVG,
+      contentType: "image/svg+xml"
+    };
+  }
+  const mediaUrl = new URL(`https://places.googleapis.com/v1/${photoName}/media`);
+  mediaUrl.searchParams.set("maxHeightPx", "480");
+  mediaUrl.searchParams.set("maxWidthPx", "640");
+  mediaUrl.searchParams.set("skipHttpRedirect", "true");
+  const response = await fetchFn(mediaUrl.toString(), {
+    headers: { "X-Goog-Api-Key": apiKey }
+  });
+  if (!response.ok) {
+    throw new RecordLocatorPhotoError(`Google photo lookup failed (${response.status})`);
+  }
+  const payload = await response.json();
+  if (!payload.photoUri) {
+    throw new RecordLocatorPhotoError("Google photo lookup returned no image");
+  }
+  return { kind: "redirect", location: payload.photoUri };
 }
 
 // features/record-locator/utils/geo.ts
@@ -978,8 +1026,209 @@ async function handleNearbyRecordStores(apiKey, input, options) {
   };
 }
 
-// scripts/api-entries/record-locator/places.entry.ts
-var ROUTE = "api/record-locator/places";
+// features/record-locator/utils/routeOrder.ts
+function optimizeWalkingWaypointOrder(origin, stores, selectedIds) {
+  const selected = stores.filter((s) => selectedIds.includes(s.id));
+  if (selected.length <= 1) return selected.map((s) => s.id);
+  const remaining = new Map(selected.map((s) => [s.id, s]));
+  const ordered = [];
+  let cursor = origin;
+  while (remaining.size > 0) {
+    let nearestId = null;
+    let nearestDistance = Infinity;
+    for (const [id, store] of remaining) {
+      const distance = haversineDistanceMeters(cursor, {
+        latitude: store.latitude,
+        longitude: store.longitude
+      });
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestId = id;
+      }
+    }
+    if (!nearestId) break;
+    const next = remaining.get(nearestId);
+    remaining.delete(nearestId);
+    ordered.push(nearestId);
+    cursor = { latitude: next.latitude, longitude: next.longitude };
+  }
+  return ordered;
+}
+function storesByIds(stores, ids) {
+  const map = new Map(stores.map((s) => [s.id, s]));
+  return ids.map((id) => map.get(id)).filter((s) => Boolean(s));
+}
+
+// features/record-locator/server/routesHandler.ts
+var ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes";
+var ROUTES_FIELD_MASK = [
+  "routes.duration",
+  "routes.distanceMeters",
+  "routes.legs.duration",
+  "routes.legs.distanceMeters",
+  "routes.legs.steps.navigationInstruction",
+  "routes.optimizedIntermediateWaypointIndex"
+].join(",");
+function parseWalkingRouteBody(body) {
+  if (!body || typeof body !== "object") {
+    throw new Error("Request body must be a JSON object");
+  }
+  const data = body;
+  const originRaw = data.origin;
+  if (!originRaw || typeof originRaw !== "object") {
+    throw new Error("origin is required");
+  }
+  const originObj = originRaw;
+  const latitude = Number(originObj.latitude);
+  const longitude = Number(originObj.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    throw new Error("origin latitude and longitude are required");
+  }
+  if (!Array.isArray(data.stores) || data.stores.length === 0) {
+    throw new Error("stores array is required");
+  }
+  const stores = [];
+  for (const row of data.stores) {
+    if (!row || typeof row !== "object") continue;
+    const s = row;
+    const id = typeof s.id === "string" ? s.id : "";
+    const name = typeof s.name === "string" ? s.name : "";
+    const address = typeof s.address === "string" ? s.address : "";
+    const lat = Number(s.latitude);
+    const lon = Number(s.longitude);
+    const distanceMeters = Number(s.distanceMeters);
+    if (!id || !name || !Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    stores.push({
+      id,
+      name,
+      address,
+      latitude: lat,
+      longitude: lon,
+      distanceMeters: Number.isFinite(distanceMeters) ? distanceMeters : 0,
+      rating: typeof s.rating === "number" ? s.rating : void 0,
+      openNow: typeof s.openNow === "boolean" ? s.openNow : void 0,
+      openingHoursSummary: typeof s.openingHoursSummary === "string" ? s.openingHoursSummary : void 0
+    });
+  }
+  const selectedStoreIds = Array.isArray(data.selectedStoreIds) ? data.selectedStoreIds.map((id) => String(id)).filter(Boolean) : [];
+  if (selectedStoreIds.length < 2) {
+    throw new Error("Select at least two stores for a walking route");
+  }
+  return {
+    origin: { latitude, longitude },
+    stores,
+    selectedStoreIds
+  };
+}
+function parseDurationSeconds(duration) {
+  if (!duration) return 0;
+  const match = duration.match(/^(\d+)s$/);
+  return match ? Number(match[1]) : 0;
+}
+function buildLegsFromRoute(route, stopNames) {
+  const legs = route.legs ?? [];
+  return legs.map((leg, index) => ({
+    fromName: stopNames[index] ?? `Stop ${index + 1}`,
+    toName: stopNames[index + 1] ?? `Stop ${index + 2}`,
+    distanceMeters: leg.distanceMeters ?? 0,
+    durationSeconds: parseDurationSeconds(leg.duration),
+    steps: (leg.steps ?? []).map((step) => step.navigationInstruction?.instructions?.trim()).filter((text) => Boolean(text))
+  }));
+}
+function buildFallbackRoute(origin, stores, selectedIds) {
+  const orderedIds = optimizeWalkingWaypointOrder(origin, stores, selectedIds);
+  const orderedStores = storesByIds(stores, orderedIds);
+  const legs = orderedStores.map((store, index) => {
+    const fromName = index === 0 ? "You" : orderedStores[index - 1].name;
+    return {
+      fromName,
+      toName: store.name,
+      distanceMeters: store.distanceMeters,
+      durationSeconds: Math.round(store.distanceMeters / 1.4),
+      steps: [`Walk to ${store.name}`, store.address]
+    };
+  });
+  const totalDistanceMeters = legs.reduce((sum, leg) => sum + leg.distanceMeters, 0);
+  const totalDurationSeconds = legs.reduce((sum, leg) => sum + leg.durationSeconds, 0);
+  return {
+    orderedStoreIds: orderedIds,
+    totalDistanceMeters,
+    totalDurationSeconds,
+    legs
+  };
+}
+async function handleWalkingRoute(apiKey, input, options) {
+  const { origin, stores, selectedStoreIds } = input;
+  const clientOrder = optimizeWalkingWaypointOrder(origin, stores, selectedStoreIds);
+  const orderedStores = storesByIds(stores, clientOrder);
+  const fetchFn = options?.fetchFn ?? globalThis.fetch.bind(globalThis);
+  if (!apiKey) {
+    return buildFallbackRoute(origin, stores, selectedStoreIds);
+  }
+  const latLng = (pos) => ({
+    location: { latLng: { latitude: pos.latitude, longitude: pos.longitude } }
+  });
+  try {
+    const response = await fetchFn(ROUTES_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": ROUTES_FIELD_MASK
+      },
+      body: JSON.stringify({
+        origin: latLng(origin),
+        destination: latLng({
+          latitude: orderedStores[orderedStores.length - 1].latitude,
+          longitude: orderedStores[orderedStores.length - 1].longitude
+        }),
+        intermediates: orderedStores.slice(0, -1).map(
+          (store) => latLng({ latitude: store.latitude, longitude: store.longitude })
+        ),
+        travelMode: "WALK",
+        optimizeWaypointOrder: true,
+        routingPreference: "ROUTING_PREFERENCE_UNSPECIFIED"
+      })
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Google Routes API failed (${response.status}): ${text}`);
+    }
+    const payload = await response.json();
+    const route = payload.routes?.[0];
+    if (!route) {
+      return buildFallbackRoute(origin, stores, selectedStoreIds);
+    }
+    const optimizedIndexes = route.optimizedIntermediateWaypointIndex;
+    let finalOrder = clientOrder;
+    if (optimizedIndexes?.length && orderedStores.length > 1) {
+      const intermediates = orderedStores.slice(0, -1);
+      const reorderedIntermediates = optimizedIndexes.map((i) => intermediates[i]).filter(Boolean);
+      const last = orderedStores[orderedStores.length - 1];
+      finalOrder = [...reorderedIntermediates, last].map((s) => s.id);
+    }
+    const finalStores = storesByIds(stores, finalOrder);
+    const stopNames = ["You", ...finalStores.map((s) => s.name)];
+    return {
+      orderedStoreIds: finalOrder,
+      totalDistanceMeters: route.distanceMeters ?? 0,
+      totalDurationSeconds: parseDurationSeconds(route.duration),
+      legs: buildLegsFromRoute(route, stopNames)
+    };
+  } catch {
+    return buildFallbackRoute(origin, stores, selectedStoreIds);
+  }
+}
+
+// scripts/api-entries/record-locator/index.entry.ts
+var ROUTE = "api/record-locator";
+function resolveSubRoute(req) {
+  const path = req.url?.split("?")[0] ?? "";
+  if (path.endsWith("/places")) return "places";
+  if (path.endsWith("/routes")) return "routes";
+  if (path.endsWith("/photo")) return "photo";
+  return null;
+}
 function parseRequestBody(req) {
   const raw = req.body;
   if (raw == null || raw === "") return {};
@@ -992,25 +1241,89 @@ function parseRequestBody(req) {
   }
   return raw;
 }
-async function handler(req, res) {
-  logApiRequest(ROUTE, req, "start");
+async function handlePlaces(req, res) {
   if (req.method !== "POST") {
-    return json(res, ROUTE, 405, { error: "Method not allowed" });
+    return json(res, `${ROUTE}/places`, 405, { error: "Method not allowed" });
   }
   try {
     const input = parsePlacesSearchBody(parseRequestBody(req));
     const result = await handleNearbyRecordStores(resolveRecordLocatorApiKey(), input, {
       fetchFn: resolveRecordLocatorFetch()
     });
-    return json(res, ROUTE, 200, result);
+    return json(res, `${ROUTE}/places`, 200, result);
   } catch (error) {
     if (error instanceof RecordLocatorValidationError) {
-      return json(res, ROUTE, 400, { error: error.message });
+      return json(res, `${ROUTE}/places`, 400, { error: error.message });
     }
-    logApiError(ROUTE, error, { method: req.method });
+    logApiError(`${ROUTE}/places`, error, { method: req.method });
     const message = error instanceof Error ? error.message : "Places search failed";
     const status = message.includes("not configured") ? 503 : 502;
-    return json(res, ROUTE, status, { error: message });
+    return json(res, `${ROUTE}/places`, status, { error: message });
+  }
+}
+async function handleRoutes(req, res) {
+  if (req.method !== "POST") {
+    return json(res, `${ROUTE}/routes`, 405, { error: "Method not allowed" });
+  }
+  try {
+    const input = parseWalkingRouteBody(parseRequestBody(req));
+    const route = await handleWalkingRoute(resolveRecordLocatorApiKey(), input, {
+      fetchFn: resolveRecordLocatorFetch()
+    });
+    return json(res, `${ROUTE}/routes`, 200, { route });
+  } catch (error) {
+    logApiError(`${ROUTE}/routes`, error, { method: req.method });
+    const message = error instanceof Error ? error.message : "Walking route failed";
+    if (message.includes("not configured")) {
+      return json(res, `${ROUTE}/routes`, 503, { error: message });
+    }
+    const status = /required|at least/i.test(message) ? 400 : 502;
+    return json(res, `${ROUTE}/routes`, status, { error: message });
+  }
+}
+async function handlePhoto(req, res) {
+  if (req.method !== "GET") {
+    return json(res, `${ROUTE}/photo`, 405, { error: "Method not allowed" });
+  }
+  try {
+    const photoName = parsePhotoNameParam(
+      typeof req.query.n === "string" ? req.query.n : void 0
+    );
+    const result = await resolvePlacePhoto(
+      resolveRecordLocatorApiKey(),
+      photoName,
+      resolveRecordLocatorFetch()
+    );
+    if (result.kind === "redirect") {
+      res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+      res.redirect(302, result.location);
+      return;
+    }
+    res.setHeader("Content-Type", result.contentType);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.status(200).send(result.body);
+  } catch (error) {
+    if (error instanceof RecordLocatorPhotoError) {
+      return json(res, `${ROUTE}/photo`, 400, { error: error.message });
+    }
+    logApiError(`${ROUTE}/photo`, error, { method: req.method });
+    const message = error instanceof Error ? error.message : "Photo lookup failed";
+    const status = message.includes("not configured") ? 503 : 502;
+    return json(res, `${ROUTE}/photo`, status, { error: message });
+  }
+}
+async function handler(req, res) {
+  const subRoute = resolveSubRoute(req);
+  logApiRequest(`${ROUTE}/${subRoute ?? "unknown"}`, req, "start");
+  switch (subRoute) {
+    case "places":
+      return handlePlaces(req, res);
+    case "routes":
+      return handleRoutes(req, res);
+    case "photo":
+      return handlePhoto(req, res);
+    default:
+      return json(res, ROUTE, 404, { error: "Record locator endpoint not found" });
   }
 }
 export {
