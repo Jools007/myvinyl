@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { sampleRecordStores } from '../testFixtures';
+import { createGoogleFetch } from './googleFetch';
 import { handleWalkingRoute } from './routesHandler';
 
 afterEach(() => {
@@ -47,11 +48,15 @@ describe('handleWalkingRoute', () => {
 
     const origin = { latitude: 51.5, longitude: -0.12 };
     const selected = ['places/open-vinyl', 'places/open-crate'];
-    const route = await handleWalkingRoute('routes-test-key', {
-      origin,
-      stores: sampleRecordStores,
-      selectedStoreIds: selected,
-    });
+    const route = await handleWalkingRoute(
+      'routes-test-key',
+      {
+        origin,
+        stores: sampleRecordStores,
+        selectedStoreIds: selected,
+      },
+      { fetchFn: globalThis.fetch }
+    );
 
     expect(routesUrl).toBe('https://routes.googleapis.com/directions/v2:computeRoutes');
     expect(routesApiKey).toBe('routes-test-key');
@@ -61,21 +66,22 @@ describe('handleWalkingRoute', () => {
     expect(route.legs[0].steps[0]).toContain('Head north');
   });
 
-  it('fixture mode builds route legs from bundled Routes JSON without calling Google', async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+  it('fixture fetch runs Routes computeRoutes and builds legs from bundled JSON', async () => {
+    const globalFetch = vi.fn();
+    vi.stubGlobal('fetch', globalFetch);
+    const fetchFn = createGoogleFetch('fixture');
 
     const route = await handleWalkingRoute(
-      undefined,
+      'fixture-intercept',
       {
         origin: { latitude: 51.5, longitude: -0.12 },
         stores: sampleRecordStores,
         selectedStoreIds: ['places/open-vinyl', 'places/open-crate'],
       },
-      { useFixture: true }
+      { fetchFn }
     );
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(globalFetch).not.toHaveBeenCalled();
     expect(route.legs).toHaveLength(2);
     expect(route.legs[0].steps[0]).toContain('Groove Lane');
   });

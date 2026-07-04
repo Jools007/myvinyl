@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createGoogleFetch } from '../server/googleFetch';
 import { handleNearbyRecordStores } from '../server/placesHandler';
 
 vi.mock('./RecordStoreMap', () => ({
@@ -24,9 +25,9 @@ function mockGeolocation() {
 beforeEach(async () => {
   mockGeolocation();
   const fixturePayload = await handleNearbyRecordStores(
-    undefined,
+    'fixture-intercept',
     { latitude: 51.5, longitude: -0.12, radiusMeters: 8000 },
-    { useFixture: true }
+    { fetchFn: createGoogleFetch('fixture') }
   );
   vi.stubGlobal(
     'fetch',

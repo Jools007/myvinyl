@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { googlePlacesNearbyPayload } from '../testFixtures';
+import { createGoogleFetch, type GoogleFetchFn } from './googleFetch';
 import {
   handleNearbyRecordStores,
   parsePlacesSearchBody,
@@ -33,17 +34,26 @@ describe('handleNearbyRecordStores', () => {
     ).rejects.toThrow('GOOGLE_PLACES_API_KEY not configured');
   });
 
-  it('fixture mode normalizes bundled Places JSON without calling Google or needing a key', async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+  it('fixture fetch runs full four-call orchestration and normalizes bundled Places JSON', async () => {
+    const globalFetch = vi.fn();
+    vi.stubGlobal('fetch', globalFetch);
+    const baseFetch = createGoogleFetch('fixture');
+    const googleUrls: string[] = [];
+    const fetchFn: GoogleFetchFn = async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      googleUrls.push(url);
+      return baseFetch(input, init);
+    };
 
     const { stores } = await handleNearbyRecordStores(
-      undefined,
+      'fixture-intercept',
       { latitude: 51.5, longitude: -0.12, radiusMeters: 8000 },
-      { useFixture: true }
+      { fetchFn }
     );
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(globalFetch).not.toHaveBeenCalled();
+    expect(googleUrls).toHaveLength(4);
+    expect(googleUrls.filter((u) => u.includes('places.googleapis.com'))).toHaveLength(4);
     expect(stores).toHaveLength(3);
     expect(stores.filter((s) => s.openNow).length).toBe(2);
     expect(stores[0].name).toBe('Open Vinyl');
@@ -70,7 +80,9 @@ describe('handleNearbyRecordStores', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const input = { latitude: 51.5, longitude: -0.12, radiusMeters: 8000 };
-    const { stores } = await handleNearbyRecordStores('server-only-test-key', input);
+    const { stores } = await handleNearbyRecordStores('server-only-test-key', input, {
+      fetchFn: fetchMock as unknown as GoogleFetchFn,
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(captured.every((c) => c.apiKey === 'server-only-test-key')).toBe(true);

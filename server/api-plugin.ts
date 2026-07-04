@@ -37,6 +37,10 @@ import {
 } from './handlers/discogs-price-suggestions';
 import { fetchProxiedImage, parseImageProxyUrl } from './handlers/image-proxy';
 import {
+  resolveRecordLocatorApiKey,
+  resolveRecordLocatorFetch,
+} from '../features/record-locator/server/googleFetch';
+import {
   RecordLocatorValidationError,
   handleNearbyRecordStores,
   parsePlacesSearchBody,
@@ -372,13 +376,12 @@ export function apiPlugin(env: Env): Plugin {
 
           // ── Record store locator (Google Places + Routes) ──
           if (path === '/api/record-locator/places' && req.method === 'POST') {
-            const useFixture =
-              process.env.RECORD_LOCATOR_FIXTURE === '1' || env.RECORD_LOCATOR_FIXTURE === '1';
-            const apiKey =
-              process.env.GOOGLE_PLACES_API_KEY?.trim() || env.GOOGLE_PLACES_API_KEY?.trim();
+            const locatorEnv = { ...env, ...process.env };
+            const apiKey = resolveRecordLocatorApiKey(locatorEnv);
+            const fetchFn = resolveRecordLocatorFetch(locatorEnv);
             try {
               const input = parsePlacesSearchBody(await readJsonBody(req));
-              const result = await handleNearbyRecordStores(apiKey, input, { useFixture });
+              const result = await handleNearbyRecordStores(apiKey, input, { fetchFn });
               return json(res, 200, result);
             } catch (e) {
               if (e instanceof RecordLocatorValidationError) {
@@ -391,15 +394,12 @@ export function apiPlugin(env: Env): Plugin {
           }
 
           if (path === '/api/record-locator/routes' && req.method === 'POST') {
-            const useFixture =
-              process.env.RECORD_LOCATOR_FIXTURE === '1' || env.RECORD_LOCATOR_FIXTURE === '1';
-            const apiKey =
-              process.env.GOOGLE_PLACES_API_KEY?.trim() || env.GOOGLE_PLACES_API_KEY?.trim();
+            const locatorEnv = { ...env, ...process.env };
+            const apiKey = resolveRecordLocatorApiKey(locatorEnv);
+            const fetchFn = resolveRecordLocatorFetch(locatorEnv);
             try {
               const input = parseWalkingRouteBody(await readJsonBody(req));
-              const route = await handleWalkingRoute(apiKey, input, {
-                useFixture,
-              });
+              const route = await handleWalkingRoute(apiKey, input, { fetchFn });
               return json(res, 200, { route });
             } catch (e) {
               const message = e instanceof Error ? e.message : 'Walking route failed';

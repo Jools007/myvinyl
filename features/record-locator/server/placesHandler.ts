@@ -1,9 +1,9 @@
-import { getPlacesFixturePlaces } from '../fixtures/loadFixtures';
 import { normalizePlacesResponse } from '../utils/normalize';
 import type { PlacesSearchRequest, RecordStore } from '../types';
+import type { GoogleFetchFn } from './googleFetch';
 
 export type RecordLocatorHandlerOptions = {
-  useFixture?: boolean;
+  fetchFn?: GoogleFetchFn;
 };
 
 const PLACES_NEARBY_URL = 'https://places.googleapis.com/v1/places:searchNearby';
@@ -61,9 +61,10 @@ export function parsePlacesSearchBody(body: unknown): PlacesSearchRequest {
 async function postPlaces<T>(
   apiKey: string,
   url: string,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  fetchFn: GoogleFetchFn
 ): Promise<T> {
-  const response = await fetch(url, {
+  const response = await fetchFn(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -84,38 +85,50 @@ async function postPlaces<T>(
 async function searchNearby(
   apiKey: string,
   input: PlacesSearchRequest,
-  includedTypes: string[]
+  includedTypes: string[],
+  fetchFn: GoogleFetchFn
 ): Promise<PlacesApiPlace[]> {
-  const payload = await postPlaces<{ places?: PlacesApiPlace[] }>(apiKey, PLACES_NEARBY_URL, {
-    includedTypes,
-    maxResultCount: 20,
-    rankPreference: 'DISTANCE',
-    locationRestriction: {
-      circle: {
-        center: { latitude: input.latitude, longitude: input.longitude },
-        radius: input.radiusMeters ?? 8000,
+  const payload = await postPlaces<{ places?: PlacesApiPlace[] }>(
+    apiKey,
+    PLACES_NEARBY_URL,
+    {
+      includedTypes,
+      maxResultCount: 20,
+      rankPreference: 'DISTANCE',
+      locationRestriction: {
+        circle: {
+          center: { latitude: input.latitude, longitude: input.longitude },
+          radius: input.radiusMeters ?? 8000,
+        },
       },
     },
-  });
+    fetchFn
+  );
   return payload.places ?? [];
 }
 
 async function searchText(
   apiKey: string,
   input: PlacesSearchRequest,
-  textQuery: string
+  textQuery: string,
+  fetchFn: GoogleFetchFn
 ): Promise<PlacesApiPlace[]> {
-  const payload = await postPlaces<{ places?: PlacesApiPlace[] }>(apiKey, PLACES_TEXT_URL, {
-    textQuery,
-    maxResultCount: 20,
-    rankPreference: 'DISTANCE',
-    locationBias: {
-      circle: {
-        center: { latitude: input.latitude, longitude: input.longitude },
-        radius: input.radiusMeters ?? 8000,
+  const payload = await postPlaces<{ places?: PlacesApiPlace[] }>(
+    apiKey,
+    PLACES_TEXT_URL,
+    {
+      textQuery,
+      maxResultCount: 20,
+      rankPreference: 'DISTANCE',
+      locationBias: {
+        circle: {
+          center: { latitude: input.latitude, longitude: input.longitude },
+          radius: input.radiusMeters ?? 8000,
+        },
       },
     },
-  });
+    fetchFn
+  );
   return payload.places ?? [];
 }
 
@@ -125,21 +138,18 @@ export async function handleNearbyRecordStores(
   options?: RecordLocatorHandlerOptions
 ): Promise<{ stores: RecordStore[] }> {
   const origin = { latitude: input.latitude, longitude: input.longitude };
-
-  if (options?.useFixture) {
-    const stores = normalizePlacesResponse(getPlacesFixturePlaces(), origin);
-    return { stores };
-  }
+  const fetchFn: GoogleFetchFn =
+    options?.fetchFn ?? (globalThis.fetch.bind(globalThis) as GoogleFetchFn);
 
   if (!apiKey) {
     throw new Error('GOOGLE_PLACES_API_KEY not configured');
   }
 
   const [recordStores, musicStores, vinylText, recordText] = await Promise.all([
-    searchNearby(apiKey, input, ['record_store']),
-    searchNearby(apiKey, input, ['music_store']),
-    searchText(apiKey, input, 'vinyl records store'),
-    searchText(apiKey, input, 'record store'),
+    searchNearby(apiKey, input, ['record_store'], fetchFn),
+    searchNearby(apiKey, input, ['music_store'], fetchFn),
+    searchText(apiKey, input, 'vinyl records store', fetchFn),
+    searchText(apiKey, input, 'record store', fetchFn),
   ]);
 
   const merged = [...recordStores, ...musicStores, ...vinylText, ...recordText];

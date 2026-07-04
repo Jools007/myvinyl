@@ -119,9 +119,93 @@ var places_nearby_default = {
   ]
 };
 
+// features/record-locator/fixtures/routes-walk.json
+var routes_walk_default = {
+  routes: [
+    {
+      duration: "900s",
+      distanceMeters: 1200,
+      optimizedIntermediateWaypointIndex: [0],
+      legs: [
+        {
+          duration: "240s",
+          distanceMeters: 320,
+          steps: [
+            { navigationInstruction: { instructions: "Head north on Groove Lane" } }
+          ]
+        },
+        {
+          duration: "660s",
+          distanceMeters: 880,
+          steps: [
+            { navigationInstruction: { instructions: "Turn right on Wax Street" } }
+          ]
+        }
+      ]
+    }
+  ]
+};
+
 // features/record-locator/fixtures/loadFixtures.ts
 function getPlacesFixturePlaces() {
   return places_nearby_default.places ?? [];
+}
+function getRoutesFixturePayload() {
+  return routes_walk_default;
+}
+
+// features/record-locator/server/googleFetch.ts
+var PLACES_HOST = "places.googleapis.com";
+var ROUTES_HOST = "routes.googleapis.com";
+var FIXTURE_API_KEY = "fixture-intercept";
+function urlString(input) {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+function isGooglePlacesUrl(url) {
+  return url.includes(PLACES_HOST);
+}
+function isGoogleRoutesUrl(url) {
+  return url.includes(ROUTES_HOST);
+}
+function fixtureResponseForUrl(url) {
+  if (isGooglePlacesUrl(url)) {
+    return new Response(JSON.stringify({ places: getPlacesFixturePlaces() }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+  if (isGoogleRoutesUrl(url)) {
+    return new Response(JSON.stringify(getRoutesFixturePayload()), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+  throw new Error(`Fixture fetch cannot handle URL: ${url}`);
+}
+function createGoogleFetch(mode) {
+  if (mode === "live") {
+    return globalThis.fetch.bind(globalThis);
+  }
+  return async (input, init) => {
+    const url = urlString(input);
+    if (isGooglePlacesUrl(url) || isGoogleRoutesUrl(url)) {
+      return fixtureResponseForUrl(url);
+    }
+    return globalThis.fetch(input, init);
+  };
+}
+function isRecordLocatorFixtureMode(env = process.env) {
+  return env.RECORD_LOCATOR_FIXTURE === "1";
+}
+function resolveRecordLocatorApiKey(env = process.env) {
+  const key = env.GOOGLE_PLACES_API_KEY?.trim();
+  if (key) return key;
+  return isRecordLocatorFixtureMode(env) ? FIXTURE_API_KEY : void 0;
+}
+function resolveRecordLocatorFetch(env = process.env) {
+  return createGoogleFetch(isRecordLocatorFixtureMode(env) ? "fixture" : "live");
 }
 
 // features/record-locator/utils/geo.ts
@@ -221,8 +305,8 @@ function parsePlacesSearchBody(body) {
   }
   return { latitude, longitude, radiusMeters };
 }
-async function postPlaces(apiKey, url, body) {
-  const response = await fetch(url, {
+async function postPlaces(apiKey, url, body, fetchFn) {
+  const response = await fetchFn(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -237,48 +321,55 @@ async function postPlaces(apiKey, url, body) {
   }
   return await response.json();
 }
-async function searchNearby(apiKey, input, includedTypes) {
-  const payload = await postPlaces(apiKey, PLACES_NEARBY_URL, {
-    includedTypes,
-    maxResultCount: 20,
-    rankPreference: "DISTANCE",
-    locationRestriction: {
-      circle: {
-        center: { latitude: input.latitude, longitude: input.longitude },
-        radius: input.radiusMeters ?? 8e3
+async function searchNearby(apiKey, input, includedTypes, fetchFn) {
+  const payload = await postPlaces(
+    apiKey,
+    PLACES_NEARBY_URL,
+    {
+      includedTypes,
+      maxResultCount: 20,
+      rankPreference: "DISTANCE",
+      locationRestriction: {
+        circle: {
+          center: { latitude: input.latitude, longitude: input.longitude },
+          radius: input.radiusMeters ?? 8e3
+        }
       }
-    }
-  });
+    },
+    fetchFn
+  );
   return payload.places ?? [];
 }
-async function searchText(apiKey, input, textQuery) {
-  const payload = await postPlaces(apiKey, PLACES_TEXT_URL, {
-    textQuery,
-    maxResultCount: 20,
-    rankPreference: "DISTANCE",
-    locationBias: {
-      circle: {
-        center: { latitude: input.latitude, longitude: input.longitude },
-        radius: input.radiusMeters ?? 8e3
+async function searchText(apiKey, input, textQuery, fetchFn) {
+  const payload = await postPlaces(
+    apiKey,
+    PLACES_TEXT_URL,
+    {
+      textQuery,
+      maxResultCount: 20,
+      rankPreference: "DISTANCE",
+      locationBias: {
+        circle: {
+          center: { latitude: input.latitude, longitude: input.longitude },
+          radius: input.radiusMeters ?? 8e3
+        }
       }
-    }
-  });
+    },
+    fetchFn
+  );
   return payload.places ?? [];
 }
 async function handleNearbyRecordStores(apiKey, input, options) {
   const origin = { latitude: input.latitude, longitude: input.longitude };
-  if (options?.useFixture) {
-    const stores2 = normalizePlacesResponse(getPlacesFixturePlaces(), origin);
-    return { stores: stores2 };
-  }
+  const fetchFn = options?.fetchFn ?? globalThis.fetch.bind(globalThis);
   if (!apiKey) {
     throw new Error("GOOGLE_PLACES_API_KEY not configured");
   }
   const [recordStores, musicStores, vinylText, recordText] = await Promise.all([
-    searchNearby(apiKey, input, ["record_store"]),
-    searchNearby(apiKey, input, ["music_store"]),
-    searchText(apiKey, input, "vinyl records store"),
-    searchText(apiKey, input, "record store")
+    searchNearby(apiKey, input, ["record_store"], fetchFn),
+    searchNearby(apiKey, input, ["music_store"], fetchFn),
+    searchText(apiKey, input, "vinyl records store", fetchFn),
+    searchText(apiKey, input, "record store", fetchFn)
   ]);
   const merged = [...recordStores, ...musicStores, ...vinylText, ...recordText];
   const stores = normalizePlacesResponse(merged, origin);
@@ -287,12 +378,6 @@ async function handleNearbyRecordStores(apiKey, input, options) {
 
 // scripts/api-entries/record-locator/places.entry.ts
 var ROUTE = "api/record-locator/places";
-function useFixtureMode() {
-  return process.env.RECORD_LOCATOR_FIXTURE === "1";
-}
-function readApiKey() {
-  return process.env.GOOGLE_PLACES_API_KEY?.trim();
-}
 function parseRequestBody(req) {
   const raw = req.body;
   if (raw == null || raw === "") return {};
@@ -312,8 +397,8 @@ async function handler(req, res) {
   }
   try {
     const input = parsePlacesSearchBody(parseRequestBody(req));
-    const result = await handleNearbyRecordStores(readApiKey(), input, {
-      useFixture: useFixtureMode()
+    const result = await handleNearbyRecordStores(resolveRecordLocatorApiKey(), input, {
+      fetchFn: resolveRecordLocatorFetch()
     });
     return json(res, ROUTE, 200, result);
   } catch (error) {

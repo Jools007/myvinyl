@@ -1,4 +1,5 @@
 # Record Store Locator — files touched by this feature
+# Deployment exceptions are documented in goal/plan.md Assumed scope.
 
 ## features/record-locator/ (all feature code)
 features/record-locator/RecordLocatorShell.tsx
@@ -20,6 +21,8 @@ features/record-locator/hooks/useNearbyRecordStores.ts
 features/record-locator/hooks/useNearbyRecordStores.test.ts
 features/record-locator/hooks/useWalkingRoute.ts
 features/record-locator/hooks/useWalkingRoute.test.ts
+features/record-locator/server/googleFetch.ts
+features/record-locator/server/googleFetch.test.ts
 features/record-locator/server/placesHandler.ts
 features/record-locator/server/placesHandler.test.ts
 features/record-locator/server/placesHandler.live.test.ts
@@ -45,7 +48,7 @@ api/record-locator/routes.js
 scripts/api-entries/record-locator/places.entry.ts
 scripts/api-entries/record-locator/routes.entry.ts
 
-## Shell + deployment exceptions (documented in goal/plan.md Assumed scope)
+## Shell + deployment exceptions
 src/main.tsx
 server/api-plugin.ts
 scripts/build-vercel-apis.mjs

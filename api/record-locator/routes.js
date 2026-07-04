@@ -77,6 +77,48 @@ function json(res, route, status, body) {
   }
 }
 
+// features/record-locator/fixtures/places-nearby.json
+var places_nearby_default = {
+  places: [
+    {
+      id: "places/open-vinyl",
+      displayName: { text: "Open Vinyl" },
+      formattedAddress: "1 Groove Lane, London",
+      location: { latitude: 51.501, longitude: -0.121 },
+      rating: 4.8,
+      businessStatus: "OPERATIONAL",
+      currentOpeningHours: {
+        openNow: true,
+        weekdayDescriptions: ["Mon: 10 AM \u2013 7 PM"]
+      }
+    },
+    {
+      id: "places/closed-spin",
+      displayName: { text: "Closed Spin" },
+      formattedAddress: "9 B-side Road, London",
+      location: { latitude: 51.508, longitude: -0.125 },
+      rating: 4.2,
+      businessStatus: "OPERATIONAL",
+      currentOpeningHours: {
+        openNow: false,
+        weekdayDescriptions: ["Mon: Closed"]
+      }
+    },
+    {
+      id: "places/open-crate",
+      displayName: { text: "Open Crate" },
+      formattedAddress: "3 Wax Street, London",
+      location: { latitude: 51.504, longitude: -0.118 },
+      rating: 4.5,
+      businessStatus: "OPERATIONAL",
+      currentOpeningHours: {
+        openNow: true,
+        weekdayDescriptions: ["Mon: 11 AM \u2013 8 PM"]
+      }
+    }
+  ]
+};
+
 // features/record-locator/fixtures/routes-walk.json
 var routes_walk_default = {
   routes: [
@@ -105,8 +147,65 @@ var routes_walk_default = {
 };
 
 // features/record-locator/fixtures/loadFixtures.ts
+function getPlacesFixturePlaces() {
+  return places_nearby_default.places ?? [];
+}
 function getRoutesFixturePayload() {
   return routes_walk_default;
+}
+
+// features/record-locator/server/googleFetch.ts
+var PLACES_HOST = "places.googleapis.com";
+var ROUTES_HOST = "routes.googleapis.com";
+var FIXTURE_API_KEY = "fixture-intercept";
+function urlString(input) {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+function isGooglePlacesUrl(url) {
+  return url.includes(PLACES_HOST);
+}
+function isGoogleRoutesUrl(url) {
+  return url.includes(ROUTES_HOST);
+}
+function fixtureResponseForUrl(url) {
+  if (isGooglePlacesUrl(url)) {
+    return new Response(JSON.stringify({ places: getPlacesFixturePlaces() }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+  if (isGoogleRoutesUrl(url)) {
+    return new Response(JSON.stringify(getRoutesFixturePayload()), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+  throw new Error(`Fixture fetch cannot handle URL: ${url}`);
+}
+function createGoogleFetch(mode) {
+  if (mode === "live") {
+    return globalThis.fetch.bind(globalThis);
+  }
+  return async (input, init) => {
+    const url = urlString(input);
+    if (isGooglePlacesUrl(url) || isGoogleRoutesUrl(url)) {
+      return fixtureResponseForUrl(url);
+    }
+    return globalThis.fetch(input, init);
+  };
+}
+function isRecordLocatorFixtureMode(env = process.env) {
+  return env.RECORD_LOCATOR_FIXTURE === "1";
+}
+function resolveRecordLocatorApiKey(env = process.env) {
+  const key = env.GOOGLE_PLACES_API_KEY?.trim();
+  if (key) return key;
+  return isRecordLocatorFixtureMode(env) ? FIXTURE_API_KEY : void 0;
+}
+function resolveRecordLocatorFetch(env = process.env) {
+  return createGoogleFetch(isRecordLocatorFixtureMode(env) ? "fixture" : "live");
 }
 
 // features/record-locator/utils/geo.ts
@@ -255,28 +354,11 @@ function buildFallbackRoute(origin, stores, selectedIds) {
     legs
   };
 }
-function buildRouteFromFixture(fixture, origin, stores, selectedStoreIds) {
-  const clientOrder = optimizeWalkingWaypointOrder(origin, stores, selectedStoreIds);
-  const finalStores = storesByIds(stores, clientOrder);
-  const stopNames = ["You", ...finalStores.map((s) => s.name)];
-  const route = fixture.routes?.[0];
-  if (!route) {
-    return buildFallbackRoute(origin, stores, selectedStoreIds);
-  }
-  return {
-    orderedStoreIds: clientOrder,
-    totalDistanceMeters: route.distanceMeters ?? 0,
-    totalDurationSeconds: parseDurationSeconds(route.duration),
-    legs: buildLegsFromRoute(route, stopNames)
-  };
-}
 async function handleWalkingRoute(apiKey, input, options) {
   const { origin, stores, selectedStoreIds } = input;
   const clientOrder = optimizeWalkingWaypointOrder(origin, stores, selectedStoreIds);
   const orderedStores = storesByIds(stores, clientOrder);
-  if (options?.useFixture) {
-    return buildRouteFromFixture(getRoutesFixturePayload(), origin, stores, selectedStoreIds);
-  }
+  const fetchFn = options?.fetchFn ?? globalThis.fetch.bind(globalThis);
   if (!apiKey) {
     return buildFallbackRoute(origin, stores, selectedStoreIds);
   }
@@ -284,7 +366,7 @@ async function handleWalkingRoute(apiKey, input, options) {
     location: { latLng: { latitude: pos.latitude, longitude: pos.longitude } }
   });
   try {
-    const response = await fetch(ROUTES_URL, {
+    const response = await fetchFn(ROUTES_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -337,12 +419,6 @@ async function handleWalkingRoute(apiKey, input, options) {
 
 // scripts/api-entries/record-locator/routes.entry.ts
 var ROUTE = "api/record-locator/routes";
-function useFixtureMode() {
-  return process.env.RECORD_LOCATOR_FIXTURE === "1";
-}
-function readApiKey() {
-  return process.env.GOOGLE_PLACES_API_KEY?.trim();
-}
 function parseRequestBody(req) {
   const raw = req.body;
   if (raw == null || raw === "") return {};
@@ -362,7 +438,9 @@ async function handler(req, res) {
   }
   try {
     const input = parseWalkingRouteBody(parseRequestBody(req));
-    const route = await handleWalkingRoute(readApiKey(), input, { useFixture: useFixtureMode() });
+    const route = await handleWalkingRoute(resolveRecordLocatorApiKey(), input, {
+      fetchFn: resolveRecordLocatorFetch()
+    });
     return json(res, ROUTE, 200, { route });
   } catch (error) {
     logApiError(ROUTE, error, { method: req.method });

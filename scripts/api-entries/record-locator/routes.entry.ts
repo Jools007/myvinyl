@@ -2,19 +2,15 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { logApiError, logApiRequest } from '../../../api/_lib/log';
 import { json } from '../../../api/_lib/response';
 import {
+  resolveRecordLocatorApiKey,
+  resolveRecordLocatorFetch,
+} from '../../../features/record-locator/server/googleFetch';
+import {
   handleWalkingRoute,
   parseWalkingRouteBody,
 } from '../../../features/record-locator/server/routesHandler';
 
 const ROUTE = 'api/record-locator/routes';
-
-function useFixtureMode(): boolean {
-  return process.env.RECORD_LOCATOR_FIXTURE === '1';
-}
-
-function readApiKey(): string | undefined {
-  return process.env.GOOGLE_PLACES_API_KEY?.trim();
-}
 
 function parseRequestBody(req: VercelRequest): unknown {
   const raw = req.body;
@@ -38,7 +34,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
 
   try {
     const input = parseWalkingRouteBody(parseRequestBody(req));
-    const route = await handleWalkingRoute(readApiKey(), input, { useFixture: useFixtureMode() });
+    const route = await handleWalkingRoute(resolveRecordLocatorApiKey(), input, {
+      fetchFn: resolveRecordLocatorFetch(),
+    });
     return json(res, ROUTE, 200, { route });
   } catch (error) {
     logApiError(ROUTE, error, { method: req.method });

@@ -1,6 +1,6 @@
-import { getRoutesFixturePayload } from '../fixtures/loadFixtures';
 import { optimizeWalkingWaypointOrder, storesByIds } from '../utils/routeOrder';
 import type { GeoPosition, RecordStore, WalkingRoute, WalkingRouteLeg } from '../types';
+import type { GoogleFetchFn } from './googleFetch';
 import type { RecordLocatorHandlerOptions } from './placesHandler';
 
 const ROUTES_URL = 'https://routes.googleapis.com/directions/v2:computeRoutes';
@@ -148,27 +148,6 @@ function buildFallbackRoute(
   };
 }
 
-function buildRouteFromFixture(
-  fixture: { routes?: RoutesApiRoute[] },
-  origin: GeoPosition,
-  stores: RecordStore[],
-  selectedStoreIds: string[]
-): WalkingRoute {
-  const clientOrder = optimizeWalkingWaypointOrder(origin, stores, selectedStoreIds);
-  const finalStores = storesByIds(stores, clientOrder);
-  const stopNames = ['You', ...finalStores.map((s) => s.name)];
-  const route = fixture.routes?.[0];
-  if (!route) {
-    return buildFallbackRoute(origin, stores, selectedStoreIds);
-  }
-  return {
-    orderedStoreIds: clientOrder,
-    totalDistanceMeters: route.distanceMeters ?? 0,
-    totalDurationSeconds: parseDurationSeconds(route.duration),
-    legs: buildLegsFromRoute(route, stopNames),
-  };
-}
-
 export async function handleWalkingRoute(
   apiKey: string | undefined,
   input: WalkingRouteRequest,
@@ -177,10 +156,8 @@ export async function handleWalkingRoute(
   const { origin, stores, selectedStoreIds } = input;
   const clientOrder = optimizeWalkingWaypointOrder(origin, stores, selectedStoreIds);
   const orderedStores = storesByIds(stores, clientOrder);
-
-  if (options?.useFixture) {
-    return buildRouteFromFixture(getRoutesFixturePayload(), origin, stores, selectedStoreIds);
-  }
+  const fetchFn: GoogleFetchFn =
+    options?.fetchFn ?? (globalThis.fetch.bind(globalThis) as GoogleFetchFn);
 
   if (!apiKey) {
     return buildFallbackRoute(origin, stores, selectedStoreIds);
@@ -191,7 +168,7 @@ export async function handleWalkingRoute(
   });
 
   try {
-    const response = await fetch(ROUTES_URL, {
+    const response = await fetchFn(ROUTES_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

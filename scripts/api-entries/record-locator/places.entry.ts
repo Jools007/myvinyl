@@ -2,20 +2,16 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { logApiError, logApiRequest } from '../../../api/_lib/log';
 import { json } from '../../../api/_lib/response';
 import {
+  resolveRecordLocatorApiKey,
+  resolveRecordLocatorFetch,
+} from '../../../features/record-locator/server/googleFetch';
+import {
   RecordLocatorValidationError,
   handleNearbyRecordStores,
   parsePlacesSearchBody,
 } from '../../../features/record-locator/server/placesHandler';
 
 const ROUTE = 'api/record-locator/places';
-
-function useFixtureMode(): boolean {
-  return process.env.RECORD_LOCATOR_FIXTURE === '1';
-}
-
-function readApiKey(): string | undefined {
-  return process.env.GOOGLE_PLACES_API_KEY?.trim();
-}
 
 function parseRequestBody(req: VercelRequest): unknown {
   const raw = req.body;
@@ -39,8 +35,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
 
   try {
     const input = parsePlacesSearchBody(parseRequestBody(req));
-    const result = await handleNearbyRecordStores(readApiKey(), input, {
-      useFixture: useFixtureMode(),
+    const result = await handleNearbyRecordStores(resolveRecordLocatorApiKey(), input, {
+      fetchFn: resolveRecordLocatorFetch(),
     });
     return json(res, ROUTE, 200, result);
   } catch (error) {
