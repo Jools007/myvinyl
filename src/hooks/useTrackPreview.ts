@@ -11,6 +11,12 @@ import {
   rememberPlayback,
 } from '../lib/playbackCache';
 import {
+  armIOSSpotifyPreview,
+  primeIOSAudioSession,
+  shouldResumePlaybackAfterHiddenPause,
+} from '../lib/iosPlaybackEngine';
+import { isIOSDevice } from '../lib/playbackDevice';
+import {
   acquireSharedAudioElement,
   releaseSharedAudioPlayback,
 } from '../lib/playMediaHost';
@@ -430,7 +436,6 @@ export function useTrackPreview() {
       key: string,
       opts?: { autoplay?: boolean; enableSound?: boolean }
     ) => {
-      detachAudio();
       detachYouTube();
       activeKeyRef.current = key;
       setActiveKey(key);
@@ -438,15 +443,22 @@ export function useTrackPreview() {
       setSource('spotify');
       setDuration(SPOTIFY_PREVIEW_SECONDS);
 
-      const audio = acquireSharedAudioElement();
       audioListenerAbortRef.current?.abort();
       const listenerAbort = new AbortController();
       audioListenerAbortRef.current = listenerAbort;
       const signal = listenerAbort.signal;
 
+      const audio = isIOSDevice()
+        ? armIOSSpotifyPreview(previewUrl)
+        : (() => {
+            releaseSharedAudioPlayback();
+            const element = acquireSharedAudioElement();
+            element.loop = false;
+            element.src = previewUrl;
+            element.load();
+            return element;
+          })();
       audioRef.current = audio;
-      audio.src = previewUrl;
-      audio.load();
 
       audio.addEventListener(
         'play',
@@ -475,6 +487,10 @@ export function useTrackPreview() {
         'pause',
         () => {
           if (!audio.ended && activeKeyRef.current === key) {
+            if (shouldResumePlaybackAfterHiddenPause() && shouldKeepPlayingRef.current) {
+              void audio.play().catch(() => {});
+              return;
+            }
             stopRaf();
             setStatus('paused');
           }
@@ -496,7 +512,44 @@ export function useTrackPreview() {
         playCurrent({ enableSound: opts.enableSound === true });
       }
     },
-    [claimMediaSession, detachAudio, detachYouTube, playCurrent, startProgress, stopRaf]
+    [claimMediaSession, detachYouTube, playCurrent, startProgress, stopRaf]
+  );
+
+  const beginGesturePlayback = useCallback(
+    (record: VinylRecord, track: Track) => {
+      if (!isIOSDevice()) return;
+
+      const artist = track.artist?.trim() || record.artist;
+      const albumTitle = record.title.trim();
+      const key = playSelectionKey({ recordId: record.id, trackId: track.id });
+      const albumIndex = record.tracks?.findIndex((t) => t.id === track.id);
+      const albumIndexOne = albumIndex != null && albumIndex >= 0 ? albumIndex + 1 : undefined;
+
+      primeIOSAudioSession({
+        title: track.title,
+        artist,
+        album: albumTitle,
+        artworkUrl: record.coverUrl,
+      });
+
+      const previewUrl = track.spotifyPreviewUrl?.trim();
+      if (!previewUrl) return;
+
+      loadCtxRef.current = {
+        record,
+        track,
+        key,
+        artist,
+        albumTitle,
+        albumIndex: albumIndexOne,
+      };
+      loadInFlightRef.current = key;
+      activeKeyRef.current = key;
+      setActiveKey(key);
+      playRequestedRef.current = true;
+      attachSpotify(previewUrl, key, { autoplay: true, enableSound: true });
+    },
+    [attachSpotify]
   );
 
   const attachYouTube = useCallback(
@@ -649,6 +702,11 @@ export function useTrackPreview() {
         });
         return;
       }
+      if (isIOSDevice()) {
+        setDiagHint(
+          'iPhone lock-screen playback needs a Spotify preview — this track uses YouTube in the browser only.'
+        );
+      }
       attachYouTube(data.videoId, key, {
         autoplay,
         enableSound: autoplay && enableSoundOnAutoplay,
@@ -748,6 +806,17 @@ export function useTrackPreview() {
       enableSoundOnAutoplay = false
     ) => {
       const key = playSelectionKey({ recordId: record.id, trackId: track.id });
+
+      if (
+        isIOSDevice() &&
+        activeKeyRef.current === key &&
+        sourceRef.current === 'spotify' &&
+        audioRef.current &&
+        !audioRef.current.paused
+      ) {
+        playbackDiag('load_skip', { key, reason: 'ios_gesture_playing' });
+        return;
+      }
 
       if (
         loadInFlightRef.current &&
@@ -1041,6 +1110,16 @@ export function useTrackPreview() {
   );
 
   const toggle = useCallback(() => {
+    const ctx = loadCtxRef.current;
+    if (ctx && status !== 'playing') {
+      primeIOSAudioSession({
+        title: ctx.track.title,
+        artist: ctx.artist,
+        album: ctx.albumTitle,
+        artworkUrl: ctx.record.coverUrl,
+      });
+    }
+
     if (
       status === 'playing' &&
       sourceRef.current === 'youtube' &&
@@ -1146,6 +1225,7 @@ export function useTrackPreview() {
     activelyPlaying,
     getYoutubeMode: () => youtubeRef.current?.getPlayerMode() ?? null,
     tryAlternateVideo,
+    beginGesturePlayback,
     load,
     toggle,
     seekTo,

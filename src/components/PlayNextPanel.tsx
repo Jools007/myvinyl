@@ -153,6 +153,7 @@ export function PlayNextPanel({
 
   const handlePlay = useCallback(
     (record: VinylRecord, track: Track) => {
+      preview.beginGesturePlayback(record, track);
       tapBpm.reset();
       autoplayPendingRef.current = playSelectionKey({
         recordId: record.id,
@@ -160,7 +161,7 @@ export function PlayNextPanel({
       });
       onPlayNow(record, track);
     },
-    [onPlayNow, tapBpm]
+    [onPlayNow, preview, tapBpm]
   );
 
   const matchOptions = useMemo((): CompatibilityOptions | undefined => {
@@ -180,6 +181,7 @@ export function PlayNextPanel({
       preview.status === 'error' ||
       preview.status === 'rate_limited';
     if (needsLoad) {
+      preview.beginGesturePlayback(nowPlaying.record, nowPlaying.track);
       void preview.load(nowPlaying.record, nowPlaying.track, true, true);
       return;
     }
