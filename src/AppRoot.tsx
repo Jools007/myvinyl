@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { RecordLocatorShell } from '../features/record-locator';
 import App from './App';
 import { AppToaster } from './components/AppToaster';
 import { SharedCratePage } from './components/share/SharedCratePage';
@@ -28,5 +29,10 @@ export function AppRoot() {
     );
   }
 
-  return <App />;
+  return (
+    <>
+      <App />
+      <RecordLocatorShell />
+    </>
+  );
 }

@@ -4,7 +4,6 @@ import './index.css';
 import { AppRoot } from './AppRoot.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { AuthProvider } from './contexts/AuthContext';
-import { RecordLocatorShell } from '../features/record-locator';
 import { redirectLoopbackToLocalhost } from './lib/playbackDevice';
 
 redirectLoopbackToLocalhost();
@@ -14,7 +13,6 @@ createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       <AuthProvider>
         <AppRoot />
-        <RecordLocatorShell />
       </AuthProvider>
     </ErrorBoundary>
   </StrictMode>
