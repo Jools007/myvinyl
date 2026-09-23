@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -1166,7 +1166,7 @@ function App() {
                 : 'app-main--play py-8'
         }`}
       >
-        <AnimatePresence mode="wait">
+        <>
           {page === 'collection' && (
             <motion.div
               key="collection"
@@ -1474,7 +1474,7 @@ function App() {
               />
             </motion.div>
           )}
-        </AnimatePresence>
+        </>
       </main>
 
       <BarcodeScannerModal
