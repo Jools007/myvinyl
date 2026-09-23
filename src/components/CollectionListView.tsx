@@ -17,7 +17,7 @@ interface CollectionListViewProps {
   onPlayNow: (record: VinylRecord, track: Track) => void;
   onAddToQueue: (record: VinylRecord, track: Track) => void;
   onDelete: (id: string) => void;
-  onEnrichRelease: (recordId: string) => Promise<void>;
+  onEnrichRelease?: (recordId: string) => Promise<void>;
   onSaveCutRating?: (recordId: string, trackId: string, rating: CutRating | undefined) => void;
 }
 
@@ -578,7 +578,7 @@ interface ReleaseListRowProps {
   enriching: boolean;
   readOnly?: boolean;
   onToggle: () => void;
-  onEnrich: () => void;
+  onEnrich?: () => void;
   onDelete: () => void;
   stopRow: (e: MouseEvent | PointerEvent) => void;
 }
@@ -596,12 +596,14 @@ function ReleaseListRow({
   const hasTracks = record.tracks.length > 0;
   const rowActions = (
     <>
-      <ReleaseEnrichAction
-        record={record}
-        enriching={enriching}
-        onEnrich={onEnrich}
-        stopRow={stopRow}
-      />
+      {onEnrich ? (
+        <ReleaseEnrichAction
+          record={record}
+          enriching={enriching}
+          onEnrich={onEnrich}
+          stopRow={stopRow}
+        />
+      ) : null}
       {readOnly ? null : <ReleaseEditAction record={record} stopRow={stopRow} />}
       {readOnly ? null : (
         <button
@@ -848,6 +850,7 @@ export function CollectionListView({
 
   const enrichRecord = useCallback(
     async (recordId: string) => {
+      if (!onEnrichRelease) return;
       setEnrichingId(recordId);
       try {
         await onEnrichRelease(recordId);
@@ -903,7 +906,7 @@ export function CollectionListView({
         onToggle={() => toggleExpanded(record.id)}
         onDelete={() => onDelete(record.id)}
         stopRow={stopRow}
-        onEnrich={() => enrichRecord(record.id)}
+        onEnrich={onEnrichRelease ? () => void enrichRecord(record.id) : undefined}
       />
     );
 

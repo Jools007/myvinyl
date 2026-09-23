@@ -9,6 +9,7 @@ interface CollectionHeroProps {
   showCrateSwitcher?: boolean;
   onSelectCrate?: (crate: CollectionCrate) => void;
   onImportGuest?: () => void;
+  sharedList?: { name: string; ownerName: string } | null;
 }
 
 export function CollectionHero({
@@ -18,14 +19,16 @@ export function CollectionHero({
   showCrateSwitcher = false,
   onSelectCrate,
   onImportGuest,
+  sharedList = null,
 }: CollectionHeroProps) {
   const guest = activeCrate != null && isGuestCrate(activeCrate);
+  const shared = sharedList != null;
 
   return (
     <section
       id="collection-hero"
       className="collection-hero collection-hero--desktop"
-      aria-label="Your collection"
+      aria-label={shared ? sharedList.name : 'Your collection'}
     >
       <div className="collection-hero__backdrop" aria-hidden>
         <div className="collection-hero__media">
@@ -48,17 +51,23 @@ export function CollectionHero({
       <div className="collection-hero__copy">
         <motion.div initial={false} animate={{ opacity: 1, y: 0 }} className="collection-hero__copy-inner">
           <p className="collection-hero__kicker">
-            {guest ? 'Guest crate' : 'Personal crate'}
+            {shared ? `${sharedList.ownerName}'s list` : guest ? 'Guest crate' : 'Personal crate'}
           </p>
           <h1 className="collection-hero__title">
-            {guest ? activeCrate?.name ?? 'Guest crate' : 'Your collection'}
+            {shared
+              ? sharedList.name
+              : guest
+                ? activeCrate?.name ?? 'Guest crate'
+                : 'Your collection'}
           </h1>
           <p className="collection-hero__meta">
-            {recordCount > 0
-              ? `${recordCount} records — filter below or search Discogs in the header.`
-              : guest
-                ? 'Import a public Discogs collection to demo insights, play, PDF, and labels.'
-                : 'Search Discogs in the header, auto-fill BPM & Camelot keys, and build a crate that mixes itself.'}
+            {shared
+              ? `${recordCount} records — search, filter, play, insights, and print labels. View only.`
+              : recordCount > 0
+                ? `${recordCount} records — filter below or search Discogs in the header.`
+                : guest
+                  ? 'Import a public Discogs collection to demo insights, play, PDF, and labels.'
+                  : 'Search Discogs in the header, auto-fill BPM & Camelot keys, and build a crate that mixes itself.'}
           </p>
         </motion.div>
         {showCrateSwitcher && onSelectCrate ? (

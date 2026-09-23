@@ -326,6 +326,11 @@ body::before {
   grid-area: actions;
 }
 
+.app-nav__grid--no-search {
+  grid-template-areas: 'brand actions';
+  padding-bottom: 0;
+}
+
 /* Tablet / small desktop: two rows — nav never fights the search bar */
 @media (min-width: 640px) and (max-width: 1119px) {
   .app-nav__grid {
@@ -366,6 +371,10 @@ body::before {
   .app-nav__actions {
     gap: 0.35rem;
   }
+
+  .app-nav__grid--no-search {
+    grid-template-areas: 'brand links actions';
+  }
 }
 
 /* Wide: single row — search flexes, links stay compact */
@@ -386,6 +395,10 @@ body::before {
   .app-nav__search {
     justify-self: stretch;
     max-width: none;
+  }
+
+  .app-nav__grid--no-search {
+    grid-template-areas: 'brand links . actions';
   }
 }
 
@@ -15378,6 +15391,25 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.share-list-mobile-title {
+  margin: 0.85rem 0 0.15rem;
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.share-list-mobile-title span {
+  display: block;
+  margin-top: 0.2rem;
+  font-family: var(--font-sans, inherit);
+  font-size: 0.75rem;
+  font-weight: 550;
+  letter-spacing: 0.01em;
+  color: var(--text-muted);
 }
 
 .share-page__lock {

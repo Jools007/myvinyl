@@ -14,6 +14,9 @@ interface NavigationProps {
   onNavigate: (page: NavPage) => void;
   recordCount: number;
   crateSlug?: string | null;
+  shareToken?: string | null;
+  listName?: string | null;
+  viewOnly?: boolean;
   playSelection?: PlaySelection | null;
   onScan?: () => void;
   onAddRecord?: () => void;
@@ -29,12 +32,17 @@ const staticLinks: { id: NavPage; label: string; icon: typeof LayoutGrid }[] = [
 
 function hrefForPage(
   page: NavPage,
-  options?: { playSelection?: PlaySelection | null; crateSlug?: string | null }
+  options?: {
+    playSelection?: PlaySelection | null;
+    crateSlug?: string | null;
+    shareToken?: string | null;
+  }
 ): string {
   return buildAppHref(
     locationForPage(page, {
       playSelection: page === 'play' ? (options?.playSelection ?? null) : null,
       crateSlug: options?.crateSlug ?? null,
+      shareToken: options?.shareToken ?? null,
     })
   );
 }
@@ -44,6 +52,9 @@ export function Navigation({
   onNavigate,
   recordCount,
   crateSlug = null,
+  shareToken = null,
+  listName = null,
+  viewOnly = false,
   playSelection = null,
   onScan,
   onAddRecord,
@@ -54,6 +65,7 @@ export function Navigation({
     href: hrefForPage(link.id, {
       playSelection: link.id === 'play' ? playSelection : null,
       crateSlug,
+      shareToken,
     }),
   }));
 
@@ -63,9 +75,9 @@ export function Navigation({
     <>
       <header className="no-print app-nav app-nav--with-search sticky top-0 z-[60] border-b border-[var(--border)] glass-panel">
         <div className="app-nav__inner mx-auto max-w-7xl px-2 sm:px-6">
-          <div className="app-nav__grid">
+          <div className={`app-nav__grid${searchSlot ? '' : ' app-nav__grid--no-search'}`}>
             <a
-              href={buildAppHref(locationForPage('collection'))}
+              href={buildAppHref(locationForPage('collection', { crateSlug, shareToken }))}
               onClick={(event) => {
                 event.preventDefault();
                 onNavigate('collection');
@@ -80,6 +92,7 @@ export function Navigation({
                   MyVinyl
                 </span>
                 <span className="app-brand__meta tabular-nums">
+                  {viewOnly && listName ? `${listName} · ` : ''}
                   {recordCount} {countLabel}
                 </span>
               </span>
@@ -126,33 +139,38 @@ export function Navigation({
             ) : null}
 
             <div className="app-nav__actions flex shrink-0 items-center sm:gap-3">
+              {viewOnly ? <span className="share-page__lock">View only</span> : null}
               <div className="hidden sm:inline-flex">
                 <ThemeToggle />
               </div>
               <div className="sm:hidden">
                 <ThemeToggle compact />
               </div>
-              <button
-                type="button"
-                onClick={() => onScan?.()}
-                className="nav-scan-btn"
-                aria-label="Scan barcode"
-                title="Scan barcode"
-              >
-                <Scan className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2} />
-              </button>
+              {onScan ? (
+                <button
+                  type="button"
+                  onClick={() => onScan()}
+                  className="nav-scan-btn"
+                  aria-label="Scan barcode"
+                  title="Scan barcode"
+                >
+                  <Scan className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2} />
+                </button>
+              ) : null}
               <UserMenu />
-              <button
-                type="button"
-                onClick={() => onAddRecord?.()}
-                className="btn-primary app-nav__add-btn"
-                aria-label="Search Discogs to add vinyl"
-                title="Search Discogs to add vinyl"
-              >
-                <Plus className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" strokeWidth={2.25} />
-                <span className="app-nav__add-label app-nav__add-label--short">Add</span>
-                <span className="app-nav__add-label app-nav__add-label--full">Add vinyl</span>
-              </button>
+              {onAddRecord ? (
+                <button
+                  type="button"
+                  onClick={() => onAddRecord()}
+                  className="btn-primary app-nav__add-btn"
+                  aria-label="Search Discogs to add vinyl"
+                  title="Search Discogs to add vinyl"
+                >
+                  <Plus className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" strokeWidth={2.25} />
+                  <span className="app-nav__add-label app-nav__add-label--short">Add</span>
+                  <span className="app-nav__add-label app-nav__add-label--full">Add vinyl</span>
+                </button>
+              ) : null}
             </div>
           </div>
         </div>

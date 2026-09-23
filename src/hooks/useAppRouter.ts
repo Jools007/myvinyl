@@ -80,7 +80,8 @@ export function useAppRouter() {
         playSelection: page === 'play' ? (playSelection ?? current.playSelection) : null,
         releaseId: null,
         releaseEdit: false,
-        crateSlug: options?.crateSlug ?? current.crateSlug,
+        crateSlug: current.shareToken ? null : (options?.crateSlug ?? current.crateSlug),
+        shareToken: current.shareToken,
       });
     },
     [push]
@@ -95,7 +96,8 @@ export function useAppRouter() {
           playSelection,
           releaseId: null,
           releaseEdit: false,
-          crateSlug: current.crateSlug,
+          crateSlug: current.shareToken ? null : current.crateSlug,
+          shareToken: current.shareToken,
         },
         options
       );
@@ -109,7 +111,7 @@ export function useAppRouter() {
       push({
         ...current,
         releaseId: recordId,
-        releaseEdit: edit,
+        releaseEdit: current.shareToken ? false : edit,
       });
     },
     [push]
@@ -133,7 +135,8 @@ export function useAppRouter() {
           playSelection: null,
           releaseId: null,
           releaseEdit: false,
-          crateSlug,
+          crateSlug: locationRef.current.shareToken ? null : crateSlug,
+          shareToken: locationRef.current.shareToken,
         },
         options
       );

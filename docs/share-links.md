@@ -1,6 +1,6 @@
 # Share My List
 
-Owners share a crate with a single public link. Visitors can read the list. The share token cannot add, edit, or remove records.
+Owners share a crate with a single public link. Visitors get the main MyVinyl app for that crate — collection, filters, search, play, insights, and label printing — without any way to save changes. The share token cannot add, edit, or remove records.
 
 ## URL
 
@@ -16,7 +16,17 @@ Production:
 https://myvinyl-nine.vercel.app/s/<token>
 ```
 
-The token is the `share_links.token` value (URL-safe, 16–64 characters).
+The token is the `share_links.token` value (URL-safe, 16–64 characters). The same shell is available at:
+
+```text
+/s/<token>
+/s/<token>/insights
+/s/<token>/play
+/s/<token>/play/<recordId>/<trackId>
+/s/<token>/labels
+```
+
+Visitors can be logged out. Reads use an anonymous Supabase client that sends `x-share-token` and no session. Play, print, insights, filters, and in-list search run in the browser. Create, update, delete, enrich write-back, imports, scans, and share-link edits are not offered, and the database trigger still rejects writes that present the share token.
 
 ## Data
 
