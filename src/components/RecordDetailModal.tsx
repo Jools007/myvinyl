@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Loader2, Music2, RefreshCw, Trash2, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ENRICHMENT_ESTIMATE_HINT, enrichRecord } from '../lib/api';
-import { CAMELOT_KEYS } from '../lib/camelot';
+import { CAMELOT_KEYS, resolveTrackCamelot } from '../lib/camelot';
 import { normalizeVinylFormatForChip, VINYL_FORMATS } from '../lib/formats';
 import { canonicalVibeTag, MAX_VIBE_TAGS, VIBE_TAG_SUGGESTIONS } from '../lib/vibes';
 import { getPrimaryTrack, mergeEnrichmentOntoRelease, patchPrimaryTrack } from '../lib/tracks';
@@ -14,7 +14,7 @@ interface RecordDetailModalProps {
   record: VinylRecord | null;
   initialEditing?: boolean;
   readOnly?: boolean;
-  /** Public share view: hide play, refresh, and every edit control. */
+  /** Public share view: show the release, hide every control that writes. */
   viewOnly?: boolean;
   onClose: () => void;
   onUpdate: (id: string, patch: Partial<VinylRecord>) => void;
@@ -32,6 +32,35 @@ type EditDraft = {
   vibeTags: string[];
   notes?: string;
 };
+
+function ReadOnlyCrateFacts({ record }: { record: VinylRecord }) {
+  const track = getPrimaryTrack(record);
+  const key = resolveTrackCamelot(track).code;
+  const vibes = track?.vibeTags?.filter(Boolean) ?? [];
+  const facts: { label: string; value: string }[] = [];
+  if (record.format) facts.push({ label: 'Format', value: record.format });
+  if (record.condition) facts.push({ label: 'Condition', value: record.condition });
+  if (track?.bpm != null) facts.push({ label: 'BPM', value: String(track.bpm) });
+  if (key) facts.push({ label: 'Key', value: key });
+  if (vibes.length > 0) facts.push({ label: 'Vibes', value: vibes.join(', ') });
+  if (record.notes?.trim()) facts.push({ label: 'Notes', value: record.notes.trim() });
+
+  return (
+    <div className="record-detail-readonly">
+      <p className="record-detail-modal__hint">View only — nothing on this shared list can be saved.</p>
+      {facts.length > 0 ? (
+        <dl className="record-detail-readonly__facts">
+          {facts.map((fact) => (
+            <div key={fact.label} className="record-detail-readonly__fact">
+              <dt>{fact.label}</dt>
+              <dd>{fact.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+    </div>
+  );
+}
 
 function FormChip({
   active,
@@ -248,11 +277,13 @@ export function RecordDetailModal({
                   <h3 className="record-detail-modal__section-title">Crate details</h3>
 
                   {locked ? (
-                    <p className="record-detail-modal__hint">
-                      {viewOnly
-                        ? 'View only — this shared list can’t be edited.'
-                        : 'Guest demo — crate edits and deletes are disabled. Enrich and play still work.'}
-                    </p>
+                    viewOnly ? (
+                      <ReadOnlyCrateFacts record={record} />
+                    ) : (
+                      <p className="record-detail-modal__hint">
+                        Guest demo — crate edits and deletes are disabled. Enrich and play still work.
+                      </p>
+                    )
                   ) : (
                     <div className="record-detail-modal__form">
                       <div className="record-detail-modal__field">
