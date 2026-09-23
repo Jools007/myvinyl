@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import {
   isGuestCrate,
   isPersonalCrate,
+  isSharedCrate,
   type CollectionCrate,
 } from '../../lib/collectionContext';
 
@@ -93,7 +94,7 @@ export function CrateSwitcher({
         onClick={() => setOpen((prev) => !prev)}
       >
         <span className="crate-switcher__icon" aria-hidden>
-          {activeCrate && isGuestCrate(activeCrate) ? (
+          {activeCrate && (isGuestCrate(activeCrate) || isSharedCrate(activeCrate)) ? (
             <Users className="h-3 w-3" strokeWidth={2} />
           ) : (
             <Disc3 className="h-3 w-3" strokeWidth={2} />

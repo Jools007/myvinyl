@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   isGuestCrate,
   isPersonalCrate,
+  isSharedCrate,
   PERSONAL_CRATE_SLUG,
   type CollectionCrate,
 } from '../lib/collectionContext';
@@ -96,6 +97,7 @@ export function useCollections(options?: { paused?: boolean }) {
   }, [available, activeSlug, crates, personalCrate]);
 
   const isGuestView = activeCrate != null && isGuestCrate(activeCrate);
+  const isSharedView = activeCrate != null && isSharedCrate(activeCrate);
 
   const selectCrate = useCallback(
     (crate: CollectionCrate) => {
@@ -164,6 +166,7 @@ export function useCollections(options?: { paused?: boolean }) {
     activeCrate,
     activeSlug: activeSlug ?? PERSONAL_CRATE_SLUG,
     isGuestView,
+    isSharedView,
     selectCrate,
     selectCrateBySlug,
     setActiveSlug,

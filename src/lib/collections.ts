@@ -1,6 +1,7 @@
 import { probeRecordsSchema } from './records';
 import { supabase } from './supabase';
 import {
+  asSharedCrateView,
   GUEST_CRATE_MAX_COUNT,
   PERSONAL_CRATE_SLUG,
   type CollectionCrate,
@@ -74,6 +75,24 @@ async function resolveUserId(): Promise<string> {
   return userId;
 }
 
+async function fetchOwnerFirstNames(ownerIds: string[]): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  if (ownerIds.length === 0) return names;
+
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('user_id, first_name')
+    .in('user_id', ownerIds);
+
+  if (error || !data) return names;
+
+  for (const row of data as { user_id: string; first_name: string | null }[]) {
+    const first = row.first_name?.trim();
+    if (first) names.set(row.user_id, first);
+  }
+  return names;
+}
+
 export function slugFromDiscogsUsername(username: string): string {
   const base = username
     .trim()
@@ -88,7 +107,11 @@ export function guestCrateDisplayName(discogsUsername: string): string {
   return `${discogsUsername.trim()}'s Crate`;
 }
 
-/** Fetch all crates for the signed-in user. Returns available:false if migrations not applied. */
+/**
+ * Crates the signed-in user owns, plus personal crates shared to them.
+ * RLS `collections_select_own_or_shared` returns both; shared rows stay
+ * `kind = personal` in the database and are reclassified here.
+ */
 export async function fetchCollections(): Promise<
   | { available: true; crates: CollectionCrate[]; error: null }
   | { available: false; crates: []; error: CollectionsError | null }
@@ -98,7 +121,6 @@ export async function fetchCollections(): Promise<
     const { data, error } = await supabase
       .from(TABLE)
       .select('*')
-      .eq('owner_user_id', uid)
       .order('kind', { ascending: true })
       .order('created_at', { ascending: true });
 
@@ -114,9 +136,28 @@ export async function fetchCollections(): Promise<
       return { available: false, crates: [], error: null };
     }
 
+    const rows = (data ?? []) as CollectionRow[];
+    const sharedOwnerIds = [
+      ...new Set(
+        rows
+          .filter((row) => row.owner_user_id !== uid && row.kind === 'personal')
+          .map((row) => row.owner_user_id)
+      ),
+    ];
+    const ownerNames = await fetchOwnerFirstNames(sharedOwnerIds);
+
+    const crates = rows.flatMap((row) => {
+      if (row.owner_user_id !== uid && row.kind !== 'personal') return [];
+      const crate = rowToCrate(row);
+      if (row.owner_user_id !== uid) {
+        return [asSharedCrateView(crate, ownerNames.get(row.owner_user_id))];
+      }
+      return [crate];
+    });
+
     return {
       available: true,
-      crates: (data ?? []).map((row) => rowToCrate(row as CollectionRow)),
+      crates,
       error: null,
     };
   } catch (err) {
@@ -141,7 +182,7 @@ export async function ensurePersonalCollection(): Promise<
   const fetched = await fetchCollections();
   if (!fetched.available) return { available: false, crate: null, error: fetched.error };
 
-  const existing = fetched.crates.find((c) => c.kind === 'personal');
+  const existing = fetched.crates.find((c) => c.kind === 'personal' && !c.isSharedView);
   if (existing) {
     await attachOrphanRecords(existing.id);
     return { available: true, crate: existing, error: null };

@@ -100,6 +100,15 @@ export type UseCollectionScope = {
   personalCollectionId?: string | null;
   /** When true, new adds/imports are blocked (guest demo view). */
   readOnly?: boolean;
+  /**
+   * Peer shared crate: block add/delete/import into this collection.
+   * Enrichment updates still persist. Adds aimed at another crate (personal) stay allowed.
+   */
+  structuralReadOnly?: boolean;
+  /** Skip background migration and auto blurb writes (peer crates). */
+  suppressAutoWrite?: boolean;
+  /** Record owner when the active crate belongs to someone who shared it. */
+  ownerUserId?: string | null;
   /** When true, defer fetch until crate context is ready (avoids duplicate/wrong-scope loads). */
   suspended?: boolean;
   /**
@@ -113,6 +122,9 @@ export function useCollection(scope?: UseCollectionScope) {
   const collectionId = scope?.collectionId ?? null;
   const personalCollectionId = scope?.personalCollectionId ?? null;
   const readOnly = scope?.readOnly ?? false;
+  const structuralReadOnly = scope?.structuralReadOnly ?? false;
+  const suppressAutoWrite = scope?.suppressAutoWrite ?? false;
+  const ownerUserId = scope?.ownerUserId ?? null;
   const suspended = scope?.suspended ?? false;
   const summaryOnly = scope?.summaryOnly ?? false;
 
@@ -168,6 +180,7 @@ export function useCollection(scope?: UseCollectionScope) {
     const result = await fetchRecords(
       collectionId
         ? {
+            userId: ownerUserId ?? undefined,
             collectionId,
             personalCollectionId: personalCollectionId ?? undefined,
             summaryOnly,
@@ -193,7 +206,7 @@ export function useCollection(scope?: UseCollectionScope) {
     setCollectionError(null);
     setHydrated(true);
     setIsFetchingCollection(false);
-  }, [user?.id, collectionId, personalCollectionId, summaryOnly]);
+  }, [user?.id, collectionId, personalCollectionId, summaryOnly, ownerUserId]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -223,11 +236,15 @@ export function useCollection(scope?: UseCollectionScope) {
 
   const persistRecordNow = useCallback((record: VinylRecord) => {
     if (!isPersistedRecordId(record.id)) return;
+    const userId =
+      ownerUserId && (!record.collectionId || record.collectionId === collectionId)
+        ? ownerUserId
+        : undefined;
     persistQueueRef.current = persistQueueRef.current
-      .then(() => updateRecordInSupabase(record))
+      .then(() => updateRecordInSupabase(record, { userId }))
       .then(() => undefined)
       .catch(() => undefined);
-  }, []);
+  }, [collectionId, ownerUserId]);
 
   const persistRecordImmediately = useCallback((record: VinylRecord) => {
     const pending = persistTimersRef.current.get(record.id);
@@ -239,7 +256,7 @@ export function useCollection(scope?: UseCollectionScope) {
   }, [persistRecordNow]);
 
   useEffect(() => {
-    if (readOnly) {
+    if (readOnly || suppressAutoWrite) {
       registerCharacterBlurbPersister(null);
       return;
     }
@@ -257,7 +274,7 @@ export function useCollection(scope?: UseCollectionScope) {
     });
 
     return () => registerCharacterBlurbPersister(null);
-  }, [readOnly, persistRecordNow]);
+  }, [readOnly, suppressAutoWrite, persistRecordNow]);
 
   const replaceSavedRecord = useCallback(
     (localId: string, saved: VinylRecord) => {
@@ -309,7 +326,7 @@ export function useCollection(scope?: UseCollectionScope) {
 
   useEffect(() => {
     if (!hydrated) return;
-    if (readOnly) return;
+    if (readOnly || suppressAutoWrite) return;
     if (backgroundStarted.current || !needsBackgroundMigration()) return;
     backgroundStarted.current = true;
 
@@ -345,11 +362,12 @@ export function useCollection(scope?: UseCollectionScope) {
       cancelled = true;
       setBackgroundSync(idleSync);
     };
-  }, [hydrated, readOnly, schedulePersistRecord]);
+  }, [hydrated, readOnly, suppressAutoWrite, schedulePersistRecord]);
 
   const addRecord = useCallback(
     (record: Omit<VinylRecord, 'id' | 'addedAt'>, targetCollectionId?: string) => {
-      if (readOnly && !targetCollectionId) return null;
+      if ((readOnly || structuralReadOnly) && !targetCollectionId) return null;
+      if (structuralReadOnly && targetCollectionId === collectionId) return null;
       if (isCdFormat(record.format)) return null;
       const scopedCollectionId = targetCollectionId ?? collectionId ?? undefined;
       const entry = migrateRecord({
@@ -368,7 +386,7 @@ export function useCollection(scope?: UseCollectionScope) {
       persistNewRecord(entry);
       return entry;
     },
-    [collectionId, persistNewRecord, readOnly]
+    [collectionId, persistNewRecord, readOnly, structuralReadOnly]
   );
 
   const importDiscogsCollection = useCallback(
@@ -377,10 +395,15 @@ export function useCollection(scope?: UseCollectionScope) {
       if (!targetCollectionId) {
         return { added: 0, skipped: incoming.length, capped: 0 };
       }
+      if (structuralReadOnly && targetCollectionId === collectionId) {
+        return { added: 0, skipped: incoming.length, capped: 0 };
+      }
 
       const fetched = await fetchRecords({
+        userId: targetCollectionId === collectionId ? (ownerUserId ?? undefined) : undefined,
         collectionId: targetCollectionId,
-        personalCollectionId: personalCollectionId ?? undefined,
+        personalCollectionId:
+          targetCollectionId === collectionId ? (personalCollectionId ?? undefined) : targetCollectionId,
       });
       const prev = (fetched.data ?? []).map((record) => migrateRecord(record));
 
@@ -414,6 +437,7 @@ export function useCollection(scope?: UseCollectionScope) {
 
       if (targetCollectionId === collectionId) {
         const refreshed = await fetchRecords({
+          userId: ownerUserId ?? undefined,
           collectionId: targetCollectionId,
           personalCollectionId: personalCollectionId ?? undefined,
         });
@@ -430,7 +454,7 @@ export function useCollection(scope?: UseCollectionScope) {
         error: batch.error?.message,
       };
     },
-    [collectionId, personalCollectionId, persistNewRecord]
+    [collectionId, ownerUserId, personalCollectionId, persistNewRecord, structuralReadOnly]
   );
 
   const updateRecord = useCallback(
@@ -546,18 +570,18 @@ export function useCollection(scope?: UseCollectionScope) {
 
   const removeRecord = useCallback(
     (id: string): boolean => {
-      if (readOnly) return false;
+      if (readOnly || structuralReadOnly) return false;
       setRecords((prev) => prev.filter((record) => record.id !== id));
       if (isPersistedRecordId(id)) {
         void deleteRecordFromSupabase(id);
       }
       return true;
     },
-    [readOnly]
+    [readOnly, structuralReadOnly]
   );
 
   const clearCollection = useCallback((mode: ClearCollectionMode) => {
-    if (readOnly) return 0;
+    if (readOnly || structuralReadOnly) return 0;
     let removed = 0;
     let removedIds: string[] = [];
 
@@ -576,7 +600,7 @@ export function useCollection(scope?: UseCollectionScope) {
     }
 
     return removed;
-  }, [readOnly]);
+  }, [readOnly, structuralReadOnly]);
 
   const markPlayed = useCallback(
     (id: string) => {
@@ -603,6 +627,7 @@ export function useCollection(scope?: UseCollectionScope) {
       const result = await fetchRecords(
         collectionId
           ? {
+              userId: ownerUserId ?? undefined,
               collectionId,
               personalCollectionId: personalCollectionId ?? undefined,
               summaryOnly,
@@ -625,7 +650,7 @@ export function useCollection(scope?: UseCollectionScope) {
     } finally {
       isRefreshingRef.current = false;
     }
-  }, [collectionId, personalCollectionId, summaryOnly]);
+  }, [collectionId, ownerUserId, personalCollectionId, summaryOnly]);
 
   useEffect(() => {
     if (!hydrated || !user || suspended) return;
