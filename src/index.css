@@ -14940,6 +14940,38 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   }
 }
 
+/* Phones hide .collection-hero, which is the only desktop mount for CrateSwitcher. */
+.collection-crate-bar {
+  position: sticky;
+  top: var(--nav-height);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  margin: 0 0 0.65rem;
+  padding: 0.4rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+}
+
+.collection-crate-bar .crate-switcher,
+.collection-crate-bar .crate-switcher__trigger {
+  width: 100%;
+}
+
+.collection-crate-bar .crate-switcher__label {
+  flex: 1 1 auto;
+  max-width: none;
+}
+
+@media (min-width: 640px) {
+  .collection-crate-bar {
+    display: none;
+  }
+}
+
 .crate-switcher {
   position: relative;
   display: inline-flex;

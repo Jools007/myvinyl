@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { isGuestCrate, type CollectionCrate } from '../lib/collectionContext';
+import { isGuestCrate, isSharedCrate, type CollectionCrate } from '../lib/collectionContext';
 import { CrateSwitcher } from './crates/CrateSwitcher';
 
 interface CollectionHeroProps {
@@ -22,6 +22,7 @@ export function CollectionHero({
   sharedList = null,
 }: CollectionHeroProps) {
   const guest = activeCrate != null && isGuestCrate(activeCrate);
+  const peer = activeCrate != null && isSharedCrate(activeCrate);
   const shared = sharedList != null;
 
   return (
@@ -51,18 +52,26 @@ export function CollectionHero({
       <div className="collection-hero__copy">
         <motion.div initial={false} animate={{ opacity: 1, y: 0 }} className="collection-hero__copy-inner">
           <p className="collection-hero__kicker">
-            {shared ? `${sharedList.ownerName}'s list` : guest ? 'Guest crate' : 'Personal crate'}
+            {shared
+              ? `${sharedList.ownerName}'s list`
+              : peer
+                ? 'Shared crate'
+                : guest
+                  ? 'Guest crate'
+                  : 'Personal crate'}
           </p>
           <h1 className="collection-hero__title">
             {shared
               ? sharedList.name
-              : guest
-                ? activeCrate?.name ?? 'Guest crate'
+              : peer || guest
+                ? activeCrate?.name ?? 'Crate'
                 : 'Your collection'}
           </h1>
           <p className="collection-hero__meta">
             {shared
               ? `${recordCount} records — search, filter, play, insights, and print labels. View only.`
+              : peer
+                ? `${recordCount} records — shared with you. Browse, play, and enrich. Adding and deleting stay off.`
               : recordCount > 0
                 ? `${recordCount} records — filter below or search Discogs in the header.`
                 : guest
