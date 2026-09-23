@@ -65,6 +65,7 @@ import { getLastPlayed } from './lib/recommendations';
 import { useAuth } from './contexts/AuthContext';
 import { useCollection } from './hooks/useCollection';
 import { useCollections } from './hooks/useCollections';
+import { useSharedCrate } from './hooks/useSharedCrate';
 import {
   GUEST_CRATE_MAX_RECORDS,
   GUEST_SUMMARY_FETCH_THRESHOLD,
@@ -120,10 +121,17 @@ function collectionDisplayName(email?: string | null): string {
 
 function App() {
   const { user, loading: authLoading } = useAuth();
-  const crates = useCollections();
+  const router = useAppRouter();
+  const shareToken = router.location.shareToken;
+  const isShared = shareToken != null;
+  const crates = useCollections({ paused: isShared });
+  const shared = useSharedCrate(shareToken);
   const [guestEnrichmentRevision, setGuestEnrichmentRevision] = useState(0);
   const [guestTracklistsProbeRevision, setGuestTracklistsProbeRevision] = useState(0);
   const collectionScope = useMemo(() => {
+    if (isShared) {
+      return { suspended: true as const, readOnly: true };
+    }
     const cratesPending = crates.loading || (crates.available && !crates.activeCrate);
     if (cratesPending) {
       return { suspended: true as const };
@@ -151,6 +159,7 @@ function App() {
     crates.isGuestView,
     guestEnrichmentRevision,
     guestTracklistsProbeRevision,
+    isShared,
   ]);
 
   const crateSlugKey = useMemo(
@@ -159,7 +168,7 @@ function App() {
   );
 
   const {
-    records,
+    records: ownerRecords,
     settings,
     backgroundSync,
     tracklistEnrichment,
@@ -189,7 +198,12 @@ function App() {
     retryCollectionLoad,
   } = useCollection(collectionScope);
 
-  const router = useAppRouter();
+  const records = useMemo(
+    () => (isShared ? (shared.crate?.records ?? []) : ownerRecords),
+    [isShared, ownerRecords, shared.crate]
+  );
+  const dataLoading = isShared ? shared.loading : collectionLoading;
+  const dataHydrated = isShared ? shared.crate != null : collectionHydrated;
   const page = router.location.page;
   const discogsSearchRef = useRef<DiscogsSearchBarHandle>(null);
   const [scanOpen, setScanOpen] = useState(false);
@@ -223,7 +237,9 @@ function App() {
   const queueHydratedRef = useRef(false);
   const playCrateIdRef = useRef<string | null>(null);
   const releaseRouteRef = useRef<string | null>(null);
-  const activeCollectionId = crates.activeCrate?.id ?? null;
+  const activeCollectionId = isShared
+    ? (shared.crate?.id ?? null)
+    : (crates.activeCrate?.id ?? null);
 
   useEffect(() => {
     if (!detail) return;
@@ -278,6 +294,7 @@ function App() {
   }, [crates.isGuestView, crates.activeCrate?.id]);
 
   useEffect(() => {
+    if (isShared) return;
     if (!crates.available || crates.crates.length === 0) return;
 
     const { crateSlug, page } = router.location;
@@ -304,6 +321,7 @@ function App() {
     crateSlugKey,
     crates.selectCrateBySlug,
     crates.crates.length,
+    isShared,
   ]);
 
   const discogsLinkedCount = useMemo(() => countDiscogsLinkedRecords(records), [records]);
@@ -583,7 +601,8 @@ function App() {
       fast: '130+',
     };
 
-    const collectionName = collectionDisplayName(user?.email);
+    const collectionName =
+      isShared && shared.crate ? shared.crate.name : collectionDisplayName(user?.email);
 
     setExportingPdf(true);
     const preparing = toast.loading('Preparing your catalog…', {
@@ -597,7 +616,7 @@ function App() {
         records: filtered,
         totalInCollection: records.length,
         collectionName,
-        curatorName: user?.email?.split('@')[0],
+        curatorName: isShared ? shared.crate?.ownerName : user?.email?.split('@')[0],
         filterNote: buildCollectionFilterNote(
           collectionFilters,
           collectionFilters.bpmRangeId !== 'all'
@@ -630,10 +649,11 @@ function App() {
     } finally {
       setExportingPdf(false);
     }
-  }, [filtered, records.length, collectionFilters, user?.email]);
+  }, [filtered, records.length, collectionFilters, user?.email, isShared, shared.crate]);
 
   const hadUserRef = useRef(false);
   useEffect(() => {
+    if (isShared) return;
     if (user && !hadUserRef.current) {
       hadUserRef.current = true;
       if (!settings.onboardingComplete) {
@@ -645,10 +665,10 @@ function App() {
       playHydratedRef.current = null;
       queueHydratedRef.current = false;
     }
-  }, [user, settings.onboardingComplete, updateSettings]);
+  }, [isShared, user, settings.onboardingComplete, updateSettings]);
 
   useEffect(() => {
-    if (collectionLoading || !activeCollectionId) return;
+    if (dataLoading || !activeCollectionId) return;
 
     if (playCrateIdRef.current === activeCollectionId) return;
     playCrateIdRef.current = activeCollectionId;
@@ -662,7 +682,7 @@ function App() {
 
     const restoredNow = loadNowPlaying(activeCollectionId);
     setNowPlaying(restoredNow);
-  }, [collectionLoading, activeCollectionId]);
+  }, [dataLoading, activeCollectionId]);
 
   useEffect(() => {
     if (!queueHydratedRef.current || !activeCollectionId) return;
@@ -670,7 +690,7 @@ function App() {
   }, [playQueue, activeCollectionId]);
 
   useEffect(() => {
-    if (authLoading || collectionLoading || !collectionHydrated) return;
+    if ((!isShared && authLoading) || dataLoading || !dataHydrated) return;
     if (router.location.page !== 'play') return;
 
     let routePlay = router.location.playSelection;
@@ -681,6 +701,7 @@ function App() {
         locationForPage('play', {
           playSelection: stored,
           crateSlug: router.location.crateSlug,
+          shareToken: router.location.shareToken,
         })
       );
       if (currentAppHref() !== targetHref) {
@@ -711,17 +732,19 @@ function App() {
   }, [
     activeCollectionId,
     authLoading,
-    collectionHydrated,
-    collectionLoading,
+    dataHydrated,
+    dataLoading,
+    isShared,
     records,
     router.location.crateSlug,
     router.location.page,
     router.location.playSelection,
+    router.location.shareToken,
     router.goToPlay,
   ]);
 
   useEffect(() => {
-    if (collectionLoading) return;
+    if (dataLoading) return;
 
     const releaseId = router.location.releaseId;
     if (!releaseId) {
@@ -741,10 +764,11 @@ function App() {
       releaseRouteRef.current = releaseId;
       setDetailSession((n) => n + 1);
     }
-    setDetailEditOnOpen(router.location.releaseEdit);
+    setDetailEditOnOpen(isShared ? false : router.location.releaseEdit);
     setDetail(record);
   }, [
-    collectionLoading,
+    dataLoading,
+    isShared,
     records,
     router.location.releaseId,
     router.location.releaseEdit,
@@ -752,7 +776,7 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (collectionLoading) return;
+    if (dataLoading) return;
 
     const resolved = router.location.playSelection
       ? resolvePlaySelection(records, router.location.playSelection)
@@ -767,12 +791,19 @@ function App() {
       return;
     }
 
+    if (isShared && shared.crate && router.location.page === 'collection') {
+      document.title = `${shared.crate.name} | MyVinyl`;
+      return;
+    }
+
     document.title = pageDocumentTitle(router.location.page);
   }, [
-    collectionLoading,
+    dataLoading,
+    isShared,
     records,
     router.location.page,
     router.location.playSelection,
+    shared.crate,
   ]);
 
   const handlePlayNow = useCallback(
@@ -782,9 +813,9 @@ function App() {
       playHydratedRef.current = key;
       saveNowPlaying(ref, activeCollectionId ?? undefined);
       setNowPlaying(ref);
-      markPlayed(record.id);
+      if (!isShared) markPlayed(record.id);
       setPlayQueue((q) => q.filter((item) => !isSamePlaySelection(item, ref)));
-      if (crates.isGuestView && crates.activeCrate?.slug) {
+      if (!isShared && crates.isGuestView && crates.activeCrate?.slug) {
         router.goToPage('play', ref, { crateSlug: crates.activeCrate.slug });
       } else {
         router.goToPlay(ref);
@@ -798,6 +829,7 @@ function App() {
       activeCollectionId,
       crates.activeCrate?.slug,
       crates.isGuestView,
+      isShared,
       markPlayed,
       router,
     ]
@@ -1009,7 +1041,37 @@ function App() {
     });
   };
 
-  if (authLoading) {
+  if (isShared && shared.loading) {
+    return (
+      <>
+        <CollectionLoading />
+        <AppToaster />
+      </>
+    );
+  }
+
+  if (isShared && (shared.error || !shared.crate)) {
+    return (
+      <>
+        <div className="share-page min-h-dvh">
+          <main className="share-page__main mx-auto max-w-3xl px-4">
+            <div className="share-page__missing">
+              <h1 className="share-page__title">Link unavailable</h1>
+              <p className="share-page__count">
+                {shared.error ?? 'This link is invalid or has expired.'}
+              </p>
+              <button type="button" className="btn-primary mt-4" onClick={shared.retry}>
+                Try again
+              </button>
+            </div>
+          </main>
+        </div>
+        <AppToaster />
+      </>
+    );
+  }
+
+  if (!isShared && authLoading) {
     return (
       <>
         <div className="flex min-h-dvh items-center justify-center bg-[var(--bg)] p-4">
@@ -1020,7 +1082,7 @@ function App() {
     );
   }
 
-  if (!user) {
+  if (!isShared && !user) {
     return (
       <>
         <Login />
@@ -1029,7 +1091,7 @@ function App() {
     );
   }
 
-  if (collectionError && !collectionLoading) {
+  if (!isShared && collectionError && !collectionLoading) {
     return (
       <>
         <CollectionLoadError
@@ -1041,7 +1103,7 @@ function App() {
     );
   }
 
-  if (collectionLoading || (crates.available && crates.loading)) {
+  if (!isShared && (collectionLoading || (crates.available && crates.loading))) {
     return (
       <>
         <CollectionLoading
@@ -1072,11 +1134,15 @@ function App() {
         page={page}
         onNavigate={handleNavigate}
         recordCount={records.length}
-        crateSlug={crates.isGuestView ? crates.activeCrate?.slug ?? null : null}
+        crateSlug={isShared || !crates.isGuestView ? null : crates.activeCrate?.slug ?? null}
+        shareToken={shareToken}
+        listName={isShared ? shared.crate?.name : null}
+        viewOnly={isShared}
         playSelection={nowPlaying ?? router.location.playSelection}
-        onScan={() => setScanOpen(true)}
-        onAddRecord={handleAddRecord}
+        onScan={isShared ? undefined : () => setScanOpen(true)}
+        onAddRecord={isShared ? undefined : handleAddRecord}
         searchSlot={
+          isShared ? undefined : (
           <DiscogsSearchBar
             ref={discogsSearchRef}
             variant="nav"
@@ -1085,6 +1151,7 @@ function App() {
             collectionDiscogsIds={discogsIds}
             inputId="app-discogs-search-input"
           />
+          )
         }
       />
 
@@ -1109,16 +1176,27 @@ function App() {
               transition={{ duration: 0.15 }}
               className="collection-page"
             >
+              {isShared && shared.crate ? (
+                <p className="share-list-mobile-title sm:hidden">
+                  {shared.crate.name}
+                  <span>{shared.crate.ownerName}&apos;s list · View only</span>
+                </p>
+              ) : null}
               <CollectionHero
                 recordCount={records.length}
-                crates={crates.crates}
-                activeCrate={crates.activeCrate}
-                showCrateSwitcher={crates.available}
-                onSelectCrate={handleSelectCrate}
-                onImportGuest={() => setDiscogsImportOpen(true)}
+                crates={isShared ? [] : crates.crates}
+                activeCrate={isShared ? null : crates.activeCrate}
+                showCrateSwitcher={!isShared && crates.available}
+                onSelectCrate={isShared ? undefined : handleSelectCrate}
+                onImportGuest={isShared ? undefined : () => setDiscogsImportOpen(true)}
+                sharedList={
+                  isShared && shared.crate
+                    ? { name: shared.crate.name, ownerName: shared.crate.ownerName }
+                    : null
+                }
               />
 
-              {crates.isGuestView && crates.activeCrate && !guestBannerDismissed ? (
+              {!isShared && crates.isGuestView && crates.activeCrate && !guestBannerDismissed ? (
                 <GuestCrateBanner
                   crate={crates.activeCrate}
                   onDismiss={handleDismissGuestBanner}
@@ -1141,29 +1219,35 @@ function App() {
                   availableGenres={availableGenres}
                   availableVibes={availableVibes}
                   onResetCollection={
-                    crates.isGuestView ? undefined : () => setClearCollectionOpen(true)
+                    isShared || crates.isGuestView ? undefined : () => setClearCollectionOpen(true)
                   }
-                  onEnrichTracklists={handleOpenTracklistEnrich}
+                  onEnrichTracklists={isShared ? undefined : handleOpenTracklistEnrich}
                   enrichingTracklists={
                     isFullTracklistEnrichmentRunning || guestSmartEnrichRunning
                   }
-                  onEnrichMetadata={handleOpenMetadataEnrich}
+                  onEnrichMetadata={isShared ? undefined : handleOpenMetadataEnrich}
                   enrichingMetadata={isFullMetadataEnrichmentRunning}
-                  onRefreshCharacterBlurbs={handleOpenCharacterBlurbRefresh}
+                  onRefreshCharacterBlurbs={isShared ? undefined : handleOpenCharacterBlurbRefresh}
                   refreshingCharacterBlurbs={isCharacterBlurbRefreshRunning}
                   discogsLinkedCount={discogsLinkedCount}
                   onExportPdf={() => void handleExportPdf()}
                   exportingPdf={exportingPdf}
                   onOpenInsights={() => router.goToPage('insights')}
                   onShare={
-                    crates.activeCrate
+                    !isShared && crates.activeCrate
                       ? () => setShareOpen(true)
                       : undefined
                   }
                 />
 
                 {records.length === 0 ? (
-                  <EmptyCollection onAddRecord={handleAddRecord} />
+                  isShared ? (
+                    <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-[var(--border)] py-16">
+                      <p className="text-[var(--text-secondary)]">This shared list is empty.</p>
+                    </div>
+                  ) : (
+                    <EmptyCollection onAddRecord={handleAddRecord} />
+                  )
                 ) : filtered.length === 0 ? (
                   <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-[var(--border)] py-16">
                     <p className="text-[var(--text-secondary)]">No records match your filters.</p>
@@ -1181,20 +1265,25 @@ function App() {
                   <CollectionListView
                     records={filtered}
                     liveEnrich={liveEnrich}
-                    readOnly={crates.isGuestView}
+                    readOnly={isShared || crates.isGuestView}
                     onPlayNow={handlePlayNow}
                     onAddToQueue={handleAddToQueue}
-                    onEnrichRelease={handleEnrichRelease}
-                    onSaveCutRating={(recordId, trackId, rating: CutRating | undefined) => {
-                      updateRecord(
-                        recordId,
-                        (record) => ({
-                          tracks: patchTrack(record, trackId, { cutRating: rating }).tracks,
-                        }),
-                        { persistImmediately: true }
-                      );
-                    }}
+                    onEnrichRelease={isShared ? undefined : handleEnrichRelease}
+                    onSaveCutRating={
+                      isShared || crates.isGuestView
+                        ? undefined
+                        : (recordId, trackId, rating: CutRating | undefined) => {
+                            updateRecord(
+                              recordId,
+                              (record) => ({
+                                tracks: patchTrack(record, trackId, { cutRating: rating }).tracks,
+                              }),
+                              { persistImmediately: true }
+                            );
+                          }
+                    }
                     onDelete={(id) => {
+                      if (isShared) return;
                       if (!removeRecord(id)) return;
                       if (detail?.id === id) closeRecordDetail();
                       toast.success('Removed from collection');
@@ -1222,18 +1311,23 @@ function App() {
             >
               <InsightsDashboard
                 records={records}
-                crateName={crates.activeCrate?.name}
-                isGuestCrate={crates.isGuestView}
+                crateName={isShared ? shared.crate?.name : crates.activeCrate?.name}
+                isGuestCrate={!isShared && crates.isGuestView}
                 onApplyFilter={handleApplyInsightFilter}
                 onOpenCollection={() =>
                   router.goToPage(
                     'collection',
                     undefined,
-                    { crateSlug: crates.isGuestView ? crates.activeCrate?.slug ?? null : null }
+                    {
+                      crateSlug:
+                        isShared || !crates.isGuestView
+                          ? null
+                          : crates.activeCrate?.slug ?? null,
+                    }
                   )
                 }
-                onEnrichTracklists={handleOpenTracklistEnrich}
-                onEnrichMetadata={handleOpenMetadataEnrich}
+                onEnrichTracklists={isShared ? undefined : handleOpenTracklistEnrich}
+                onEnrichMetadata={isShared ? undefined : handleOpenMetadataEnrich}
                 onPlayNow={handlePlayNow}
                 onAddToQueue={handleAddToQueue}
                 onQueueMany={handleQueueMany}
@@ -1251,13 +1345,13 @@ function App() {
             >
               <PlayNextPanel
                 collection={records}
-                crateName={crates.activeCrate?.name}
-                isGuestCrate={crates.isGuestView}
+                crateName={isShared ? shared.crate?.name : crates.activeCrate?.name}
+                isGuestCrate={!isShared && crates.isGuestView}
                 nowPlaying={playAnchor}
                 queue={resolvedQueue}
                 onPlayNow={handlePlayNow}
                 onSaveTapBpm={
-                  crates.isGuestView
+                  isShared || crates.isGuestView
                     ? undefined
                     : (recordId, trackId, bpm) => {
                         updateRecord(
@@ -1278,7 +1372,7 @@ function App() {
                       }
                 }
                 onSaveManualBpm={
-                  crates.isGuestView
+                  isShared || crates.isGuestView
                     ? undefined
                     : (recordId, trackId, bpm) => {
                         updateRecord(
@@ -1299,7 +1393,7 @@ function App() {
                       }
                 }
                 onSaveCutRating={
-                  crates.isGuestView
+                  isShared || crates.isGuestView
                     ? undefined
                     : (recordId, trackId, rating) => {
                         updateRecord(
@@ -1317,11 +1411,12 @@ function App() {
                       }
                 }
                 onEnrichRelease={
-                  !crates.isGuestView && playAnchor
+                  !isShared && !crates.isGuestView && playAnchor
                     ? () => handleEnrichRelease(playAnchor.record.id)
                     : undefined
                 }
                 enrichingRelease={
+                  !isShared &&
                   !crates.isGuestView &&
                   Boolean(playAnchor) &&
                   liveEnrich?.recordId === playAnchor?.record.id
@@ -1339,15 +1434,20 @@ function App() {
             >
               <LabelPrint
                 records={records}
-                crateName={crates.activeCrate?.name}
-                isGuestCrate={crates.isGuestView}
-                readOnly={crates.isGuestView}
+                crateName={isShared ? shared.crate?.name : crates.activeCrate?.name}
+                isGuestCrate={!isShared && crates.isGuestView}
+                readOnly={isShared || crates.isGuestView}
+                readOnlyNote={
+                  isShared
+                    ? 'Preview and print these labels. Nothing on this shared list can be saved.'
+                    : undefined
+                }
                 selectedIds={labelSelection}
                 onToggle={toggleLabel}
                 onSelectAll={() => setLabelSelection(new Set(records.map((r) => r.id)))}
                 onClearSelection={() => setLabelSelection(new Set())}
                 onSaveDescription={
-                  crates.isGuestView
+                  isShared || crates.isGuestView
                     ? undefined
                     : (id, text) =>
                         updateRecord(id, {
@@ -1355,18 +1455,22 @@ function App() {
                         })
                 }
                 onSaveVibes={
-                  crates.isGuestView
+                  isShared || crates.isGuestView
                     ? undefined
                     : (id, vibeTags) =>
                         updateRecord(id, (r) => patchPrimaryTrack(r, { vibeTags }))
                 }
                 onSaveLabelDisplay={
-                  crates.isGuestView
+                  isShared || crates.isGuestView
                     ? undefined
                     : (id, labelDisplay) => updateRecord(id, { labelDisplay })
                 }
-                onEnrichRelease={crates.isGuestView ? undefined : handleEnrichRelease}
-                enrichingRecordId={crates.isGuestView ? null : liveEnrich?.recordId ?? null}
+                onEnrichRelease={
+                  isShared || crates.isGuestView ? undefined : handleEnrichRelease
+                }
+                enrichingRecordId={
+                  isShared || crates.isGuestView ? null : liveEnrich?.recordId ?? null
+                }
               />
             </motion.div>
           )}
@@ -1408,10 +1512,12 @@ function App() {
             : 'closed'
         }
         record={detail}
-        initialEditing={detailEditOnOpen}
-        readOnly={crates.isGuestView}
+        initialEditing={!isShared && detailEditOnOpen}
+        readOnly={isShared || crates.isGuestView}
+        viewOnly={isShared}
         onClose={handleCloseRecordDetail}
         onUpdate={(id, patch) => {
+          if (isShared) return;
           updateRecord(id, patch, { persistImmediately: true });
           const label = detail;
           toast.success('Record updated', {
@@ -1419,11 +1525,12 @@ function App() {
           });
         }}
         onDelete={(id) => {
+          if (isShared) return;
           if (!removeRecord(id)) return;
           handleCloseRecordDetail();
           toast.success('Removed from collection');
         }}
-        onPlay={markPlayed}
+        onPlay={isShared ? () => undefined : markPlayed}
       />
 
       <EnrichTracklistsModal

@@ -4,13 +4,13 @@ export function isShareToken(value: string): boolean {
   return SHARE_TOKEN.test(value);
 }
 
-/** `/s/:token` — token is the URL-safe share_links.token value. */
+/** Token from `/s/:token` and `/s/:token/insights|play|labels`. */
 export function parseShareToken(pathname: string): string | null {
   const trimmed = pathname.trim() || '/';
   const path = trimmed.length > 1 && trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
-  const match = path.match(/^\/s\/([^/]+)$/);
-  if (!match) return null;
-  let token = match[1];
+  const segments = path.split('/').filter(Boolean);
+  if (segments[0] !== 's' || !segments[1]) return null;
+  let token = segments[1];
   try {
     token = decodeURIComponent(token);
   } catch {

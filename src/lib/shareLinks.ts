@@ -1,14 +1,28 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { resolveDiscogsCoverUrl } from './discogsCover';
 import { parseFilterList } from './filterLabels';
+import { clampLabelDescription } from './labelContent';
 import { migrateRecord } from './tracks';
-import type { RecordCondition, Track, VinylRecord } from './types';
+import type {
+  LabelDisplayPrefs,
+  LabelTitleLayout,
+  RecordCondition,
+  Track,
+  VinylRecord,
+} from './types';
 import { supabase } from './supabase';
 import { generateShareToken, isShareToken, sharePath } from './shareRoute';
 
 const PAGE_SIZE = 500;
 
 const RECORD_COLUMNS =
-  'id,collection_id,title,artist,year,format,genre,cover_image,tracklist,condition,discogs_id,bpm,created_at';
+  'id,collection_id,title,artist,year,format,genre,cover_image,tracklist,condition,discogs_id,bpm,barcode,notes,label_description,label_display,created_at';
+
+const LABEL_TITLE_LAYOUTS: LabelTitleLayout[] = [
+  'artist-album',
+  'album-artist',
+  'album-only',
+];
 
 export type ShareLinkError = { message: string; code?: string };
 
@@ -55,8 +69,27 @@ type ShareRecordRow = {
   condition: string | null;
   discogs_id: number | null;
   bpm: number | null;
+  notes: string | null;
+  label_description: string | null;
+  label_display: unknown;
   created_at: string;
 };
+
+function parseLabelDisplay(raw: unknown): LabelDisplayPrefs | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const row = raw as Record<string, unknown>;
+  const prefs: LabelDisplayPrefs = {};
+  if (
+    typeof row.titleLayout === 'string' &&
+    LABEL_TITLE_LAYOUTS.includes(row.titleLayout as LabelTitleLayout)
+  ) {
+    prefs.titleLayout = row.titleLayout as LabelTitleLayout;
+  }
+  if (typeof row.showBpm === 'boolean') prefs.showBpm = row.showBpm;
+  if (typeof row.showKey === 'boolean') prefs.showKey = row.showKey;
+  if (typeof row.showVibes === 'boolean') prefs.showVibes = row.showVibes;
+  return Object.keys(prefs).length > 0 ? prefs : undefined;
+}
 
 const memoryStorage = {
   getItem: () => null,
@@ -118,15 +151,19 @@ export function ownerLabel(firstName: string | null | undefined, email?: string 
 
 function shareRowToRecord(row: ShareRecordRow): VinylRecord {
   const tracks = Array.isArray(row.tracklist) ? row.tracklist : [];
+  const labelDescription = row.label_description?.trim();
   return migrateRecord({
     id: row.id,
     artist: row.artist,
     title: row.title,
     year: row.year != null && row.year !== '' ? String(row.year) : undefined,
     format: row.format ?? undefined,
-    coverUrl: row.cover_image ?? undefined,
+    coverUrl: resolveDiscogsCoverUrl(row.cover_image),
     genres: parseFilterList(row.genre),
     condition: (row.condition as RecordCondition) || 'NM',
+    notes: row.notes?.trim() || undefined,
+    labelDescription: labelDescription ? clampLabelDescription(labelDescription) : undefined,
+    labelDisplay: parseLabelDisplay(row.label_display),
     tracks,
     bpm: tracks.length > 0 ? undefined : (row.bpm ?? undefined),
     discogsId: row.discogs_id ?? undefined,

@@ -41,6 +41,7 @@ interface LabelPrintProps {
   crateName?: string;
   isGuestCrate?: boolean;
   readOnly?: boolean;
+  readOnlyNote?: string;
   selectedIds: Set<string>;
   onToggle: (id: string) => void;
   onSelectAll: () => void;
@@ -70,6 +71,7 @@ export function LabelPrint({
   crateName,
   isGuestCrate = false,
   readOnly = false,
+  readOnlyNote,
   selectedIds,
   onToggle,
   onSelectAll,
@@ -492,7 +494,8 @@ export function LabelPrint({
           </h1>
           <p className="labels-page__sub">
             {readOnly
-              ? 'Preview and print labels from this guest crate — edits stay in your personal crate only.'
+              ? (readOnlyNote ??
+                'Preview and print labels from this guest crate — edits stay in your personal crate only.')
               : 'Print square stickers for your sleeves — BPM, key, and vibes at a glance in the crate.'}
           </p>
         </div>

@@ -2,6 +2,7 @@ import type { NavPage } from '../components/Navigation';
 import { PERSONAL_CRATE_SLUG } from './collectionContext';
 import { isPersistedRecordId } from './records';
 import type { PlaySelection } from './playSession';
+import { isShareToken } from './shareRoute';
 
 export interface AppLocation {
   page: NavPage;
@@ -10,6 +11,8 @@ export interface AppLocation {
   releaseEdit: boolean;
   /** Guest crate slug from /crates/:slug — null means personal crate. */
   crateSlug: string | null;
+  /** Public share token from /s/:token — null on the signed-in app. */
+  shareToken: string | null;
 }
 
 const PAGE_PATHS: Record<NavPage, string> = {
@@ -61,11 +64,45 @@ export function parseAppLocation(
   let page: NavPage = PATH_TO_PAGE[pathname] ?? 'collection';
   let playSelection: PlaySelection | null = null;
   let crateSlug: string | null = null;
+  let shareToken: string | null = null;
 
   const params = new URLSearchParams(
     searchInput.startsWith('?') ? searchInput.slice(1) : searchInput
   );
   const crateFromQuery = params.get('crate')?.trim();
+
+  if (segments[0] === 's' && segments[1]) {
+    const raw = decodeSegment(segments[1]);
+    if (isShareToken(raw)) {
+      shareToken = raw;
+      const rest = segments.slice(2);
+      if (rest[0] === 'insights') page = 'insights';
+      else if (rest[0] === 'labels') page = 'labels';
+      else if (rest[0] === 'play') {
+        page = 'play';
+        if (rest.length >= 3) {
+          const recordId = decodeSegment(rest[1]);
+          const trackId = decodeSegment(rest[2]);
+          if (isValidRecordId(recordId) && isValidTrackId(trackId)) {
+            playSelection = { recordId, trackId };
+          }
+        }
+      } else {
+        page = 'collection';
+      }
+
+      const releaseIdRaw = params.get('release')?.trim() ?? '';
+      const releaseId = releaseIdRaw && isValidRecordId(releaseIdRaw) ? releaseIdRaw : null;
+      return {
+        page,
+        playSelection,
+        releaseId,
+        releaseEdit: false,
+        crateSlug: null,
+        shareToken,
+      };
+    }
+  }
 
   if (segments[0] === 'crates' && segments[1]) {
     page = 'collection';
@@ -91,7 +128,7 @@ export function parseAppLocation(
   const releaseId = releaseIdRaw && isValidRecordId(releaseIdRaw) ? releaseIdRaw : null;
   const releaseEdit = releaseId != null && params.get('edit') === '1';
 
-  return { page, playSelection, releaseId, releaseEdit, crateSlug };
+  return { page, playSelection, releaseId, releaseEdit, crateSlug, shareToken };
 }
 
 export function readAppLocation(): AppLocation {
@@ -102,6 +139,7 @@ export function readAppLocation(): AppLocation {
       releaseId: null,
       releaseEdit: false,
       crateSlug: null,
+      shareToken: null,
     };
   }
   return parseAppLocation(window.location.pathname, window.location.search);
@@ -127,6 +165,7 @@ export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
     a.releaseId === b.releaseId &&
     a.releaseEdit === b.releaseEdit &&
     a.crateSlug === b.crateSlug &&
+    a.shareToken === b.shareToken &&
     playSelectionsEqual(a.playSelection, b.playSelection)
   );
 }
@@ -134,7 +173,17 @@ export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
 export function buildAppHref(location: AppLocation): string {
   let pathname = PAGE_PATHS[location.page];
 
-  if (location.page === 'collection' && location.crateSlug) {
+  if (location.shareToken) {
+    const base = `/s/${encodeURIComponent(location.shareToken)}`;
+    if (location.page === 'play' && location.playSelection) {
+      const { recordId, trackId } = location.playSelection;
+      pathname = `${base}/play/${encodeURIComponent(recordId)}/${encodeURIComponent(trackId)}`;
+    } else if (location.page === 'collection') {
+      pathname = base;
+    } else {
+      pathname = `${base}${PAGE_PATHS[location.page]}`;
+    }
+  } else if (location.page === 'collection' && location.crateSlug) {
     pathname = `/crates/${encodeURIComponent(location.crateSlug)}`;
   } else if (location.page === 'play' && location.playSelection) {
     const { recordId, trackId } = location.playSelection;
@@ -144,10 +193,10 @@ export function buildAppHref(location: AppLocation): string {
   const params = new URLSearchParams();
   if (location.releaseId) {
     params.set('release', location.releaseId);
-    if (location.releaseEdit) params.set('edit', '1');
+    if (location.releaseEdit && !location.shareToken) params.set('edit', '1');
   }
 
-  if (location.crateSlug && location.page !== 'collection') {
+  if (!location.shareToken && location.crateSlug && location.page !== 'collection') {
     params.set('crate', location.crateSlug);
   }
 
@@ -162,14 +211,16 @@ export function locationForPage(
     releaseId?: string | null;
     releaseEdit?: boolean;
     crateSlug?: string | null;
+    shareToken?: string | null;
   }
 ): AppLocation {
   return {
     page,
     playSelection: page === 'play' ? (options?.playSelection ?? null) : null,
     releaseId: options?.releaseId ?? null,
-    releaseEdit: options?.releaseEdit ?? false,
-    crateSlug: options?.crateSlug ?? null,
+    releaseEdit: options?.shareToken ? false : (options?.releaseEdit ?? false),
+    crateSlug: options?.shareToken ? null : (options?.crateSlug ?? null),
+    shareToken: options?.shareToken ?? null,
   };
 }
 

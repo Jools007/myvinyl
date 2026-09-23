@@ -1,38 +1,27 @@
 import { useEffect, useState } from 'react';
 import { RecordLocatorShell } from '../features/record-locator';
 import App from './App';
-import { AppToaster } from './components/AppToaster';
-import { SharedCratePage } from './components/share/SharedCratePage';
-import { parseShareToken } from './lib/shareRoute';
+import { readAppLocation } from './lib/appRoute';
 
-function readToken(): string | null {
+function readShareToken(): string | null {
   if (typeof window === 'undefined') return null;
-  return parseShareToken(window.location.pathname);
+  return readAppLocation().shareToken;
 }
 
-/** Public `/s/:token` stays outside the signed-in collection shell. */
+/** Public `/s/:token` uses the main shell in read-only mode. */
 export function AppRoot() {
-  const [token, setToken] = useState<string | null>(() => readToken());
+  const [shareToken, setShareToken] = useState<string | null>(() => readShareToken());
 
   useEffect(() => {
-    const sync = () => setToken(readToken());
+    const sync = () => setShareToken(readShareToken());
     window.addEventListener('popstate', sync);
     return () => window.removeEventListener('popstate', sync);
   }, []);
 
-  if (token) {
-    return (
-      <>
-        <SharedCratePage key={token} token={token} />
-        <AppToaster />
-      </>
-    );
-  }
-
   return (
     <>
       <App />
-      <RecordLocatorShell />
+      {shareToken ? null : <RecordLocatorShell />}
     </>
   );
 }

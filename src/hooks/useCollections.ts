@@ -15,7 +15,8 @@ import {
 } from '../lib/collections';
 import { saveActiveCrateSlug } from '../lib/crateStorage';
 
-export function useCollections() {
+export function useCollections(options?: { paused?: boolean }) {
+  const paused = options?.paused ?? false;
   const { user, loading: authLoading } = useAuth();
   const [available, setAvailable] = useState(false);
   const [crates, setCrates] = useState<CollectionCrate[]>([]);
@@ -67,7 +68,7 @@ export function useCollections() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (!user) {
+    if (!user || paused) {
       setAvailable(false);
       setCrates([]);
       setPersonalCrate(null);
@@ -75,7 +76,7 @@ export function useCollections() {
       return;
     }
     void refreshCrates();
-  }, [user?.id, authLoading, refreshCrates]);
+  }, [user?.id, authLoading, refreshCrates, paused]);
 
   const setActiveSlug = useCallback((slug: string | null) => {
     const normalized = slug === PERSONAL_CRATE_SLUG ? null : slug;
