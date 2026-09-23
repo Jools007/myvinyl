@@ -9,6 +9,7 @@ import {
   KeyRound,
   Sparkles,
   LayoutGrid,
+  Link2,
   List,
   Loader2,
   MoreHorizontal,
@@ -87,6 +88,7 @@ interface CollectionFiltersProps {
   enrichingMetadata?: boolean;
   onRefreshCharacterBlurbs?: () => void;
   refreshingCharacterBlurbs?: boolean;
+  onShare?: () => void;
 }
 
 type FilterOption = { value: string; label: string };
@@ -286,6 +288,7 @@ export function CollectionFilters({
   enrichingMetadata = false,
   onRefreshCharacterBlurbs,
   refreshingCharacterBlurbs = false,
+  onShare,
 }: CollectionFiltersProps) {
   const [openFilterId, setOpenFilterId] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -624,6 +627,18 @@ export function CollectionFilters({
               <Rows3 className="h-3 w-3" />
             </button>
           </div>
+
+          {onShare ? (
+            <button
+              type="button"
+              onClick={onShare}
+              className="collection-toolbar__more-btn"
+              aria-label="Share list"
+              title="Share list"
+            >
+              <Link2 className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          ) : null}
 
           <div ref={moreRef} className="collection-toolbar__more relative">
             <button

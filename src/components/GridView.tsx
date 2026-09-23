@@ -5,11 +5,13 @@ import { RecordCard } from './RecordCard';
 interface GridViewProps {
   records: VinylRecord[];
   onPlay: (record: VinylRecord) => void;
+  showPlay?: boolean;
+  onOpenRecord?: (record: VinylRecord) => void;
 }
 
 const LARGE_GRID_THRESHOLD = 120;
 
-export function GridView({ records, onPlay }: GridViewProps) {
+export function GridView({ records, onPlay, showPlay = true, onOpenRecord }: GridViewProps) {
   const useMotion = records.length <= LARGE_GRID_THRESHOLD;
 
   return (
@@ -23,6 +25,8 @@ export function GridView({ records, onPlay }: GridViewProps) {
                 record={record}
                 index={i}
                 dense
+                showPlay={showPlay}
+                onOpen={onOpenRecord ? () => onOpenRecord(record) : undefined}
                 onPlay={() => onPlay(record)}
               />
             ))}
@@ -34,6 +38,8 @@ export function GridView({ records, onPlay }: GridViewProps) {
               record={record}
               index={i}
               dense
+              showPlay={showPlay}
+              onOpen={onOpenRecord ? () => onOpenRecord(record) : undefined}
               onPlay={() => onPlay(record)}
             />
           ))

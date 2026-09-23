@@ -8,6 +8,8 @@ import { RecordArtwork } from './RecordArtwork';
 interface RecordCardProps {
   record: VinylRecord;
   onPlay?: () => void;
+  onOpen?: () => void;
+  showPlay?: boolean;
   index?: number;
   compact?: boolean;
   dense?: boolean;
@@ -16,12 +18,14 @@ interface RecordCardProps {
 export function RecordCard({
   record,
   onPlay,
+  onOpen,
+  showPlay = true,
   index = 0,
   compact,
   dense,
 }: RecordCardProps) {
   const track = getPrimaryTrack(record);
-  const viewRecord = () => openRecordDetail(record);
+  const viewRecord = () => (onOpen ? onOpen() : openRecordDetail(record));
 
   return (
     <motion.article
@@ -67,22 +71,24 @@ export function RecordCard({
             fill
             className="rounded-none"
           />
-          <motion.button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onPlay?.();
-            }}
-            className={`record-card__play-btn absolute z-10 rounded-full bg-[var(--accent)] text-white shadow-md transition-all duration-200 ${
-              dense
-                ? 'bottom-2 right-2 flex h-9 w-9 items-center justify-center opacity-100 sm:bottom-1.5 sm:right-1.5 sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100'
-                : 'bottom-3 right-3 flex h-11 w-11 items-center justify-center opacity-100 shadow-lg sm:opacity-0 sm:group-hover:opacity-100'
-            }`}
-            whileTap={{ scale: 0.9 }}
-            aria-label="Mark as played"
-          >
-            <Music2 className={dense ? 'h-3.5 w-3.5 sm:h-3 sm:w-3' : 'h-4 w-4'} />
-          </motion.button>
+          {showPlay ? (
+            <motion.button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPlay?.();
+              }}
+              className={`record-card__play-btn absolute z-10 rounded-full bg-[var(--accent)] text-white shadow-md transition-all duration-200 ${
+                dense
+                  ? 'bottom-2 right-2 flex h-9 w-9 items-center justify-center opacity-100 sm:bottom-1.5 sm:right-1.5 sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100'
+                  : 'bottom-3 right-3 flex h-11 w-11 items-center justify-center opacity-100 shadow-lg sm:opacity-0 sm:group-hover:opacity-100'
+              }`}
+              whileTap={{ scale: 0.9 }}
+              aria-label="Mark as played"
+            >
+              <Music2 className={dense ? 'h-3.5 w-3.5 sm:h-3 sm:w-3' : 'h-4 w-4'} />
+            </motion.button>
+          ) : null}
           {record.lastPlayedAt && (
             <span
               className={`pointer-events-none absolute left-1.5 top-1.5 z-10 flex items-center gap-0.5 rounded-full bg-black/50 font-medium uppercase tracking-wider text-white/90 backdrop-blur-sm ${

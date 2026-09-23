@@ -14,6 +14,8 @@ interface RecordDetailModalProps {
   record: VinylRecord | null;
   initialEditing?: boolean;
   readOnly?: boolean;
+  /** Public share view: hide play, refresh, and every edit control. */
+  viewOnly?: boolean;
   onClose: () => void;
   onUpdate: (id: string, patch: Partial<VinylRecord>) => void;
   onDelete: (id: string) => void;
@@ -68,6 +70,7 @@ export function RecordDetailModal({
   record,
   initialEditing: _initialEditing = false,
   readOnly = false,
+  viewOnly = false,
   onClose,
   onUpdate,
   onDelete,
@@ -87,6 +90,8 @@ export function RecordDetailModal({
   }, [record]);
 
   if (!record || !editDraft) return null;
+
+  const locked = readOnly || viewOnly;
 
   const saveEditing = () => {
     onUpdate(record.id, {
@@ -181,31 +186,35 @@ export function RecordDetailModal({
               </div>
 
               <div className="record-detail-modal__toolbar">
-                <button
-                  type="button"
-                  className="btn-primary record-detail-modal__play-btn"
-                  onClick={() => {
-                    onPlay(record.id);
-                    onClose();
-                  }}
-                >
-                  <Music2 className="h-4 w-4" />
-                  Mark as played
-                </button>
-                <button
-                  type="button"
-                  className="btn-ghost record-detail-modal__icon-btn"
-                  onClick={refreshMetadata}
-                  disabled={refreshing}
-                  title="Refresh BPM, key & vibes from APIs"
-                  aria-label="Refresh metadata"
-                >
-                  {refreshing ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4" />
-                  )}
-                </button>
+                {viewOnly ? null : (
+                  <button
+                    type="button"
+                    className="btn-primary record-detail-modal__play-btn"
+                    onClick={() => {
+                      onPlay(record.id);
+                      onClose();
+                    }}
+                  >
+                    <Music2 className="h-4 w-4" />
+                    Mark as played
+                  </button>
+                )}
+                {viewOnly ? null : (
+                  <button
+                    type="button"
+                    className="btn-ghost record-detail-modal__icon-btn"
+                    onClick={refreshMetadata}
+                    disabled={refreshing}
+                    title="Refresh BPM, key & vibes from APIs"
+                    aria-label="Refresh metadata"
+                  >
+                    {refreshing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={onClose}
@@ -238,9 +247,11 @@ export function RecordDetailModal({
                 <div className="record-detail-modal__crate">
                   <h3 className="record-detail-modal__section-title">Crate details</h3>
 
-                  {readOnly ? (
+                  {locked ? (
                     <p className="record-detail-modal__hint">
-                      Guest demo — crate edits and deletes are disabled. Enrich and play still work.
+                      {viewOnly
+                        ? 'View only — this shared list can’t be edited.'
+                        : 'Guest demo — crate edits and deletes are disabled. Enrich and play still work.'}
                     </p>
                   ) : (
                     <div className="record-detail-modal__form">
@@ -359,9 +370,9 @@ export function RecordDetailModal({
                 onClick={onClose}
                 className="btn-ghost record-detail-modal__cancel"
               >
-                {readOnly ? 'Close' : 'Cancel'}
+                {locked ? 'Close' : 'Cancel'}
               </button>
-              {!readOnly ? (
+              {!locked ? (
                 <button
                   type="button"
                   onClick={saveEditing}

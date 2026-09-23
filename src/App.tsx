@@ -32,6 +32,7 @@ import { RefreshCharacterBlurbsModal } from './components/RefreshCharacterBlurbs
 import { GuestCrateBanner } from './components/crates/GuestCrateBanner';
 import { ImportCrateModal } from './components/crates/ImportCrateModal';
 import { RemoveGuestCrateModal } from './components/crates/RemoveGuestCrateModal';
+import { ShareListModal } from './components/share/ShareListModal';
 import { DiscogsImportModal } from './components/DiscogsImportModal';
 import { DiscoverAddPanel } from './components/DiscoverAddPanel';
 import { InsightsDashboard } from './components/InsightsDashboard';
@@ -200,6 +201,7 @@ function App() {
   const [detailSession, setDetailSession] = useState(0);
   const [labelSelection, setLabelSelection] = useState<Set<string>>(new Set());
   const [discogsImportOpen, setDiscogsImportOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [removeGuestCrateOpen, setRemoveGuestCrateOpen] = useState(false);
   const [guestBannerDismissed, setGuestBannerDismissed] = useState(false);
   const [personalDiscogsIds, setPersonalDiscogsIds] = useState<number[]>([]);
@@ -1153,6 +1155,11 @@ function App() {
                   onExportPdf={() => void handleExportPdf()}
                   exportingPdf={exportingPdf}
                   onOpenInsights={() => router.goToPage('insights')}
+                  onShare={
+                    crates.activeCrate
+                      ? () => setShareOpen(true)
+                      : undefined
+                  }
                 />
 
                 {records.length === 0 ? (
@@ -1491,6 +1498,14 @@ function App() {
             });
           }
         }}
+      />
+
+      <ShareListModal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        collectionId={crates.activeCrate?.id ?? null}
+        listName={crates.activeCrate?.name ?? 'Your collection'}
+        recordCount={records.length}
       />
 
       <RemoveGuestCrateModal
