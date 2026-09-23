@@ -15393,6 +15393,33 @@ body:has(.record-detail-modal__backdrop) .collection-toolbar-sticky {
   gap: 0.5rem;
 }
 
+.record-detail-readonly__facts {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0.85rem 0 0;
+}
+
+.record-detail-readonly__fact {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.record-detail-readonly__fact dt {
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.record-detail-readonly__fact dd {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.35;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
 .share-list-mobile-title {
   margin: 0.85rem 0 0.15rem;
   font-family: var(--font-display);
