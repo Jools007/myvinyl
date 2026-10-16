@@ -2,7 +2,7 @@ import type { AppSettings } from './types';
 
 const SETTINGS_KEY = 'myvinyl:settings';
 
-const SETTINGS_VERSION = 3;
+const SETTINGS_VERSION = 4;
 
 const defaultSettings: AppSettings = {
   theme: 'system',
@@ -22,17 +22,15 @@ export function loadSettings(): AppSettings {
 
     const parsed = JSON.parse(raw) as AppSettings & { settingsVersion?: number };
     const version = parsed.settingsVersion ?? 1;
-    let viewMode = normalizeViewMode(parsed.viewMode);
-
-    // v1 stored "grid" for what is now the list/table view
-    if (version < SETTINGS_VERSION && viewMode === 'grid') {
-      viewMode = 'list';
-    }
+    // Card view is the default; only respect a stored view the user explicitly chose.
+    const explicit = parsed.viewModeExplicit === true && version >= SETTINGS_VERSION;
+    const viewMode = explicit ? normalizeViewMode(parsed.viewMode) : defaultSettings.viewMode;
 
     return {
       ...defaultSettings,
       ...parsed,
       viewMode,
+      viewModeExplicit: explicit,
       onboardingComplete: true,
     };
   } catch {

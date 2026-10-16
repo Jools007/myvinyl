@@ -9,6 +9,8 @@ interface RecordCardProps {
   record: VinylRecord;
   onPlay?: () => void;
   onOpen?: () => void;
+  onArtClick?: () => void;
+  onTextClick?: () => void;
   showPlay?: boolean;
   index?: number;
   compact?: boolean;
@@ -19,6 +21,8 @@ export function RecordCard({
   record,
   onPlay,
   onOpen,
+  onArtClick,
+  onTextClick,
   showPlay = true,
   index = 0,
   compact,
@@ -61,9 +65,10 @@ export function RecordCard({
             className="record-card__art-hit absolute inset-0 z-[1] border-0 bg-transparent p-0"
             onClick={(e) => {
               e.stopPropagation();
-              viewRecord();
+              if (onArtClick) onArtClick();
+              else viewRecord();
             }}
-            aria-label={`View ${record.title} by ${record.artist}`}
+            aria-label={onArtClick ? `Play ${record.title} by ${record.artist}` : `View ${record.title} by ${record.artist}`}
           />
           <RecordArtwork
             src={record.coverUrl}
@@ -100,7 +105,13 @@ export function RecordCard({
             </span>
           )}
         </div>
-        <div className={dense ? 'px-2.5 pb-2.5 pt-2 sm:p-2 sm:pt-1.5' : compact ? '' : 'p-4 pt-3'}>
+        <div
+          onClick={(e) => {
+            if (!onTextClick) return;
+            e.stopPropagation();
+            onTextClick();
+          }}
+          className={dense ? 'px-2.5 pb-2.5 pt-2 sm:p-2 sm:pt-1.5' : compact ? '' : 'p-4 pt-3'}>
           <h3
             className={`truncate font-semibold leading-tight ${
               dense ? 'text-xs sm:text-[11px]' : 'text-sm'

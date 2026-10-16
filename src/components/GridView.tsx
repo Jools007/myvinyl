@@ -7,11 +7,13 @@ interface GridViewProps {
   onPlay: (record: VinylRecord) => void;
   showPlay?: boolean;
   onOpenRecord?: (record: VinylRecord) => void;
+  onPlayFirst?: (record: VinylRecord) => void;
+  onEditRecord?: (record: VinylRecord) => void;
 }
 
 const LARGE_GRID_THRESHOLD = 120;
 
-export function GridView({ records, onPlay, showPlay = true, onOpenRecord }: GridViewProps) {
+export function GridView({ records, onPlay, showPlay = true, onOpenRecord, onPlayFirst, onEditRecord }: GridViewProps) {
   const useMotion = records.length <= LARGE_GRID_THRESHOLD;
 
   return (
@@ -28,6 +30,8 @@ export function GridView({ records, onPlay, showPlay = true, onOpenRecord }: Gri
                 showPlay={showPlay}
                 onOpen={onOpenRecord ? () => onOpenRecord(record) : undefined}
                 onPlay={() => onPlay(record)}
+              onArtClick={onPlayFirst ? () => onPlayFirst(record) : undefined}
+              onTextClick={onEditRecord ? () => onEditRecord(record) : undefined}
               />
             ))}
           </AnimatePresence>
@@ -41,6 +45,8 @@ export function GridView({ records, onPlay, showPlay = true, onOpenRecord }: Gri
               showPlay={showPlay}
               onOpen={onOpenRecord ? () => onOpenRecord(record) : undefined}
               onPlay={() => onPlay(record)}
+              onArtClick={onPlayFirst ? () => onPlayFirst(record) : undefined}
+              onTextClick={onEditRecord ? () => onEditRecord(record) : undefined}
             />
           ))
         )}

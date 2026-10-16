@@ -148,5 +148,7 @@ export interface AppSettings {
   starterVibe?: StarterVibe;
   theme: 'light' | 'dark' | 'system';
   viewMode: ViewMode;
+  /** True only once the user explicitly picks a view via the toggle. */
+  viewModeExplicit?: boolean;
   onboardingComplete: boolean;
 }

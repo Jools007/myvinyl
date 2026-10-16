@@ -108,7 +108,7 @@ import { getPrimaryTrack, isReleaseFullyEnriched, patchPrimaryTrack, patchTrack 
 import type { CutRating } from './lib/types';
 import type { DiscogsReleaseDetail } from './lib/api';
 
-import { closeRecordDetail, setRecordDetailController } from './lib/recordDetail';
+import { closeRecordDetail, openRecordDetail, setRecordDetailController } from './lib/recordDetail';
 import type { DiscoverAddPayload } from './lib/discoverAdd';
 import type { DiscogsSearchHit, Track, VinylRecord } from './lib/types';
 
@@ -1241,7 +1241,7 @@ function App() {
                   resultCount={filtered.length}
                   totalCount={records.length}
                   viewMode={settings.viewMode}
-                  onViewModeChange={(mode) => updateSettings({ viewMode: mode })}
+                  onViewModeChange={(mode) => updateSettings({ viewMode: mode, viewModeExplicit: true })}
                   availableFormats={availableFormats}
                   availableGenres={availableGenres}
                   availableVibes={availableVibes}
@@ -1323,6 +1323,11 @@ function App() {
                       const track = getPrimaryTrack(record);
                       if (track) handlePlayNow(record, track);
                     }}
+                    onPlayFirst={(record) => {
+                      const track = record.tracks[0] ?? getPrimaryTrack(record);
+                      if (track) handlePlayNow(record, track);
+                    }}
+                    onEditRecord={structureLocked ? undefined : (record) => openRecordDetail(record, true)}
                   />
                 )}
               </section>

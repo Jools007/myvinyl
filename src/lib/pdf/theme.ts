@@ -7,7 +7,7 @@ export const PDF_COLORS = {
   paperMuted: [245, 241, 235] as const,
   rowStripe: [250, 247, 242] as const,
   line: [224, 216, 204] as const,
-  accent: [21, 101, 94] as const,
+  accent: [77, 163, 255] as const,
   accentWarm: [180, 134, 78] as const,
   accentSoft: [237, 229, 218] as const,
   cover: [32, 28, 24] as const,
@@ -23,7 +23,7 @@ export const CHART_RGB: readonly (readonly [number, number, number])[] = [
   PDF_COLORS.accentWarm,
   [139, 107, 74],
   [92, 74, 58],
-  [21, 101, 94],
+  [77, 163, 255],
   [160, 128, 96],
 ];
 
