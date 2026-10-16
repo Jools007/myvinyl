@@ -20,9 +20,9 @@ function readCssVar(name: string): string {
 
 function readChartTheme(): ChartTheme {
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  const accent = readCssVar('--accent') || '#4DA3FF';
+  const accent = readCssVar('--accent') || '#6E9FD6';
   const violet = readCssVar('--violet') || '#5a46a3';
-  const teal = readCssVar('--teal') || '#2F86E0';
+  const teal = readCssVar('--teal') || '#4A7DB8';
   const gold = readCssVar('--gold') || '#9a7209';
   const text = readCssVar('--text') || '#1c1916';
   const textMuted = readCssVar('--text-muted') || '#6f675c';
@@ -46,14 +46,14 @@ function readChartTheme(): ChartTheme {
 const FALLBACK_THEME: ChartTheme = {
   text: '#1c1916',
   textMuted: '#6f675c',
-  accent: '#4DA3FF',
+  accent: '#6E9FD6',
   violet: '#5a46a3',
-  teal: '#2F86E0',
+  teal: '#4A7DB8',
   gold: '#9a7209',
   border: 'rgba(0,0,0,0.1)',
   elevated: '#fffcf8',
   isDark: false,
-  palette: ['#4DA3FF', '#5a46a3', '#e07b54', '#2F86E0', '#9a7209', '#5b9fd4', '#9b8fd4', '#6bc9a8'],
+  palette: ['#6E9FD6', '#5a46a3', '#e07b54', '#4A7DB8', '#9a7209', '#5b9fd4', '#9b8fd4', '#6bc9a8'],
 };
 
 export function useChartTheme(): ChartTheme {

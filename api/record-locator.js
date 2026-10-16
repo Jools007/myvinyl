@@ -82,7 +82,7 @@ var places_nearby_default = {
   places: [
     {
       id: "places/open-vinyl",
-      displayName: { text: "Open Vinyl" },
+      displayName: { text: "Open Vinyl Record Shop" },
       formattedAddress: "1 Groove Lane, London",
       location: { latitude: 51.501, longitude: -0.121 },
       rating: 4.8,
@@ -94,7 +94,7 @@ var places_nearby_default = {
     },
     {
       id: "places/closed-spin",
-      displayName: { text: "Closed Spin" },
+      displayName: { text: "Closed Spin Record Shop" },
       formattedAddress: "9 B-side Road, London",
       location: { latitude: 51.508, longitude: -0.125 },
       rating: 4.2,
@@ -106,7 +106,7 @@ var places_nearby_default = {
     },
     {
       id: "places/open-crate",
-      displayName: { text: "Open Crate" },
+      displayName: { text: "Open Crate Vinyl Shop" },
       formattedAddress: "3 Wax Street, London",
       location: { latitude: 51.504, longitude: -0.118 },
       rating: 4.5,
@@ -271,6 +271,45 @@ function haversineDistanceMeters(from, to) {
   return EARTH_RADIUS_METERS * c;
 }
 
+// features/record-locator/utils/recordShopRelevance.ts
+var KNOWN_RECORD_SHOPS = /viniloteka|vinylomania|muzikumas|thelonious|imuzika|buymusic|ragainė|discotag|mint vinetu|phono shop|trolley records|vinilo studija/i;
+var RETAIL_PHRASE = /record store|record shop|music store|music shop|vinyl shop|vinyl store|muzikos įrašų|parduotuv/i;
+var VINYL_NAME = /record|vinyl|vinil|plokštel|vinilo|viniloteka|vinylomania|vinilų|plokštelių|phonograph|turntabl|\bLP\b|vinilinių/i;
+var EXCLUDE_TEXT = /barber|grindų|grindys|flooring|\bfloor(ing)?\b|drabuž|clothing|bibliotek|library|e\.?\s*parduotuv|mastering|įrašų studij|sound studio|recording studio|national library|public institution|\binstitution\b|mailorder|mail order|\bdistro\b/i;
+var COFFEE_NAME = /coffee|kavos|kavinė/i;
+var STUDIO_NAME = /\bstudio\b/i;
+function haystack(input) {
+  return `${input.name} ${input.address ?? ""}`.trim();
+}
+function isExcluded(input) {
+  const name = input.name.trim();
+  const combined = haystack(input);
+  if (!name || EXCLUDE_TEXT.test(combined)) return true;
+  if (input.types?.includes("barber_shop")) return true;
+  if (COFFEE_NAME.test(name) || input.types?.includes("coffee_shop")) return true;
+  if (STUDIO_NAME.test(name) && !/\brecord store\b|\bvinyl shop\b|parduotuv/i.test(name) && !KNOWN_RECORD_SHOPS.test(name)) {
+    return true;
+  }
+  if (/\brecords\b/i.test(name) && !RETAIL_PHRASE.test(name) && !KNOWN_RECORD_SHOPS.test(name)) {
+    return true;
+  }
+  return false;
+}
+function isLikelyRecordShopCandidate(input, options) {
+  const name = input.name.trim();
+  if (!name || isExcluded(input)) return false;
+  const shop = input.shop?.toLowerCase();
+  if (shop === "music" || shop === "vinyl" || shop === "hifi") return true;
+  if (KNOWN_RECORD_SHOPS.test(name)) return true;
+  if (RETAIL_PHRASE.test(name)) return true;
+  if (options?.source === "google") {
+    return false;
+  }
+  if (VINYL_NAME.test(name)) return true;
+  if (/\bphono\b/i.test(name)) return true;
+  return false;
+}
+
 // features/record-locator/utils/normalize.ts
 var DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 var MERGE_MAX_METERS = 80;
@@ -293,6 +332,16 @@ function normalizePlacesPlace(place, origin) {
   const latitude = place.location?.latitude;
   const longitude = place.location?.longitude;
   if (!id || !name || !address || latitude == null || longitude == null) {
+    return null;
+  }
+  if (!isLikelyRecordShopCandidate(
+    {
+      name,
+      address,
+      types: place.types
+    },
+    { source: "google" }
+  )) {
     return null;
   }
   return {
@@ -599,8 +648,6 @@ async function enrichStoresWithOsmTags(stores, fetchFn) {
 }
 
 // features/record-locator/utils/osmNormalize.ts
-var VINYL_NAME = /record|vinyl|vinil|plokštel|vinilo|viniloteka|vinylomania|hi-fi|hifi|thelonious/i;
-var EXCLUDE_NAME = /grindys|flooring|grindų/i;
 function elementCoords(element) {
   const lat = element.lat ?? element.center?.lat;
   const lon = element.lon ?? element.center?.lon;
@@ -619,12 +666,12 @@ function formatOsmAddress(tags) {
   return parts.join(", ") || tags.address?.trim() || "Address not listed";
 }
 function isLikelyRecordShop(tags) {
-  if (!tags) return false;
-  const shop = tags.shop?.toLowerCase();
-  if (shop === "music" || shop === "vinyl" || shop === "hifi") return true;
-  const name = tags.name ?? "";
-  if (EXCLUDE_NAME.test(name)) return false;
-  return VINYL_NAME.test(name);
+  if (!tags?.name?.trim()) return false;
+  return isLikelyRecordShopCandidate({
+    name: tags.name,
+    shop: tags.shop,
+    address: tags["addr:full"] ?? tags.address
+  });
 }
 function normalizeOsmElement(element, origin) {
   const tags = element.tags;
@@ -737,13 +784,13 @@ function normalizePhotonFeature(feature, origin, maxDistanceMeters) {
   const props = feature.properties;
   const name = props.name?.trim();
   if (!name || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  if (props.osm_key === "highway" || props.type === "street") return null;
+  if (/\s+g\.?$/i.test(name)) return null;
   const tags = { name };
   if (props.osm_key === "shop" && props.osm_value) {
     tags.shop = props.osm_value;
   }
-  if (!isLikelyRecordShop(tags) && props.osm_value !== "music" && props.osm_value !== "vinyl") {
-    if (!isLikelyRecordShop({ name })) return null;
-  }
+  if (!isLikelyRecordShop(tags)) return null;
   const distanceMeters = haversineDistanceMeters(origin, { latitude: lat, longitude: lon });
   if (distanceMeters > maxDistanceMeters) return null;
   return {
@@ -781,7 +828,11 @@ var PHOTON_QUERIES = [
   "Muzikumas",
   "VinyloMania",
   "iMuzika",
-  "Thelonious"
+  "Thelonious",
+  "BUYMUSIC",
+  "Ragain\u0117",
+  "Discotag",
+  "Mint Vinetu"
 ];
 async function searchPhotonRecordStores(input, fetchFn) {
   const radius = input.radiusMeters ?? 12e3;
@@ -861,6 +912,8 @@ var FIELD_MASK = [
   "places.location",
   "places.rating",
   "places.businessStatus",
+  "places.primaryType",
+  "places.types",
   "places.currentOpeningHours",
   "places.regularOpeningHours",
   "places.nationalPhoneNumber",
@@ -949,14 +1002,38 @@ async function searchText(apiKey, input, textQuery, fetchFn) {
   );
   return payload.places ?? [];
 }
+async function safePlacesSearch(label, search) {
+  try {
+    return await search();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Google Places search failed";
+    console.warn(`[record-locator] ${label} skipped: ${message}`);
+    return [];
+  }
+}
 async function searchGoogleRecordStores(apiKey, input, fetchFn) {
   const origin = { latitude: input.latitude, longitude: input.longitude };
   const [recordStores, musicStores, vinylText, recordText, shopText] = await Promise.all([
-    searchNearby(apiKey, input, ["record_store"], fetchFn),
-    searchNearby(apiKey, input, ["music_store"], fetchFn),
-    searchText(apiKey, input, "vinyl record shop", fetchFn),
-    searchText(apiKey, input, "record store", fetchFn),
-    searchText(apiKey, input, "vinyl shop", fetchFn)
+    safePlacesSearch(
+      "nearby record_store",
+      () => searchNearby(apiKey, input, ["record_store"], fetchFn)
+    ),
+    safePlacesSearch(
+      "nearby music_store",
+      () => searchNearby(apiKey, input, ["music_store"], fetchFn)
+    ),
+    safePlacesSearch(
+      "text vinyl record shop",
+      () => searchText(apiKey, input, "vinyl record shop", fetchFn)
+    ),
+    safePlacesSearch(
+      "text record store",
+      () => searchText(apiKey, input, "record store", fetchFn)
+    ),
+    safePlacesSearch(
+      "text vinyl shop",
+      () => searchText(apiKey, input, "vinyl shop", fetchFn)
+    )
   ]);
   const merged = [...recordStores, ...musicStores, ...vinylText, ...recordText, ...shopText];
   return normalizePlacesResponse(merged, origin);
