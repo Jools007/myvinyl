@@ -4,7 +4,6 @@
   "outputDirectory": "dist",
   "framework": null,
   "functions": {
-
     "api/album-info.js": {
       "maxDuration": 10
     },
@@ -43,30 +42,82 @@
     }
   },
   "rewrites": [
-    { "source": "/api/record-locator/places", "destination": "/api/record-locator" },
-    { "source": "/api/record-locator/routes", "destination": "/api/record-locator" },
-    { "source": "/api/record-locator/photo", "destination": "/api/record-locator" },
-    { "source": "/api/discogs/search", "destination": "/api/health" },
-    { "source": "/api/discogs/release/:id", "destination": "/api/health?releaseId=:id" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+    {
+      "source": "/api/record-locator/places",
+      "destination": "/api/record-locator"
+    },
+    {
+      "source": "/api/record-locator/routes",
+      "destination": "/api/record-locator"
+    },
+    {
+      "source": "/api/record-locator/photo",
+      "destination": "/api/record-locator"
+    },
+    {
+      "source": "/api/discogs/search",
+      "destination": "/api/health"
+    },
+    {
+      "source": "/api/discogs/release/:id",
+      "destination": "/api/health?releaseId=:id"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
   ],
   "headers": [
     {
       "source": "/index.html",
       "headers": [
-        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
       ]
     },
     {
       "source": "/",
       "headers": [
-        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
       ]
     },
     {
       "source": "/assets/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(self), microphone=(), geolocation=(self)"
+        },
+        {
+          "key": "Content-Security-Policy-Report-Only",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://www.youtube-nocookie.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob: https://www.youtube.com https://*.googlevideo.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; connect-src 'self' https: wss:; worker-src 'self' blob:; frame-ancestors 'self'; base-uri 'self'; object-src 'none'"
+        }
       ]
     }
   ]
